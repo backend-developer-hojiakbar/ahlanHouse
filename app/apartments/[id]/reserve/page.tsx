@@ -59,7 +59,7 @@ export default function ReserveApartmentPage() {
     clientId: "",
     initialPayment: "",
     totalMonths: "12",
-    totalAmount: "",
+    totalAmount: "", // Umumiy narx uchun maydon
     comments: "",
     name: "",
     phone: "",
@@ -797,24 +797,6 @@ _________________________                   _________________________
       }
     }
 
-    if (paymentType === "subsidiya" && (!formData.initialPayment || initialPayment <= 0)) {
-      toast({
-        title: "Xatolik",
-        description: "Subsidiya uchun boshlang'ich to'lov kiritilmagan yoki 0 dan kichik.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (paymentType === "ipoteka" && (!formData.initialPayment || initialPayment <= 0)) {
-      toast({
-        title: "Xatolik",
-        description: "Ipoteka uchun boshlang'ich to'lov kiritilmagan yoki 0 dan kichik.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     setSubmitting(true);
     try {
       const clientDetails = clients.find(
@@ -846,13 +828,6 @@ _________________________                   _________________________
         }
       }
 
-      const durationMonths =
-        paymentType === "subsidiya" || paymentType === "ipoteka"
-          ? 1
-          : paymentType === "muddatli"
-          ? Number(formData.totalMonths)
-          : 0;
-
       const paymentPayload = {
         user: Number(formData.clientId),
         apartment: Number(params.id),
@@ -860,7 +835,8 @@ _________________________                   _________________________
         total_amount: totalAmount.toString(),
         initial_payment: formData.initialPayment || "0",
         interest_rate: 0,
-        duration_months: durationMonths,
+        duration_months:
+          paymentType === "muddatli" ? Number(formData.totalMonths) : 0,
         monthly_payment:
           paymentType === "muddatli" ? calculatedMonthlyPayment.toFixed(2) : "0",
         due_date: formData.due_date || 15,
@@ -901,10 +877,6 @@ _________________________                   _________________________
         description: `Xonadon №${apartment.room_number} ${
           paymentType === "muddatli"
             ? "muddatli to'lovga band qilindi"
-            : paymentType === "subsidiya"
-            ? "subsidiya bilan band qilindi"
-            : paymentType === "ipoteka"
-            ? "ipoteka bilan band qilindi"
             : "band qilindi"
         }. To'lov ID: ${paymentResult.id}`,
       });
