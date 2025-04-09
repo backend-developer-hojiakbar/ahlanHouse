@@ -80,12 +80,12 @@ export default function ApartmentsPage() {
   });
 
   const API_BASE_URL = "http://api.ahlan.uz";
-  const PAGE_SIZE = 20; // page_size qiymatini doimiy sifatida qayta qo'shdim
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       const token = localStorage.getItem("access_token");
-      if (!token) {
+      if (!token)
+      {
         toast({
           title: "Xatolik",
           description: "Avtorizatsiya qilinmagan. Iltimos, tizimga kiring.",
@@ -144,53 +144,73 @@ export default function ApartmentsPage() {
     if (!accessToken) return;
 
     setLoading(true);
+    let allApartments: any[] = [];
+    let currentPage = 1;
+    let totalPages = 1;
+    const pageSize = 1000; // Katta hajmdagi ma'lumotlarni yuklash uchun
+
     try {
-      let url = `${API_BASE_URL}/apartments/`;
-      const queryParams = new URLSearchParams();
+      while (currentPage <= totalPages) {
+        let url = `${API_BASE_URL}/apartments/`;
+        const queryParams = new URLSearchParams();
 
-      if (filters.status && filters.status !== "all") queryParams.append("status", filters.status);
-      if (filters.rooms && filters.rooms !== "all") queryParams.append("rooms", filters.rooms);
-      if (filters.minPrice) queryParams.append("price__gte", filters.minPrice);
-      if (filters.maxPrice) queryParams.append("price__lte", filters.maxPrice);
-      if (filters.minArea) queryParams.append("area__gte", filters.minArea);
-      if (filters.maxArea) queryParams.append("area__lte", filters.maxArea);
-      if (filters.floor && filters.floor !== "all") queryParams.append("floor", filters.floor);
-      if (filters.search) queryParams.append("search", filters.search);
-      if (filters.property && filters.property !== "all") {
-        queryParams.append("object", filters.property);
+        if (filters.status && filters.status !== "all") queryParams.append("status", filters.status);
+        if (filters.rooms && filters.rooms !== "all") queryParams.append("rooms", filters.rooms);
+        if (filters.minPrice) queryParams.append("price__gte", filters.minPrice);
+        if (filters.maxPrice) queryParams.append("price__lte", filters.maxPrice);
+        if (filters.minArea) queryParams.append("area__gte", filters.minArea);
+        if (filters.maxArea) queryParams.append("area__lte", filters.maxArea);
+        if (filters.floor && filters.floor !== "all") queryParams.append("floor", filters.floor);
+        if (filters.search) queryParams.append("search", filters.search);
+        if (filters.property && filters.property !== "all") {
+          queryParams.append("object", filters.property);
+        }
+        if (propertyIdParam && !filters.property) {
+          queryParams.append("object", propertyIdParam);
+        }
+
+        queryParams.append("page", currentPage.toString());
+        queryParams.append("page_size", pageSize.toString());
+
+        if (queryParams.toString()) {
+          url += `?${queryParams.toString()}`;
+        }
+
+        const response = await fetch(url, {
+          method: "GET",
+          headers: getAuthHeaders(),
+        });
+
+        if (!response.ok) {
+          if (response.status === 401) {
+            localStorage.removeItem("access_token");
+            setAccessToken(null);
+            toast({
+              title: "Sessiya tugadi",
+              description: "Iltimos, tizimga qayta kiring.",
+              variant: "destructive",
+            });
+            router.push("/login");
+            return;
+          }
+          throw new Error(`Xonadonlarni olishda xatolik (${response.status})`);
+        }
+
+        const data = await response.json();
+        allApartments = [...allApartments, ...(data.results || data)];
+        totalPages = Math.ceil(data.count / pageSize);
+        currentPage += 1;
       }
-      if (propertyIdParam && !filters.property) {
-        queryParams.append("object", propertyIdParam);
-      }
 
-      queryParams.append("page_size", PAGE_SIZE.toString()); // page_size qayta qo'shildi
-
-      if (queryParams.toString()) {
-        url += `?${queryParams.toString()}`;
-      }
-
-      const response = await fetch(url, {
-        method: "GET",
-        headers: getAuthHeaders(),
+      // Backend tartiblashga ishonch hosil qilish uchun qo'shimcha tartiblash (agar kerak bo'lsa)
+      allApartments.sort((a, b) => {
+        if (a.object === b.object) {
+          return a.room_number.localeCompare(b.room_number, undefined, { numeric: true });
+        }
+        return a.object - b.object;
       });
 
-      if (!response.ok) {
-        if (response.status === 401) {
-          localStorage.removeItem("access_token");
-          setAccessToken(null);
-          toast({
-            title: "Sessiya tugadi",
-            description: "Iltimos, tizimga qayta kiring.",
-            variant: "destructive",
-          });
-          router.push("/login");
-          return;
-        }
-        throw new Error(`Xonadonlarni olishda xatolik (${response.status})`);
-      }
-
-      const data = await response.json();
-      setApartments(data.results || data); // Pagination bo'lmasa ham barcha ma'lumotlar olinadi
+      setApartments(allApartments);
     } catch (error) {
       toast({
         title: "Xatolik",
@@ -255,7 +275,7 @@ export default function ApartmentsPage() {
           floor: editForm.floor,
           price: editForm.price,
           status: editForm.status,
-          object: editForm.object || selectedApartment.object, // Obyektni o'zgarmas qoldirish uchun
+          object: editForm.object || selectedApartment.object,
         }),
       });
 
@@ -454,7 +474,7 @@ export default function ApartmentsPage() {
 
         {loading ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-            {Array.from({ length: PAGE_SIZE }).map((_, i) => (
+            {Array.from({ length: 20 }).map((_, i) => (
               <Card key={i}>
                 <CardContent className="p-4 space-y-3">
                   <div className="flex justify-between">
@@ -489,7 +509,7 @@ export default function ApartmentsPage() {
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="text-lg font-semibold">
-                        № {apartment.room_number || "N/A"}
+                        Uy raqami: {apartment.room_number || "N/A"}
                       </h3>
                       <p className="text-xs text-muted-foreground">
                         {apartment.object_name || "Noma'lum obyekt"}
