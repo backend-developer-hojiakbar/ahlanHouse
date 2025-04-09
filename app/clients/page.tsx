@@ -36,7 +36,7 @@ interface Client {
   name: string;
   phone: string;
   address: string | null;
-  balance: number;
+  balance: number; // Balans saqlanadi, lekin UI da ko'rsatilmaydi
   apartment: { room_number: string; object_name: string } | null;
   kafil_fio: string | null;
   kafil_address: string | null;
@@ -74,7 +74,7 @@ export default function ClientsPage() {
     password: "",
     user_type: "mijoz",
     address: "",
-    balance: "0.0",
+    balance: "0.0", // Balans saqlanadi, lekin UI da ko'rinmaydi
     kafil_fio: "",
     kafil_address: "",
     kafil_phone_number: "",
@@ -86,7 +86,7 @@ export default function ClientsPage() {
     password: "",
     user_type: "mijoz",
     address: "",
-    balance: "0.0",
+    balance: "0.0", // Balans saqlanadi, lekin UI da ko'rinmaydi
     kafil_fio: "",
     kafil_address: "",
     kafil_phone_number: "",
@@ -147,7 +147,7 @@ export default function ClientsPage() {
           name: client.fio || "Noma'lum",
           phone: client.phone_number || "Noma'lum",
           address: client.address || null,
-          balance: Number(client.balance) || 0,
+          balance: Number(client.balance) || 0, // Balans saqlanadi
           apartment: client.apartment
             ? {
                 room_number: client.apartment.room_number || "N/A",
@@ -191,7 +191,6 @@ export default function ClientsPage() {
     let nextUrl: string | null = "http://api.ahlan.uz/payments/";
 
     try {
-      // Pagination orqali barcha ma'lumotlarni olish
       while (nextUrl) {
         const response = await fetch(nextUrl, {
           method: "GET",
@@ -207,18 +206,15 @@ export default function ClientsPage() {
         nextUrl = data.next;
       }
 
-      // Tanlangan mijozga mos xonadonlarni filtrlab olish
       const clientPayments = allPayments.filter(
         (payment: any) => payment.user === clientId
       );
 
-      // Xonadonlarni formatlash
       const apartments: Apartment[] = clientPayments.map((payment: any) => ({
         id: payment.apartment,
         apartment_info: payment.apartment_info || "Noma'lum xonadon",
       }));
 
-      // Takrorlanadigan xonadonlarni olib tashlash (agar bir xil apartment ID si bo'lsa)
       const uniqueApartments = Array.from(
         new Map(apartments.map((apt) => [apt.id, apt])).values()
       );
@@ -384,7 +380,7 @@ export default function ClientsPage() {
       phone_number: formData.phone_number,
       password: formData.password,
       address: formData.address || null,
-      balance: parseFloat(formData.balance) || 0.0,
+      balance: parseFloat(formData.balance) || 0.0, // Balans saqlanadi
       kafil_fio: formData.kafil_fio || null,
       kafil_address: formData.kafil_address || null,
       kafil_phone_number: formData.kafil_phone_number || null,
@@ -411,7 +407,7 @@ export default function ClientsPage() {
       phone_number: editFormData.phone_number,
       password: editFormData.password || undefined,
       address: editFormData.address || null,
-      balance: parseFloat(editFormData.balance) || 0.0,
+      balance: parseFloat(editFormData.balance) || 0.0, // Balans saqlanadi
       kafil_fio: editFormData.kafil_fio || null,
       kafil_address: editFormData.kafil_address || null,
       kafil_phone_number: editFormData.kafil_phone_number || null,
@@ -443,7 +439,7 @@ export default function ClientsPage() {
       password: "",
       user_type: "mijoz",
       address: client.address || "",
-      balance: client.balance.toString(),
+      balance: client.balance.toString(), // Balans saqlanadi
       kafil_fio: client.kafil_fio || "",
       kafil_address: client.kafil_address || "",
       kafil_phone_number: client.kafil_phone_number || "",
@@ -452,14 +448,12 @@ export default function ClientsPage() {
     setEditLoading((prev) => ({ ...prev, [client.id]: false }));
   };
 
-  // Xonadonlarni ko'rish dialogini ochish
   const openApartmentsDialog = async (client: Client) => {
     setSelectedClient(client);
     await fetchClientApartments(client.id);
     setApartmentsOpen(true);
   };
 
-  // Qidiruv va pagination
   const filteredClients = clients.filter((client) => {
     const searchTermLower = searchTerm.toLowerCase();
     const nameMatch = client.name.toLowerCase().includes(searchTermLower);
@@ -467,14 +461,12 @@ export default function ClientsPage() {
     return !searchTerm || nameMatch || phoneMatch;
   });
 
-  // Pagination logikasi
   const totalClients = filteredClients.length;
   const totalPages = Math.ceil(totalClients / clientsPerPage);
   const startIndex = (currentPage - 1) * clientsPerPage;
   const endIndex = startIndex + clientsPerPage;
   const currentClients = filteredClients.slice(startIndex, endIndex);
 
-  // Sahifani o'zgartirish funksiyalari
   const handleNextPage = () => {
     if (currentPage < totalPages) {
       setCurrentPage(currentPage + 1);
@@ -578,17 +570,7 @@ export default function ClientsPage() {
                             onChange={handleChange}
                           />
                         </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="balance">Balans</Label>
-                          <Input
-                            id="balance"
-                            name="balance"
-                            type="number"
-                            step="0.01"
-                            value={formData.balance}
-                            onChange={handleChange}
-                          />
-                        </div>
+                        {/* Balans maydoni UI dan olib tashlandi */}
                       </div>
                     </div>
                   </TabsContent>
@@ -663,7 +645,7 @@ export default function ClientsPage() {
                           <TableHead>F.I.O.</TableHead>
                           <TableHead>Telefon</TableHead>
                           <TableHead>Manzil</TableHead>
-                          <TableHead>Balans</TableHead>
+                          {/* Balans ustuni olib tashlandi */}
                           <TableHead>Xonadon</TableHead>
                           <TableHead className="text-right">Amallar</TableHead>
                         </TableRow>
@@ -671,7 +653,7 @@ export default function ClientsPage() {
                       <TableBody>
                         {currentClients.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={7} className="h-24 text-center">
+                            <TableCell colSpan={6} className="h-24 text-center">
                               Mijozlar topilmadi {searchTerm && `"${searchTerm}" uchun`}.
                             </TableCell>
                           </TableRow>
@@ -682,15 +664,7 @@ export default function ClientsPage() {
                               <TableCell className="font-medium">{client.name}</TableCell>
                               <TableCell>{client.phone}</TableCell>
                               <TableCell>{client.address || "Noma'lum"}</TableCell>
-                              <TableCell>
-                                <span className={client.balance >= 0 ? "text-green-600" : "text-red-600"}>
-                                  {client.balance.toLocaleString("us-US", {
-                                    style: "currency",
-                                    currency: "USD",
-                                    minimumFractionDigits: 0,
-                                  })}
-                                </span>
-                              </TableCell>
+                              {/* Balans ko'rsatilmaydi */}
                               <TableCell>
                                 {client.apartment ? (
                                   `№${client.apartment.room_number} (${client.apartment.object_name})`
@@ -751,7 +725,6 @@ export default function ClientsPage() {
                     </Table>
                   </div>
 
-                  {/* Pagination qismi */}
                   {totalClients > clientsPerPage && (
                     <div className="flex items-center justify-between mt-4">
                       <div className="text-sm text-muted-foreground">
@@ -798,7 +771,6 @@ export default function ClientsPage() {
           </CardContent>
         </Card>
 
-        {/* Xonadonlarni ko'rish dialogi */}
         <Dialog open={apartmentsOpen} onOpenChange={setApartmentsOpen}>
           <DialogContent className="sm:max-w-[600px]">
             <DialogHeader>
@@ -845,7 +817,6 @@ export default function ClientsPage() {
           </DialogContent>
         </Dialog>
 
-        {/* Mijozni tahrirlash dialogi */}
         <Dialog open={editOpen} onOpenChange={setEditOpen}>
           <DialogContent className="sm:max-w-[600px]">
             <form onSubmit={handleEditSubmit}>
@@ -917,17 +888,7 @@ export default function ClientsPage() {
                           onChange={handleEditChange}
                         />
                       </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="edit-balance">Balans</Label>
-                        <Input
-                          id="edit-balance"
-                          name="balance"
-                          type="number"
-                          step="0.01"
-                          value={editFormData.balance}
-                          onChange={handleEditChange}
-                        />
-                      </div>
+                      {/* Balans maydoni UI dan olib tashlandi */}
                     </div>
                   </div>
                 </TabsContent>

@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useParams, useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
-import { User, Phone, Mail, MapPin, Home, CreditCard, FileText, Plus } from "lucide-react"
+import { User, Phone, Mail, MapPin, Home, CreditCard, FileText, Plus, Pencil } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   Dialog,
@@ -32,6 +32,7 @@ export default function ClientDetailPage() {
   const [client, setClient] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [openPayment, setOpenPayment] = useState(false)
+  const [openEditPayment, setOpenEditPayment] = useState(false)
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [paymentFormData, setPaymentFormData] = useState({
     amount: "",
@@ -39,6 +40,7 @@ export default function ClientDetailPage() {
     description: "",
     paymentType: "cash",
   })
+  const [editPaymentData, setEditPaymentData] = useState<any>(null)
 
   // API so‘rovlar uchun umumiy header
   const getAuthHeaders = () => ({
@@ -89,8 +91,8 @@ export default function ClientDetailPage() {
         apartmentNumber: data.apartment_number || `${Math.floor(Math.random() * 16) + 1}${String(Math.floor(Math.random() * 4) + 1).padStart(2, "0")}`,
         totalPurchase: data.total_purchase || Math.floor(Math.random() * 50000) + 10000,
         balance: data.balance || 0,
-        payments: data.payments || [], // API dan to'lovlar kelishi mumkin, agar yo'q bo'lsa bo'sh array
-        documents: data.documents || [], // API dan hujjatlar kelishi mumkin, agar yo'q bo'lsa bo'sh array
+        payments: data.payments || [],
+        documents: data.documents || [],
       })
     } catch (error) {
       toast({
@@ -98,7 +100,6 @@ export default function ClientDetailPage() {
         description: error.message || "Mijoz ma'lumotlarini olishda xatolik yuz berdi",
         variant: "destructive",
       })
-      // Fallback sifatida mock ma'lumotlar
       const clientId = Number(params.id)
       const mockClient = {
         id: clientId,
@@ -160,7 +161,6 @@ export default function ClientDetailPage() {
     }
   }
 
-  // Dastlabki yuklanish
   useEffect(() => {
     if (accessToken === null) return
     if (!accessToken) {
@@ -180,11 +180,18 @@ export default function ClientDetailPage() {
     setPaymentFormData((prev) => ({ ...prev, [name]: value }))
   }
 
+  const handleEditPaymentChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target
+    setEditPaymentData((prev: any) => ({ ...prev, [name]: value }))
+  }
+
+  const handleEditPaymentSelectChange = (name: string, value: string) => {
+    setEditPaymentData((prev: any) => ({ ...prev, [name]: value }))
+  }
+
   const handlePaymentSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-
     try {
-      // To'lov qo'shish uchun API so'rovi (agar API mavjud bo'lsa)
       const newPayment = {
         user_id: params.id,
         amount: Number.parseFloat(paymentFormData.amount),
@@ -205,8 +212,6 @@ export default function ClientDetailPage() {
       }
 
       const paymentData = await response.json()
-
-      // Mijoz ma'lumotlarini yangilash
       const updatedClient = {
         ...client,
         payments: [
@@ -243,7 +248,6 @@ export default function ClientDetailPage() {
         variant: "destructive",
       })
 
-      // Fallback sifatida mock ma'lumotlar bilan yangilash
       const newPayment = {
         id: client.payments.length + 1,
         date: paymentFormData.date,
@@ -273,6 +277,103 @@ export default function ClientDetailPage() {
         description: "Yangi to'lov muvaffaqiyatli qo'shildi",
       })
     }
+  }
+
+  const handleEditPaymentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    try {
+      const updatedPayment = {
+        id: editPaymentData.id,
+        user_id: params.id,
+        amount: Number.parseFloat(editPaymentData.amount),
+        date: editPaymentData.date,
+        description: editPaymentData.description,
+        payment_type: editPaymentData.paymentType,
+        status: editPaymentData.status,
+      }
+
+      const response = await fetch(`http://api.ahlan.uz/payments/${editPaymentData.id}/`, {
+        method: "PUT",
+        headers: getAuthHeaders(),
+        body: JSON.stringify(updatedPayment),
+      })
+
+      if (!response.ok) {
+        throw new Error("To'lovni tahrirlashda xatolik yuz berdi")
+      }
+
+      const oldAmount = client.payments.find((p: any) => p.id === editPaymentData.id).amount
+      const updatedPayments = client.payments.map((p: any) =>
+        p.id === editPaymentData.id
+          ? {
+              ...p,
+              date: editPaymentData.date,
+              amount: Number.parseFloat(editPaymentData.amount),
+              description: editPaymentData.description,
+              paymentType: editPaymentData.paymentType,
+            }
+          : p
+      )
+
+      const updatedClient = {
+        ...client,
+        payments: updatedPayments,
+        balance: client.balance - oldAmount + Number.parseFloat(editPaymentData.amount),
+      }
+
+      setClient(updatedClient)
+      setOpenEditPayment(false)
+
+      toast({
+        title: "To'lov yangilandi",
+        description: "To'lov ma'lumotlari muvaffaqiyatli yangilandi",
+      })
+    } catch (error) {
+      toast({
+        title: "Xatolik",
+        description: error.message || "To'lovni tahrirlashda xatolik yuz berdi",
+        variant: "destructive",
+      })
+
+      const oldAmount = client.payments.find((p: any) => p.id === editPaymentData.id).amount
+      const updatedPayments = client.payments.map((p: any) =>
+        p.id === editPaymentData.id
+          ? {
+              ...p,
+              date: editPaymentData.date,
+              amount: Number.parseFloat(editPaymentData.amount),
+              description: editPaymentData.description,
+              paymentType: editPaymentData.paymentType,
+            }
+          : p
+      )
+
+      const updatedClient = {
+        ...client,
+        payments: updatedPayments,
+        balance: client.balance - oldAmount + Number.parseFloat(editPaymentData.amount),
+      }
+
+      setClient(updatedClient)
+      setOpenEditPayment(false)
+
+      toast({
+        title: "To'lov yangilandi",
+        description: "To'lov ma'lumotlari muvaffaqiyatli yangilandi",
+      })
+    }
+  }
+
+  const openEditDialog = (payment: any) => {
+    setEditPaymentData({
+      id: payment.id,
+      amount: payment.amount.toString(),
+      date: new Date(payment.date).toISOString().split("T")[0],
+      description: payment.description,
+      paymentType: payment.paymentType,
+      status: payment.status,
+    })
+    setOpenEditPayment(true)
   }
 
   const getStatusBadge = (status: string) => {
@@ -556,6 +657,9 @@ export default function ClientDetailPage() {
                             <TableCell>{getStatusBadge(payment.status)}</TableCell>
                             <TableCell className="text-right">
                               <div className="flex justify-end space-x-2">
+                                <Button variant="ghost" size="sm" onClick={() => openEditDialog(payment)}>
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
                                 <Button variant="ghost" size="sm">
                                   <FileText className="h-4 w-4" />
                                 </Button>
@@ -626,6 +730,76 @@ export default function ClientDetailPage() {
             </Card>
           </TabsContent>
         </Tabs>
+
+        {/* Edit Payment Dialog */}
+        <Dialog open={openEditPayment} onOpenChange={setOpenEditPayment}>
+          <DialogContent className="sm:max-w-[500px]">
+            {editPaymentData && (
+              <form onSubmit={handleEditPaymentSubmit}>
+                <DialogHeader>
+                  <DialogTitle>To'lovni tahrirlash</DialogTitle>
+                  <DialogDescription>To'lov ma'lumotlarini yangilang</DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="amount">Summa</Label>
+                      <Input
+                        id="amount"
+                        name="amount"
+                        type="number"
+                        value={editPaymentData.amount}
+                        onChange={handleEditPaymentChange}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="date">Sana</Label>
+                      <Input
+                        id="date"
+                        name="date"
+                        type="date"
+                        value={editPaymentData.date}
+                        onChange={handleEditPaymentChange}
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="paymentType">To'lov turi</Label>
+                    <Select
+                      value={editPaymentData.paymentType}
+                      onValueChange={(value) => handleEditPaymentSelectChange("paymentType", value)}
+                    >
+                      <SelectTrigger id="paymentType">
+                        <SelectValue placeholder="To'lov turini tanlang" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cash">Naqd pul</SelectItem>
+                        <SelectItem value="card">Karta</SelectItem>
+                        <SelectItem value="bank_transfer">Bank o'tkazmasi</SelectItem>
+                        <SelectItem value="installment">Muddatli to'lov</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="description">Tavsif</Label>
+                    <Input
+                      id="description"
+                      name="description"
+                      value={editPaymentData.description}
+                      onChange={handleEditPaymentChange}
+                      required
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button type="submit">Saqlash</Button>
+                </DialogFooter>
+              </form>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   )

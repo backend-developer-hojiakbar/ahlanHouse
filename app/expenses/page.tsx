@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useRouter } from "next/navigation";
-import { Plus, DollarSign, Building, User, PenTool, Edit, Trash2, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, DollarSign, Building, Edit, Trash2, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
@@ -24,7 +24,6 @@ import { toast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 
-// --- Interfeyslar ---
 interface Expense {
   id: number;
   amount: string;
@@ -54,6 +53,12 @@ interface ExpenseType {
   name: string;
 }
 
+interface ExpenseByObject {
+  objectId: number;
+  objectName: string;
+  total: number;
+}
+
 const API_BASE_URL = "http://api.ahlan.uz";
 
 const initialFormData = {
@@ -77,6 +82,8 @@ const initialNewSupplierData = {
 export default function ExpensesPage() {
   const router = useRouter();
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [totalExpenses, setTotalExpenses] = useState<number>(0);
+  const [expensesByObject, setExpensesByObject] = useState<ExpenseByObject[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSupplierSubmitting, setIsSupplierSubmitting] = useState(false);
@@ -100,9 +107,9 @@ export default function ExpensesPage() {
   const [addSupplierOpen, setAddSupplierOpen] = useState(false);
   const [newExpenseTypeName, setNewExpenseTypeName] = useState("");
   const [newSupplierData, setNewSupplierData] = useState(initialNewSupplierData);
-  const [currentPage, setCurrentPage] = useState(1); // Joriy sahifa
-  const [totalPages, setTotalPages] = useState(1); // Umumiy sahifalar soni
-  const itemsPerPage = 25; // Har bir sahifadagi elementlar soni
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const itemsPerPage = 25;
 
   const getAuthHeaders = useCallback(() => {
     if (!accessToken) return {};
@@ -128,7 +135,6 @@ export default function ExpensesPage() {
         const data = await response.json();
         setter(data.results || data);
       } catch (error: any) {
-        console.error(`Error fetching ${endpoint}:`, error);
         toast({ title: "Xatolik", description: error.message || errorMsg, variant: "destructive" });
         setter([]);
       }
@@ -136,16 +142,25 @@ export default function ExpensesPage() {
     [accessToken, getAuthHeaders]
   );
 
-  const fetchProperties = useCallback(() => fetchApiData("/objects/?page_size=1000", setProperties, "Obyektlarni yuklashda xatolik"), [fetchApiData]);
-  const fetchSuppliers = useCallback(() => fetchApiData("/suppliers/?page_size=1000", setSuppliers, "Yetkazib beruvchilarni yuklashda xatolik"), [fetchApiData]);
-  const fetchExpenseTypes = useCallback(() => fetchApiData("/expense-types/?page_size=1000", setExpenseTypes, "Xarajat turlarini yuklashda xatolik"), [fetchApiData]);
+  const fetchInitialData = useCallback(async () => {
+    if (!accessToken) return;
+    setLoading(true);
+    try {
+      await Promise.all([
+        fetchApiData("/objects/?page_size=1000", setProperties, "Obyektlarni yuklashda xatolik"),
+        fetchApiData("/suppliers/?page_size=1000", setSuppliers, "Yetkazib beruvchilarni yuklashda xatolik"),
+        fetchApiData("/expense-types/?page_size=1000", setExpenseTypes, "Xarajat turlarini yuklashda xatolik"),
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  }, [accessToken, fetchApiData]);
 
   const fetchExpenses = useCallback(async () => {
     if (!accessToken) return;
     setLoading(true);
     try {
       const queryParams = new URLSearchParams();
-
       if (filters.object && filters.object !== "all") queryParams.append("object", filters.object);
       if (filters.expense_type && filters.expense_type !== "all") queryParams.append("expense_type", filters.expense_type);
       if (filters.dateRange && filters.dateRange !== "all") {
@@ -159,11 +174,8 @@ export default function ExpensesPage() {
           case "year": startDate.setFullYear(today.getFullYear() - 1); break;
         }
         queryParams.append("date__gte", startDate.toISOString().split("T")[0]);
-        if (filters.dateRange === "today") {
-          queryParams.append("date__lte", today.toISOString().split("T")[0]);
-        }
+        if (filters.dateRange === "today") queryParams.append("date__lte", today.toISOString().split("T")[0]);
       }
-
       queryParams.append("page", currentPage.toString());
       queryParams.append("page_size", itemsPerPage.toString());
 
@@ -178,18 +190,46 @@ export default function ExpensesPage() {
       }
 
       const data = await response.json();
-      setExpenses(data.results || []);
-      const totalCount = data.count || 0;
-      setTotalPages(Math.ceil(totalCount / itemsPerPage));
+      const fetchedExpenses = data.results || [];
+      setExpenses(fetchedExpenses);
+      setTotalPages(Math.ceil(data.count / itemsPerPage));
+
+      // Umumiy xarajatlarni hisoblash
+      const allExpensesResponse = await fetch(`${API_BASE_URL}/expenses/?page_size=1000`, { headers: getAuthHeaders() });
+      if (!allExpensesResponse.ok) throw new Error("Barcha xarajatlarni yuklashda xatolik");
+      const allExpensesData = await allExpensesResponse.json();
+      const allExpenses = allExpensesData.results || [];
+      const total = allExpenses.reduce((sum: number, expense: Expense) => sum + Number(expense.amount || 0), 0);
+      setTotalExpenses(total);
+
+      // Obyektlar bo'yicha xarajatlarni hisoblash
+      const expensesByObjMap: { [key: number]: { total: number; name: string } } = {};
+      allExpenses.forEach((expense: Expense) => {
+        const objId = expense.object;
+        if (!expensesByObjMap[objId]) {
+          expensesByObjMap[objId] = { total: 0, name: properties.find(p => p.id === objId)?.name || `Obyekt ${objId}` };
+        }
+        expensesByObjMap[objId].total += Number(expense.amount || 0);
+      });
+      const expensesByObjArray = Object.entries(expensesByObjMap)
+        .map(([objId, { total, name }]) => ({
+          objectId: Number(objId),
+          objectName: name,
+          total,
+        }))
+        .sort((a, b) => b.total - a.total);
+      setExpensesByObject(expensesByObjArray);
+
     } catch (error: any) {
-      console.error("Error fetching expenses:", error);
       toast({ title: "Xatolik", description: error.message || "Xarajatlar yuklashda xatolik", variant: "destructive" });
       setExpenses([]);
       setTotalPages(1);
+      setTotalExpenses(0);
+      setExpensesByObject([]);
     } finally {
       setLoading(false);
     }
-  }, [accessToken, getAuthHeaders, filters, currentPage]);
+  }, [accessToken, filters, currentPage, getAuthHeaders, properties]);
 
   const createExpense = async (expenseData: any, action: "save" | "saveAndAdd" | "saveAndContinue") => {
     if (!accessToken) return;
@@ -275,7 +315,6 @@ export default function ExpensesPage() {
       const updatedExpense: Expense = await response.json();
       toast({ title: "Muvaffaqiyat", description: "Xarajat muvaffaqiyatli yangilandi" });
       await fetchExpenses();
-
       if (action === "save") {
         setEditOpen(false);
         setCurrentExpense(null);
@@ -406,17 +445,15 @@ export default function ExpensesPage() {
 
   useEffect(() => {
     if (accessToken) {
-      fetchProperties();
-      fetchSuppliers();
-      fetchExpenseTypes();
+      fetchInitialData();
     }
-  }, [accessToken, fetchProperties, fetchSuppliers, fetchExpenseTypes]);
+  }, [accessToken, fetchInitialData]);
 
   useEffect(() => {
-    if (accessToken) {
+    if (accessToken && properties.length > 0) {
       fetchExpenses();
     }
-  }, [accessToken, fetchExpenses, currentPage]);
+  }, [accessToken, fetchExpenses, properties]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -434,7 +471,7 @@ export default function ExpensesPage() {
 
   const handleFilterChange = (name: string, value: string) => {
     setFilters((prev) => ({ ...prev, [name]: value }));
-    setCurrentPage(1); // Filtr o'zgarganda sahifani 1 ga qaytarish
+    setCurrentPage(1);
   };
 
   const validateFormData = () => {
@@ -529,28 +566,6 @@ export default function ExpensesPage() {
     return expensesList.reduce((total, expense) => total + Number(expense.amount || 0), 0);
   };
 
-  const getExpensesByType = (expensesList: Expense[]) => {
-    const totalAmountOverall = getTotalAmount(expensesList);
-    if (totalAmountOverall === 0) return [];
-
-    const expensesByTypeMap = new Map<string, { total: number, typeId: number }>();
-    expensesList.forEach((expense) => {
-      const typeName = expense.expense_type_name || `Noma'lum tur (ID: ${expense.expense_type})`;
-      const current = expensesByTypeMap.get(typeName) || { total: 0, typeId: expense.expense_type };
-      current.total += Number(expense.amount || 0);
-      expensesByTypeMap.set(typeName, current);
-    });
-
-    return Array.from(expensesByTypeMap.entries()).map(([typeName, data]) => ({
-      type: data.typeId,
-      label: typeName,
-      total: data.total,
-      percentage: (data.total / totalAmountOverall) * 100,
-    }));
-  };
-
-  const expensesByType = getExpensesByType(filteredExpenses);
-
   const formatCurrency = useCallback((amount: number | string | undefined | null) => {
     const numericAmount = Number(amount || 0);
     if (!isClient) return `${numericAmount.toFixed(2)} USD`;
@@ -629,13 +644,9 @@ export default function ExpensesPage() {
                 <TableCell>{expense.supplier_name || `Yetk. ID: ${expense.supplier}`}</TableCell>
                 <TableCell className="max-w-[250px] truncate" title={expense.comment}>{expense.comment || "-"}</TableCell>
                 <TableCell>
-                  {expense.expense_type_name ? (
-                    <Badge variant="outline" className={`whitespace-nowrap ${getExpenseTypeStyle(expense.expense_type_name)}`}>
-                      {expense.expense_type_name}
-                    </Badge>
-                  ) : (
-                    <Badge variant="secondary" className="whitespace-nowrap">Noma'lum (ID: {expense.expense_type})</Badge>
-                  )}
+                  <Badge variant="outline" className={`whitespace-nowrap ${getExpenseTypeStyle(expense.expense_type_name)}`}>
+                    {expense.expense_type_name || `ID: ${expense.expense_type}`}
+                  </Badge>
                 </TableCell>
                 <TableCell>
                   <Badge
@@ -660,7 +671,7 @@ export default function ExpensesPage() {
             ))}
             {expensesToRender.length > 0 && (
               <TableRow className="bg-muted hover:bg-muted font-bold sticky bottom-0">
-                <TableCell colSpan={7} className="text-right">Jami:</TableCell>
+                <TableCell colSpan={7} className="text-right">Jami (Filtr):</TableCell>
                 <TableCell className="text-right">{formatCurrency(getTotalAmount(expensesToRender))}</TableCell>
                 <TableCell></TableCell>
               </TableRow>
@@ -693,9 +704,7 @@ export default function ExpensesPage() {
           <h2 className="text-3xl font-bold tracking-tight">Xarajatlar</h2>
           <Dialog open={open} onOpenChange={(isOpen) => {
             setOpen(isOpen);
-            if (isOpen) {
-              setFormData(initialFormData);
-            }
+            if (isOpen) setFormData(initialFormData);
           }}>
             <DialogTrigger asChild>
               <Button size="sm" disabled={!accessToken}>
@@ -727,8 +736,6 @@ export default function ExpensesPage() {
                             <SelectValue placeholder="Tanlang..." />
                           </SelectTrigger>
                           <SelectContent>
-                            {suppliers.length === 0 && !loading && <SelectItem value="no-supplier" disabled>Yetkazib beruvchi yo'q</SelectItem>}
-                            {loading && suppliers.length === 0 && <div className="p-2 text-sm text-muted-foreground text-center"><Loader2 className="h-4 w-4 animate-spin inline mr-1"/> Yuklanmoqda...</div>}
                             {suppliers.map((s) => (
                               <SelectItem key={s.id} value={s.id.toString()}>
                                 {s.company_name}
@@ -745,29 +752,18 @@ export default function ExpensesPage() {
                           <DialogContent className="sm:max-w-[425px]">
                             <DialogHeader>
                               <DialogTitle>Yangi yetkazib beruvchi</DialogTitle>
-                              <DialogDescription>Yangi yetkazib beruvchi ma'lumotlarini kiriting.</DialogDescription>
                             </DialogHeader>
                             <div className="grid gap-3 py-4 max-h-[60vh] overflow-y-auto pr-2">
-                              <div className="space-y-1">
-                                <Label htmlFor="new_company_name">Kompaniya nomi *</Label>
-                                <Input id="new_company_name" name="company_name" value={newSupplierData.company_name} onChange={handleSupplierChange} placeholder="Masalan: Qurilish Mollari" required/>
-                              </div>
-                              <div className="space-y-1">
-                                <Label htmlFor="new_contact_person_name">Kontakt shaxs</Label>
-                                <Input id="new_contact_person_name" name="contact_person_name" value={newSupplierData.contact_person_name} onChange={handleSupplierChange} placeholder="Masalan: Ali Valiev" />
-                              </div>
-                              <div className="space-y-1">
-                                <Label htmlFor="new_phone_number">Telefon raqami</Label>
-                                <Input id="new_phone_number" name="phone_number" value={newSupplierData.phone_number} onChange={handleSupplierChange} placeholder="+998 XX XXX XX XX" />
-                              </div>
-                              <div className="space-y-1">
-                                <Label htmlFor="new_address">Manzil</Label>
-                                <Textarea id="new_address" name="address" value={newSupplierData.address} onChange={handleSupplierChange} placeholder="Masalan: Toshkent sh., Yunusobod t." rows={2}/>
-                              </div>
-                              <div className="space-y-1">
-                                <Label htmlFor="new_description">Tavsif</Label>
-                                <Textarea id="new_description" name="description" value={newSupplierData.description} onChange={handleSupplierChange} placeholder="Qo'shimcha ma'lumot..." rows={2}/>
-                              </div>
+                              <Label htmlFor="new_company_name">Kompaniya nomi *</Label>
+                              <Input id="new_company_name" name="company_name" value={newSupplierData.company_name} onChange={handleSupplierChange} required />
+                              <Label htmlFor="new_contact_person_name">Kontakt</Label>
+                              <Input id="new_contact_person_name" name="contact_person_name" value={newSupplierData.contact_person_name} onChange={handleSupplierChange} />
+                              <Label htmlFor="new_phone_number">Telefon</Label>
+                              <Input id="new_phone_number" name="phone_number" value={newSupplierData.phone_number} onChange={handleSupplierChange} />
+                              <Label htmlFor="new_address">Manzil</Label>
+                              <Textarea id="new_address" name="address" value={newSupplierData.address} onChange={handleSupplierChange} rows={2} />
+                              <Label htmlFor="new_description">Tavsif</Label>
+                              <Textarea id="new_description" name="description" value={newSupplierData.description} onChange={handleSupplierChange} rows={2} />
                             </div>
                             <DialogFooter>
                               <Button type="button" onClick={createSupplier} disabled={!newSupplierData.company_name.trim() || isSupplierSubmitting}>
@@ -782,7 +778,6 @@ export default function ExpensesPage() {
                       </div>
                     </div>
                   </div>
-
                   <div className="space-y-3">
                     <div className="space-y-1">
                       <Label htmlFor="expense_type">Xarajat turi *</Label>
@@ -792,8 +787,6 @@ export default function ExpensesPage() {
                             <SelectValue placeholder="Tanlang..." />
                           </SelectTrigger>
                           <SelectContent>
-                            {expenseTypes.length === 0 && !loading && <SelectItem value="no-type" disabled>Xarajat turi yo'q</SelectItem>}
-                            {loading && expenseTypes.length === 0 && <div className="p-2 text-sm text-muted-foreground text-center"><Loader2 className="h-4 w-4 animate-spin inline mr-1"/> Yuklanmoqda...</div>}
                             {expenseTypes.map((t) => (
                               <SelectItem key={t.id} value={t.id.toString()}>
                                 {t.name}
@@ -810,13 +803,10 @@ export default function ExpensesPage() {
                           <DialogContent className="sm:max-w-[425px]">
                             <DialogHeader>
                               <DialogTitle>Yangi xarajat turi</DialogTitle>
-                              <DialogDescription>Yangi xarajat turi nomini kiriting.</DialogDescription>
                             </DialogHeader>
                             <div className="grid gap-4 py-4">
-                              <div className="space-y-1">
-                                <Label htmlFor="new_expense_type_name">Nomi *</Label>
-                                <Input id="new_expense_type_name" value={newExpenseTypeName} onChange={(e) => setNewExpenseTypeName(e.target.value)} placeholder="Masalan: Transport" required />
-                              </div>
+                              <Label htmlFor="new_expense_type_name">Nomi *</Label>
+                              <Input id="new_expense_type_name" value={newExpenseTypeName} onChange={(e) => setNewExpenseTypeName(e.target.value)} required />
                             </div>
                             <DialogFooter>
                               <Button type="button" onClick={createExpenseType} disabled={!newExpenseTypeName.trim() || isExpenseTypeSubmitting}>
@@ -837,8 +827,6 @@ export default function ExpensesPage() {
                           <SelectValue placeholder="Tanlang..." />
                         </SelectTrigger>
                         <SelectContent>
-                          {properties.length === 0 && !loading && <SelectItem value="no-object" disabled>Obyekt yo'q</SelectItem>}
-                          {loading && properties.length === 0 && <div className="p-2 text-sm text-muted-foreground text-center"><Loader2 className="h-4 w-4 animate-spin inline mr-1"/> Yuklanmoqda...</div>}
                           {properties.map((p) => (
                             <SelectItem key={p.id} value={p.id.toString()}>
                               {p.name}
@@ -860,10 +848,9 @@ export default function ExpensesPage() {
                       </Select>
                     </div>
                   </div>
-
                   <div className="space-y-1 sm:col-span-2">
                     <Label htmlFor="comment">Tavsif / Izoh *</Label>
-                    <Textarea required id="comment" name="comment" value={formData.comment} onChange={handleChange} rows={3} placeholder="Xarajat haqida batafsil ma'lumot..." />
+                    <Textarea required id="comment" name="comment" value={formData.comment} onChange={handleChange} rows={3} placeholder="Xarajat haqida batafsil..." />
                   </div>
                 </div>
               </form>
@@ -906,7 +893,7 @@ export default function ExpensesPage() {
                     </div>
                     <div className="space-y-1">
                       <Label htmlFor="edit-date">Xarajat sanasi *</Label>
-                      <Input required id="edit-date" name="date" type="date" value={formData.date} onChange={handleChange} max={new Date().toISOString().split("T")[0]}/>
+                      <Input required id="edit-date" name="date" type="date" value={formData.date} onChange={handleChange} max={new Date().toISOString().split("T")[0]} />
                     </div>
                     <div className="space-y-1">
                       <Label htmlFor="edit-supplier">Yetkazib beruvchi *</Label>
@@ -937,26 +924,27 @@ export default function ExpensesPage() {
                               <Label htmlFor="edit_new_company_name">Kompaniya nomi *</Label>
                               <Input id="edit_new_company_name" name="company_name" value={newSupplierData.company_name} onChange={handleSupplierChange} required />
                               <Label htmlFor="edit_new_contact_person_name">Kontakt</Label>
-                              <Input id="edit_new_contact_person_name" name="contact_person_name" value={newSupplierData.contact_person_name} onChange={handleSupplierChange}/>
+                              <Input id="edit_new_contact_person_name" name="contact_person_name" value={newSupplierData.contact_person_name} onChange={handleSupplierChange} />
                               <Label htmlFor="edit_new_phone_number">Telefon</Label>
-                              <Input id="edit_new_phone_number" name="phone_number" value={newSupplierData.phone_number} onChange={handleSupplierChange}/>
+                              <Input id="edit_new_phone_number" name="phone_number" value={newSupplierData.phone_number} onChange={handleSupplierChange} />
                               <Label htmlFor="edit_new_address">Manzil</Label>
-                              <Textarea id="edit_new_address" name="address" value={newSupplierData.address} onChange={handleSupplierChange} rows={2}/>
+                              <Textarea id="edit_new_address" name="address" value={newSupplierData.address} onChange={handleSupplierChange} rows={2} />
                               <Label htmlFor="edit_new_description">Tavsif</Label>
-                              <Textarea id="edit_new_description" name="description" value={newSupplierData.description} onChange={handleSupplierChange} rows={2}/>
+                              <Textarea id="edit_new_description" name="description" value={newSupplierData.description} onChange={handleSupplierChange} rows={2} />
                             </div>
                             <DialogFooter>
                               <Button type="button" onClick={createSupplier} disabled={!newSupplierData.company_name.trim() || isSupplierSubmitting}>
                                 {isSupplierSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Qo'shish
                               </Button>
-                              <Button type="button" variant="outline" onClick={() => { setAddSupplierOpen(false); setNewSupplierData(initialNewSupplierData); }} disabled={isSupplierSubmitting}>Bekor</Button>
+                              <Button type="button" variant="outline" onClick={() => { setAddSupplierOpen(false); setNewSupplierData(initialNewSupplierData); }} disabled={isSupplierSubmitting}>
+                                Bekor qilish
+                              </Button>
                             </DialogFooter>
                           </DialogContent>
                         </Dialog>
                       </div>
                     </div>
                   </div>
-
                   <div className="space-y-3">
                     <div className="space-y-1">
                       <Label htmlFor="edit-expense_type">Xarajat turi *</Label>
@@ -975,7 +963,9 @@ export default function ExpensesPage() {
                         </Select>
                         <Dialog open={addExpenseTypeOpen} onOpenChange={setAddExpenseTypeOpen}>
                           <DialogTrigger asChild>
-                            <Button type="button" variant="outline" size="icon" title="Yangi xarajat turi qo'shish"><Plus className="h-4 w-4" /></Button>
+                            <Button type="button" variant="outline" size="icon" title="Yangi xarajat turi qo'shish">
+                              <Plus className="h-4 w-4" />
+                            </Button>
                           </DialogTrigger>
                           <DialogContent className="sm:max-w-[425px]">
                             <DialogHeader>
@@ -989,7 +979,9 @@ export default function ExpensesPage() {
                               <Button type="button" onClick={createExpenseType} disabled={!newExpenseTypeName.trim() || isExpenseTypeSubmitting}>
                                 {isExpenseTypeSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Qo'shish
                               </Button>
-                              <Button type="button" variant="outline" onClick={() => { setAddExpenseTypeOpen(false); setNewExpenseTypeName(""); }} disabled={isExpenseTypeSubmitting}>Bekor</Button>
+                              <Button type="button" variant="outline" onClick={() => { setAddExpenseTypeOpen(false); setNewExpenseTypeName(""); }} disabled={isExpenseTypeSubmitting}>
+                                Bekor qilish
+                              </Button>
                             </DialogFooter>
                           </DialogContent>
                         </Dialog>
@@ -1047,7 +1039,7 @@ export default function ExpensesPage() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Jami xarajat (Filtr)</CardTitle>
+              <CardTitle className="text-sm font-medium">Umumiy xarajat</CardTitle>
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -1055,8 +1047,8 @@ export default function ExpensesPage() {
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               ) : (
                 <>
-                  <div className="text-2xl font-bold">{formatCurrency(getTotalAmount(filteredExpenses))}</div>
-                  <p className="text-xs text-muted-foreground">Tanlangan filtrlar bo'yicha</p>
+                  <div className="text-2xl font-bold">{formatCurrency(totalExpenses)}</div>
+                  <p className="text-xs text-muted-foreground">Barcha xarajatlar jami</p>
                 </>
               )}
             </CardContent>
@@ -1070,29 +1062,25 @@ export default function ExpensesPage() {
             ))
           ) : (
             <>
-              {expensesByType.sort((a, b) => b.total - a.total).slice(0, 3).map((expenseInfo) => (
-                <Card key={expenseInfo.type || expenseInfo.label}>
+              {expensesByObject.slice(0, 3).map((expenseInfo) => (
+                <Card key={expenseInfo.objectId}>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium truncate" title={expenseInfo.label}>
-                      {expenseInfo.label}
+                    <CardTitle className="text-sm font-medium truncate" title={expenseInfo.objectName}>
+                      {expenseInfo.objectName}
                     </CardTitle>
-                    {expenseInfo.label.toLowerCase().includes('material') || expenseInfo.label.toLowerCase().includes('qurilish') ? <Building className="h-4 w-4 text-muted-foreground" /> :
-                      expenseInfo.label.toLowerCase().includes('ishchi') ? <User className="h-4 w-4 text-muted-foreground" /> :
-                      expenseInfo.label.toLowerCase().includes('jihoz') ? <PenTool className="h-4 w-4 text-muted-foreground" /> :
-                      <DollarSign className="h-4 w-4 text-muted-foreground" />
-                    }
+                    <Building className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
                     <div className="text-xl font-bold">{formatCurrency(expenseInfo.total)}</div>
                     <p className="text-xs text-muted-foreground">
-                      {expenseInfo.percentage > 0.01 ? `${expenseInfo.percentage.toFixed(1)}% jami (filtr)` : ""}
+                      {totalExpenses > 0 ? `${((expenseInfo.total / totalExpenses) * 100).toFixed(1)}% umumiy` : ""}
                     </p>
                   </CardContent>
                 </Card>
               ))}
-              {Array.from({ length: Math.max(0, 3 - expensesByType.length) }).map((_, index) => (
+              {Array.from({ length: Math.max(0, 3 - expensesByObject.length) }).map((_, index) => (
                 <Card key={`placeholder-${index}`} className="opacity-60">
-                  <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Xarajat turi</CardTitle></CardHeader>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Obyekt</CardTitle></CardHeader>
                   <CardContent><div className="text-xl font-bold">-</div><p className="text-xs text-muted-foreground"> </p></CardContent>
                 </Card>
               ))}
