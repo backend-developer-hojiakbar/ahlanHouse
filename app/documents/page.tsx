@@ -441,7 +441,7 @@ export default function DocumentsPage() {
     if (!Array.isArray(payments)) return [];
     return payments.map((p: any) => ({
       value: p.id.toString(),
-      label: `${p.user_fio ?? "N/A"} - ${p.apartment_info ?? "N/A"} (${p.payment_type ?? "N/A"}) - ${new Date(p.created_at).toLocaleDateString("uz-UZ")}`,
+      label: `${p.user_fio ?? "N/A"} - ${p.apartment_info ?? "N/A"} (${p.payment_type ?? "N/A"}) - ${new Date(p.created_at).toLocaleDateString("us-US")}`,
     }));
   }, [payments]);
 
@@ -612,7 +612,7 @@ export default function DocumentsPage() {
                             <TableCell>{doc.propertyName}</TableCell>
                             <TableCell>{doc.clientName}</TableCell>
                             <TableCell>{doc.apartmentNumber}</TableCell>
-                            <TableCell>{new Date(doc.date).toLocaleDateString("uz-UZ")}</TableCell>
+                            <TableCell>{new Date(doc.date).toLocaleDateString("us-US")}</TableCell>
                             <TableCell className="text-right">
                               <div className="flex justify-end items-center space-x-2">
                                 <Button
@@ -676,7 +676,7 @@ export default function DocumentsPage() {
                   </div>
                   <div>
                     <Label className="font-semibold">Sana</Label>
-                    <div>{new Date(selectedDocument.created_at).toLocaleString("uz-UZ")}</div>
+                    <div>{new Date(selectedDocument.created_at).toLocaleString("us-US")}</div>
                   </div>
                   <div>
                     <Label className="font-semibold">Fayllar</Label>

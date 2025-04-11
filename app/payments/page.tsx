@@ -186,9 +186,9 @@ export default function PaymentsPage() {
       const paid = getTotalAmount("paid");
       const overdue = getTotalAmount("overdue");
 
-      setTotalAmount(total.toLocaleString("uz-UZ", { style: "currency", currency: "UZS" }));
-      setTotalPaid(paid.toLocaleString("uz-UZ", { style: "currency", currency: "UZS" }));
-      setTotalOverdue(overdue.toLocaleString("uz-UZ", { style: "currency", currency: "UZS" }));
+      setTotalAmount(total.toLocaleString("us-US", { style: "currency", currency: "USD" }));
+      setTotalPaid(paid.toLocaleString("us-US", { style: "currency", currency: "USD" }));
+      setTotalOverdue(overdue.toLocaleString("us-US", { style: "currency", currency: "USD" }));
     }
   }, [payments]);
 
@@ -196,12 +196,12 @@ export default function PaymentsPage() {
     if (typeof window !== "undefined") {
       const formatted = payments.map((payment: any) => ({
         ...payment,
-        formattedAmount: Number(payment.paid_amount || 0).toLocaleString("uz-UZ", {
+        formattedAmount: Number(payment.paid_amount || 0).toLocaleString("us-US", {
           style: "currency",
-          currency: "UZS",
+          currency: "USD",
         }),
         formattedDate: payment.created_at
-          ? new Date(payment.created_at).toLocaleDateString("uz-UZ")
+          ? new Date(payment.created_at).toLocaleDateString("us-US")
           : "Noma‘lum",
       }));
       setFormattedPayments(formatted);
@@ -373,8 +373,8 @@ export default function PaymentsPage() {
     const lastPayment = userPayments.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
     return lastPayment
       ? {
-          amount: Number(lastPayment.paid_amount).toLocaleString("uz-UZ", { style: "currency", currency: "UZS" }),
-          date: new Date(lastPayment.created_at).toLocaleDateString("uz-UZ"),
+          amount: Number(lastPayment.paid_amount).toLocaleString("us-US", { style: "currency", currency: "USD" }),
+          date: new Date(lastPayment.created_at).toLocaleDateString("us-US"),
         }
       : { amount: "0 so‘m", date: "Topilmadi" };
   };
@@ -382,12 +382,12 @@ export default function PaymentsPage() {
   const getTotalPaidAmount = (userId: number) => {
     const userPayments = payments.filter((p: any) => p.user === userId);
     const total = userPayments.reduce((sum: number, p: any) => sum + Number(p.paid_amount || 0), 0);
-    return total.toLocaleString("uz-UZ", { style: "currency", currency: "UZS" });
+    return total.toLocaleString("us-US", { style: "currency", currency: "USD" });
   };
 
   const getRemainingAmount = (payment: any) => {
     const remaining = Number(payment.total_amount) - Number(payment.paid_amount);
-    return remaining.toLocaleString("uz-UZ", { style: "currency", currency: "UZS" });
+    return remaining.toLocaleString("us-US", { style: "currency", currency: "USD" });
   };
 
   const clientOptions = clients.map((client) => ({
