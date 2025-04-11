@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Home, DollarSign, User, Calendar, Plus, Trash2, Edit } from "lucide-react";
+import { Home, DollarSign, Calendar, Plus, Trash2, Edit, User, CreditCard } from "lucide-react";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,6 +33,9 @@ const ALL_STATUSES = [
   { value: "bosh", label: "Bo'sh" },
   { value: "band", label: "Band" },
   { value: "sotilgan", label: "Sotilgan" },
+  { value: "muddatli", label: "Muddatli" },
+  { value: "ipoteka", label: "Ipoteka" },
+  { value: "subsidiya", label: "Subsidiya" },
 ];
 
 const ALL_ROOM_OPTIONS = [
@@ -84,8 +87,7 @@ export default function ApartmentsPage() {
   useEffect(() => {
     if (typeof window !== "undefined") {
       const token = localStorage.getItem("access_token");
-      if (!token)
-      {
+      if (!token) {
         toast({
           title: "Xatolik",
           description: "Avtorizatsiya qilinmagan. Iltimos, tizimga kiring.",
@@ -147,7 +149,7 @@ export default function ApartmentsPage() {
     let allApartments: any[] = [];
     let currentPage = 1;
     let totalPages = 1;
-    const pageSize = 1000; // Katta hajmdagi ma'lumotlarni yuklash uchun
+    const pageSize = 1000;
 
     try {
       while (currentPage <= totalPages) {
@@ -197,12 +199,71 @@ export default function ApartmentsPage() {
         }
 
         const data = await response.json();
-        allApartments = [...allApartments, ...(data.results || data)];
+        let tempApartments = [...(data.results || data)];
+
+        // Har bir xonadon uchun to'lov va mijoz ma'lumotlarini olish
+        const detailFetchPromises = tempApartments.map(async (apartment: any) => {
+          let payment = null;
+          let client = null;
+          let clientId = null;
+
+          // To'lov ma'lumotlarini olish
+          const paymentResponse = await fetch(
+            `${API_BASE_URL}/payments/?apartment=${apartment.id}&ordering=-created_at&page_size=1`,
+            { method: "GET", headers: getAuthHeaders() }
+          );
+          if (paymentResponse.ok) {
+            const paymentData = await paymentResponse.json();
+            if (paymentData.results && paymentData.results.length > 0) {
+              payment = paymentData.results[0];
+              clientId = payment.user;
+            }
+          }
+
+          // Agar to'lov orqali clientId topilmasa, owners dan olish
+          if (!clientId && apartment.owners && apartment.owners.length > 0) {
+            clientId = apartment.owners[0];
+          }
+
+          // Mijoz ma'lumotlarini olish
+          if (clientId) {
+            const clientResponse = await fetch(`${API_BASE_URL}/users/${clientId}/`, {
+              method: "GET",
+              headers: getAuthHeaders(),
+            });
+            if (clientResponse.ok) {
+              client = await clientResponse.json();
+            }
+          }
+
+          // Obyekt nomini olish (agar object_name bo'lmasa)
+          let objectName = apartment.object_name || "Noma'lum obyekt";
+          if (!apartment.object_name && apartment.object) {
+            const objectId = typeof apartment.object === "object" ? apartment.object.id : apartment.object;
+            const objectResponse = await fetch(`${API_BASE_URL}/objects/${objectId}/`, {
+              method: "GET",
+              headers: getAuthHeaders(),
+            });
+            if (objectResponse.ok) {
+              const objectData = await objectResponse.json();
+              objectName = objectData.name || "Noma'lum obyekt";
+            }
+          }
+
+          return {
+            ...apartment,
+            object_name: objectName,
+            payment,
+            client,
+          };
+        });
+
+        const detailedApartments = await Promise.all(detailFetchPromises);
+        allApartments = [...allApartments, ...detailedApartments];
         totalPages = Math.ceil(data.count / pageSize);
         currentPage += 1;
       }
 
-      // Backend tartiblashga ishonch hosil qilish uchun qo'shimcha tartiblash (agar kerak bo'lsa)
       allApartments.sort((a, b) => {
         if (a.object === b.object) {
           return a.room_number.localeCompare(b.room_number, undefined, { numeric: true });
@@ -358,8 +419,31 @@ export default function ApartmentsPage() {
         return <Badge className="bg-red-500 hover:bg-red-600 text-white">Band</Badge>;
       case "sotilgan":
         return <Badge className="bg-green-500 hover:bg-green-600 text-white">Sotilgan</Badge>;
+      case "muddatli":
+        return <Badge className="bg-orange-500 hover:bg-orange-600 text-white">Muddatli</Badge>;
+      case "ipoteka":
+        return <Badge className="bg-purple-500 hover:bg-purple-600 text-white">Ipoteka</Badge>;
+      case "subsidiya":
+        return <Badge className="bg-teal-500 hover:bg-teal-600 text-white">Subsidiya</Badge>;
       default:
         return <Badge variant="secondary">{status || "Noma'lum"}</Badge>;
+    }
+  };
+
+  const getPaymentTypeLabel = (paymentType: string) => {
+    switch (paymentType?.toLowerCase()) {
+      case "naqd":
+        return "Naqd (To‘liq)";
+      case "muddatli":
+        return "Muddatli to‘lov";
+      case "ipoteka":
+        return "Ipoteka";
+      case "subsidiya":
+        return "Subsidiya";
+      case "band":
+        return "Band qilish";
+      default:
+        return paymentType || "Noma'lum";
     }
   };
 
@@ -538,25 +622,22 @@ export default function ApartmentsPage() {
                           : "Narx ko'rsatilmagan"}
                       </span>
                     </div>
-                    {apartment.status !== "bosh" && apartment.client && (
-                      <div className="flex items-center">
-                        <User className="mr-2 h-4 w-4 text-muted-foreground flex-shrink-0" />
-                        <span className="truncate" title={apartment.client?.name}>
-                          {apartment.client?.name || "Noma'lum mijoz"}
-                        </span>
-                      </div>
-                    )}
                     {apartment.status === "band" && apartment.reservation_date && (
                       <div className="flex items-center text-xs text-muted-foreground">
                         <Calendar className="mr-1.5 h-3.5 w-3.5" />
                         <span>Band: {new Date(apartment.reservation_date).toLocaleDateString("us-US")}</span>
                       </div>
                     )}
-                    {apartment.status === "sotilgan" && apartment.sold_date && (
-                      <div className="flex items-center text-xs text-muted-foreground">
-                        <Calendar className="mr-1.5 h-3.5 w-3.5" />
-                        <span>Sotilgan: {new Date(apartment.sold_date).toLocaleDateString("us-US")}</span>
-                      </div>
+                    {apartment.status !== "bosh" && (
+                      <>
+                        
+                        {apartment.payment && (
+                          <div className="flex items-center text-xs text-muted-foreground">
+                            <CreditCard className="mr-1.5 h-3.5 w-3.5" />
+                            <span>To'lov turi: {getPaymentTypeLabel(apartment.payment.payment_type)}</span>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
 

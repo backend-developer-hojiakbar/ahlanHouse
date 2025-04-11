@@ -32,7 +32,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import dynamic from "next/dynamic";
 
-// Dynamically import react-select with SSR disabled to avoid hydration mismatch
+// Dynamically import react-select with SSR disabled
 const Select = dynamic(() => import("react-select"), { ssr: false });
 
 export default function PaymentsPage() {
@@ -46,7 +46,9 @@ export default function PaymentsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [open, setOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false); // Yangi detal dialogi uchun
   const [currentPayment, setCurrentPayment] = useState<any>(null);
+  const [selectedPayment, setSelectedPayment] = useState<any>(null); // Tanlangan to‘lov uchun
 
   const [formData, setFormData] = useState({
     user: "",
@@ -86,7 +88,7 @@ export default function PaymentsPage() {
         const response = await fetch(nextUrl, { headers: getAuthHeaders() });
         if (!response.ok) throw new Error("Mijozlarni olishda xatolik");
         const data = await response.json();
-        allClients = [...allClients, ...data.results];
+        allClients = [...clients, ...data.results];
         nextUrl = data.next;
       }
       setClients(allClients);
@@ -103,7 +105,7 @@ export default function PaymentsPage() {
         const response = await fetch(nextUrl, { headers: getAuthHeaders() });
         if (!response.ok) throw new Error("Obyektlarni olishda xatolik");
         const data = await response.json();
-        allObjects = [...allObjects, ...data.results];
+        allObjects = [...objects, ...data.results];
         nextUrl = data.next;
       }
       setObjects(allObjects);
@@ -120,7 +122,7 @@ export default function PaymentsPage() {
         const response = await fetch(nextUrl, { headers: getAuthHeaders() });
         if (!response.ok) throw new Error("Xonadonlarni olishda xatolik");
         const data = await response.json();
-        allApartments = [...allApartments, ...data.results];
+        allApartments = [...apartments, ...data.results];
         nextUrl = data.next;
       }
       setApartments(allApartments);
@@ -157,6 +159,18 @@ export default function PaymentsPage() {
     }
   };
 
+  const fetchPaymentDetails = async (id: number) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/payments/${id}/`, { headers: getAuthHeaders() });
+      if (!response.ok) throw new Error("To‘lov detallarini olishda xatolik");
+      const data = await response.json();
+      setSelectedPayment(data);
+      setDetailOpen(true);
+    } catch (error) {
+      toast({ title: "Xatolik", description: (error as Error).message, variant: "destructive" });
+    }
+  };
+
   useEffect(() => {
     if (accessToken) {
       fetchClients();
@@ -172,9 +186,9 @@ export default function PaymentsPage() {
       const paid = getTotalAmount("paid");
       const overdue = getTotalAmount("overdue");
 
-      setTotalAmount(total.toLocaleString("us-US", { style: "currency", currency: "USD" }));
-      setTotalPaid(paid.toLocaleString("us-US", { style: "currency", currency: "USD" }));
-      setTotalOverdue(overdue.toLocaleString("us-US", { style: "currency", currency: "USD" }));
+      setTotalAmount(total.toLocaleString("uz-UZ", { style: "currency", currency: "UZS" }));
+      setTotalPaid(paid.toLocaleString("uz-UZ", { style: "currency", currency: "UZS" }));
+      setTotalOverdue(overdue.toLocaleString("uz-UZ", { style: "currency", currency: "UZS" }));
     }
   }, [payments]);
 
@@ -182,12 +196,12 @@ export default function PaymentsPage() {
     if (typeof window !== "undefined") {
       const formatted = payments.map((payment: any) => ({
         ...payment,
-        formattedAmount: Number(payment.paid_amount || 0).toLocaleString("us-US", {
+        formattedAmount: Number(payment.paid_amount || 0).toLocaleString("uz-UZ", {
           style: "currency",
-          currency: "USD",
+          currency: "UZS",
         }),
         formattedDate: payment.created_at
-          ? new Date(payment.created_at).toLocaleDateString("us-US")
+          ? new Date(payment.created_at).toLocaleDateString("uz-UZ")
           : "Noma‘lum",
       }));
       setFormattedPayments(formatted);
@@ -265,30 +279,18 @@ export default function PaymentsPage() {
   const handleSelectChange = (name: string, value: string | null) => {
     setFormData((prev) => {
       const newFormData = { ...prev, [name]: value || "" };
-
       if (name === "user" && value) {
         const clientPayments = payments.filter((p: any) => p.user.toString() === value);
         const relatedApartments = [...new Set(clientPayments.map((p: any) => p.apartment?.toString()).filter(Boolean))];
-
-        if (relatedApartments.length > 0) {
-          newFormData.apartment = relatedApartments[0];
-        } else {
-          newFormData.apartment = "";
-        }
+        if (relatedApartments.length > 0) newFormData.apartment = relatedApartments[0];
+        else newFormData.apartment = "";
       }
-
       return newFormData;
     });
   };
 
   const handleFilterChange = (name: string, value: string) => {
-    setFilters((prev) => {
-      const newFilters = { ...prev, [name]: value };
-      if (name === "status") {
-        setFilters((prevFilters) => ({ ...prevFilters, status: value }));
-      }
-      return newFilters;
-    });
+    setFilters((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = (e: React.FormEvent, action: "save" | "saveAndAdd" | "saveAndContinue") => {
@@ -366,6 +368,28 @@ export default function PaymentsPage() {
       .filter((p: any) => (status ? p.status === status : true))
       .reduce((total: number, payment: any) => total + Number(payment.paid_amount || 0), 0);
 
+  const getLastPayment = (userId: number) => {
+    const userPayments = payments.filter((p: any) => p.user === userId);
+    const lastPayment = userPayments.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+    return lastPayment
+      ? {
+          amount: Number(lastPayment.paid_amount).toLocaleString("uz-UZ", { style: "currency", currency: "UZS" }),
+          date: new Date(lastPayment.created_at).toLocaleDateString("uz-UZ"),
+        }
+      : { amount: "0 so‘m", date: "Topilmadi" };
+  };
+
+  const getTotalPaidAmount = (userId: number) => {
+    const userPayments = payments.filter((p: any) => p.user === userId);
+    const total = userPayments.reduce((sum: number, p: any) => sum + Number(p.paid_amount || 0), 0);
+    return total.toLocaleString("uz-UZ", { style: "currency", currency: "UZS" });
+  };
+
+  const getRemainingAmount = (payment: any) => {
+    const remaining = Number(payment.total_amount) - Number(payment.paid_amount);
+    return remaining.toLocaleString("uz-UZ", { style: "currency", currency: "UZS" });
+  };
+
   const clientOptions = clients.map((client) => ({
     value: client.id.toString(),
     label: `${client.fio} (${client.phone_number})`,
@@ -420,6 +444,9 @@ export default function PaymentsPage() {
                 <TableCell>{getStatusBadge(payment.status)}</TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end space-x-2">
+                    <Button variant="ghost" size="icon" onClick={() => fetchPaymentDetails(payment.id)}>
+                      <CreditCard className="h-4 w-4" />
+                    </Button>
                     <Button variant="ghost" size="icon" onClick={() => handleOpenEditDialog(payment.id)}>
                       <Edit className="h-4 w-4" />
                     </Button>
@@ -451,9 +478,9 @@ export default function PaymentsPage() {
         <div className="flex items-center justify-between space-y-2">
           <h2 className="text-3xl font-bold tracking-tight">To‘lovlar</h2>
           <Dialog open={open} onOpenChange={setOpen}>
-            {/* <DialogTrigger asChild>
+            <DialogTrigger asChild>
               <Button>Yangi to‘lov qo‘shish</Button>
-            </DialogTrigger> */}
+            </DialogTrigger>
             <DialogContent className="sm:max-w-[600px]">
               <form>
                 <DialogHeader>
@@ -499,21 +526,21 @@ export default function PaymentsPage() {
                     onClick={(e) => handleSubmit(e, "save")}
                     className="bg-green-500 hover:bg-green-600"
                   >
-                    Save
+                    Saqlash
                   </Button>
                   <Button
                     type="button"
                     onClick={(e) => handleSubmit(e, "saveAndAdd")}
                     variant="outline"
                   >
-                    Save and add another
+                    Saqlash va yana qo‘shish
                   </Button>
                   <Button
                     type="button"
                     onClick={(e) => handleSubmit(e, "saveAndContinue")}
                     variant="outline"
                   >
-                    Save and continue editing
+                    Saqlash va tahrirlashda davom etish
                   </Button>
                 </DialogFooter>
               </form>
@@ -530,7 +557,7 @@ export default function PaymentsPage() {
               </DialogHeader>
               <div className="grid gap-4 py-4">
                 <div className="space-y-2">
-                  <Label htmlFor="user">User *</Label>
+                  <Label htmlFor="user">Mijoz *</Label>
                   <Select
                     options={clientOptions}
                     value={clientOptions.find((option) => option.value === formData.user) || null}
@@ -540,7 +567,7 @@ export default function PaymentsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="apartment">Apartment *</Label>
+                  <Label htmlFor="apartment">Xonadon *</Label>
                   <Select
                     options={apartmentOptions}
                     value={apartmentOptions.find((option) => option.value === formData.apartment) || null}
@@ -567,24 +594,55 @@ export default function PaymentsPage() {
                   onClick={(e) => handleEditSubmit(e, "save")}
                   className="bg-green-500 hover:bg-green-600"
                 >
-                  Save
+                  Saqlash
                 </Button>
                 <Button
                   type="button"
                   onClick={(e) => handleEditSubmit(e, "saveAndAdd")}
                   variant="outline"
                 >
-                  Save and add another
+                  Saqlash va yana qo‘shish
                 </Button>
                 <Button
                   type="button"
                   onClick={(e) => handleEditSubmit(e, "saveAndContinue")}
                   variant="outline"
                 >
-                  Save and continue editing
+                  Saqlash va tahrirlashda davom etish
                 </Button>
               </DialogFooter>
             </form>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+          <DialogContent className="sm:max-w-[600px]">
+            <DialogHeader>
+              <DialogTitle>To‘lov detallari</DialogTitle>
+              <DialogDescription>Mijoz va to‘lov bo‘yicha ma’lumotlar</DialogDescription>
+            </DialogHeader>
+            {selectedPayment && (
+              <div className="grid gap-4 py-4">
+                <div className="space-y-2">
+                  <Label>Mijozning oxirgi to‘lovi</Label>
+                  <p>Summasi: {getLastPayment(selectedPayment.user).amount}</p>
+                  <p>Sanasi: {getLastPayment(selectedPayment.user).date}</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Umumiy to‘langan summa</Label>
+                  <p>{getTotalPaidAmount(selectedPayment.user)}</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Qoldiq to‘lov</Label>
+                  <p>{getRemainingAmount(selectedPayment)}</p>
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDetailOpen(false)}>
+                Yopish
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
 
@@ -606,7 +664,7 @@ export default function PaymentsPage() {
             <CardContent>
               <div className="text-2xl font-bold text-green-600">{totalPaid}</div>
               <p className="text-xs text-muted-foreground">
-                {totalAmount !== "0" ? Math.round((getTotalAmount("paid") / getTotalAmount()) * 100) : 0}% to‘langan
+                {totalAmount !== "0 so‘m" ? Math.round((getTotalAmount("paid") / getTotalAmount()) * 100) : 0}% to‘langan
               </p>
             </CardContent>
           </Card>
@@ -618,7 +676,7 @@ export default function PaymentsPage() {
             <CardContent>
               <div className="text-2xl font-bold text-red-600">{totalOverdue}</div>
               <p className="text-xs text-muted-foreground">
-                {totalAmount !== "0" ? Math.round((getTotalAmount("overdue") / getTotalAmount()) * 100) : 0}% muddati o‘tgan
+                {totalAmount !== "0 so‘m" ? Math.round((getTotalAmount("overdue") / getTotalAmount()) * 100) : 0}% muddati o‘tgan
               </p>
             </CardContent>
           </Card>

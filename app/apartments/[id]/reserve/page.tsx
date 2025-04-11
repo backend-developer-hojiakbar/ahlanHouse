@@ -58,7 +58,7 @@ export default function ReserveApartmentPage() {
   const [formData, setFormData] = useState({
     clientId: "",
     initialPayment: "",
-    totalMonths: "12",
+    totalMonths: "",
     totalAmount: "",
     comments: "",
     name: "",
@@ -67,7 +67,7 @@ export default function ReserveApartmentPage() {
     kafilFio: "",
     kafilPhone: "",
     kafilAddress: "",
-    due_date: 15,
+    due_date: "", // Har oyning to‘lov sanasi uchun yangi maydon
   });
 
   const API_BASE_URL = "http://api.ahlan.uz";
@@ -155,13 +155,8 @@ export default function ReserveApartmentPage() {
       setFormData((prev) => ({
         ...prev,
         totalAmount: apartmentData.price.toString(),
-        totalMonths:
-          paymentType === "naqd" ||
-          paymentType === "band" ||
-          paymentType === "ipoteka" ||
-          paymentType === "subsidiya"
-            ? "0"
-            : "12",
+        totalMonths: "",
+        due_date: "15", // Default qiymat sifatida 15-kuni
       }));
     } catch (error) {
       console.error("Fetch data error:", error);
@@ -187,7 +182,8 @@ export default function ReserveApartmentPage() {
       setFormData((prev) => ({
         ...prev,
         totalAmount: apartment.price.toString(),
-        totalMonths: paymentType === "muddatli" ? "12" : "0",
+        totalMonths: "",
+        due_date: prev.due_date || "15",
       }));
     }
   }, [paymentType, apartment]);
@@ -334,6 +330,44 @@ export default function ReserveApartmentPage() {
     return ((remainingAmount / totalPrice) * 100).toFixed(1);
   };
 
+  const generatePaymentSchedule = () => {
+    if (paymentType !== "muddatli" || !formData.totalMonths || !formData.due_date) return "";
+    const totalMonths = Number(formData.totalMonths);
+    const dueDate = Number(formData.due_date);
+    const monthlyPayment = calculateMonthlyPayment();
+    const schedule: string[] = [];
+    const currentDate = new Date();
+
+    for (let i = 1; i <= totalMonths; i++) {
+      const paymentDate = new Date(currentDate);
+      paymentDate.setMonth(currentDate.getMonth() + i);
+      paymentDate.setDate(dueDate);
+
+      // Adjust if the due date exceeds the last day of the month
+      const lastDayOfMonth = new Date(
+        paymentDate.getFullYear(),
+        paymentDate.getMonth() + 1,
+        0
+      ).getDate();
+      if (dueDate > lastDayOfMonth) {
+        paymentDate.setDate(lastDayOfMonth);
+      }
+
+      const formattedDate = paymentDate.toLocaleDateString("us-US", {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+      });
+      const formattedPayment = monthlyPayment.toLocaleString("us-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+      schedule.push(`   - ${i}-oy: ${formattedDate} - ${formattedPayment} so'm`);
+    }
+
+    return schedule.join("\n");
+  };
+
   const generateContractText = (paymentId: number, client: any) => {
     const currentDate = new Date().toLocaleDateString("us-US", {
       day: "2-digit",
@@ -367,6 +401,8 @@ export default function ReserveApartmentPage() {
       endDate.setMonth(endDate.getMonth() + Number(formData.totalMonths));
     }
     const endDateString = endDate.toLocaleDateString("us-US");
+
+    const paymentSchedule = generatePaymentSchedule();
 
     return `
                 ДАСТЛАБКИ ШАРТНОМА № ${paymentId}
@@ -426,7 +462,9 @@ export default function ReserveApartmentPage() {
    ўтказади.
 ${paymentType === "muddatli"
         ? `   - Бошланғич тўлов: ${initialPaymentFormatted} so'm (${currentDate}).
-   - Ойлик тўлов: ${monthlyPaymentFormatted} so'm (har oyning ${formData.due_date || 15}-sanasigacha).`
+   - Ойлик тўлов: ${monthlyPaymentFormatted} so'm (har oyning ${formData.due_date || 15}-sanasigacha).
+   - To'lov jadvali:
+${paymentSchedule}`
         : paymentType === "band"
           ? `   - Band qilish uchun to'lov: ${initialPaymentFormatted} so'm (${currentDate}).`
           : ""
@@ -795,21 +833,41 @@ _________________________                   _________________________
         });
         return;
       }
+      if (
+        !formData.due_date ||
+        Number(formData.due_date) < 1 ||
+        Number(formData.due_date) > 31
+      ) {
+        toast({
+          title: "Xatolik",
+          description: "Har oyning to‘lov sanasi 1 dan 31 gacha bo‘lishi kerak.",
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
-    if (paymentType === "subsidiya" && (!formData.initialPayment || initialPayment <= 0)) {
+    if (
+      paymentType === "subsidiya" &&
+      (!formData.initialPayment || initialPayment <= 0)
+    ) {
       toast({
         title: "Xatolik",
-        description: "Subsidiya uchun boshlang'ich to'lov kiritilmagan yoki 0 dan kichik.",
+        description:
+          "Subsidiya uchun boshlang'ich to'lov kiritilmagan yoki 0 dan kichik.",
         variant: "destructive",
       });
       return;
     }
 
-    if (paymentType === "ipoteka" && (!formData.initialPayment || initialPayment <= 0)) {
+    if (
+      paymentType === "ipoteka" &&
+      (!formData.initialPayment || initialPayment <= 0)
+    ) {
       toast({
         title: "Xatolik",
-        description: "Ipoteka uchun boshlang'ich to'lov kiritilmagan yoki 0 dan kichik.",
+        description:
+          "Ipoteka uchun boshlang'ich to'lov kiritilmagan yoki 0 dan kichik.",
         variant: "destructive",
       });
       return;
@@ -863,10 +921,19 @@ _________________________                   _________________________
         duration_months: durationMonths,
         monthly_payment:
           paymentType === "muddatli" ? calculatedMonthlyPayment.toFixed(2) : "0",
-        due_date: formData.due_date || 15,
+        due_date: Number(formData.due_date) || 15,
         paid_amount:
           paymentType === "naqd" ? formData.initialPayment || "0" : "0",
-        status: paymentType === "naqd" ? "paid" : "pending",
+        status:
+          paymentType === "naqd"
+            ? "paid"
+            : paymentType === "subsidiya"
+            ? "subsidiya"
+            : paymentType === "ipoteka"
+            ? "ipoteka"
+            : paymentType === "muddatli"
+            ? "pending"
+            : "pending",
         additional_info: formData.comments || "",
       };
 
@@ -880,7 +947,7 @@ _________________________                   _________________________
         const errorData = await paymentResponse.json().catch(() => ({}));
         throw new Error(
           errorData.detail ||
-            `To'lovni yaratishda xatolik (${paymentResponse.status})`
+            `To'lovni yaratishda xatolik (${paymentResponse.status}): ${JSON.stringify(errorData)}`
         );
       }
 
@@ -902,9 +969,11 @@ _________________________                   _________________________
           paymentType === "muddatli"
             ? "muddatli to'lovga band qilindi"
             : paymentType === "subsidiya"
-            ? "subsidiya bilan band qilindi"
+            ? "subsidiya bilan sotildi"
             : paymentType === "ipoteka"
             ? "ipoteka bilan band qilindi"
+            : paymentType === "naqd"
+            ? "naqd to'lov bilan sotildi"
             : "band qilindi"
         }. To'lov ID: ${paymentResult.id}`,
       });
@@ -922,7 +991,7 @@ _________________________                   _________________________
           newApartmentStatus = "ipoteka";
           break;
         case "subsidiya":
-          newApartmentStatus = "subsidiya";
+          newApartmentStatus = "sotilgan"; // Subsidiya bo'lsa, apartment statusi "sotilgan" bo'ladi
           break;
         case "band":
           newApartmentStatus = "band";
@@ -948,6 +1017,9 @@ _________________________                   _________________________
           }`
         );
       }
+
+      // Redirect to the apartment detail page after successful contract creation
+      router.push(`/apartments/${params.id}`);
     } catch (error) {
       toast({
         title: "Xatolik",
@@ -1240,7 +1312,7 @@ _________________________                   _________________________
                             setPaymentType(value);
                             setFormData((prev) => ({
                               ...prev,
-                              totalMonths: value === "muddatli" ? "12" : "0",
+                              totalMonths: "",
                               totalAmount:
                                 apartment?.price?.toString() || prev.totalAmount,
                             }));
@@ -1300,31 +1372,44 @@ _________________________                   _________________________
                         />
                       </div>
                       {paymentType === "muddatli" && (
-                        <div className="space-y-2">
-                          <Label htmlFor="totalMonths">
-                            To'lov muddati (oy){" "}
-                            <span className="text-red-500">*</span>
-                          </Label>
-                          <Select
-                            value={formData.totalMonths}
-                            onValueChange={(value) =>
-                              handleSelectChange("totalMonths", value)
-                            }
-                            required
-                          >
-                            <SelectTrigger id="totalMonths">
-                              <SelectValue placeholder="Muddat" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="3">3 oy</SelectItem>
-                              <SelectItem value="6">6 oy</SelectItem>
-                              <SelectItem value="12">12 oy</SelectItem>
-                              <SelectItem value="18">18 oy</SelectItem>
-                              <SelectItem value="24">24 oy</SelectItem>
-                              <SelectItem value="36">36 oy</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
+                        <>
+                          <div className="space-y-2">
+                            <Label htmlFor="totalMonths">
+                              To'lov muddati (oy){" "}
+                              <span className="text-red-500">*</span>
+                            </Label>
+                            <Input
+                              id="totalMonths"
+                              name="totalMonths"
+                              type="number"
+                              min="1"
+                              value={formData.totalMonths}
+                              onChange={handleChange}
+                              placeholder="Masalan, 12"
+                              required
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="due_date">
+                              Har oyning to‘lov sanasi{" "}
+                              <span className="text-red-500">*</span>
+                            </Label>
+                            <Input
+                              id="due_date"
+                              name="due_date"
+                              type="number"
+                              min="1"
+                              max="31"
+                              value={formData.due_date}
+                              onChange={handleChange}
+                              placeholder="Masalan, 15"
+                              required
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              Har oyning qaysi kunida to‘lov qilish kerakligini kiriting (1-31).
+                            </p>
+                          </div>
+                        </>
                       )}
                     </div>
                     <div className="space-y-2">
@@ -1433,8 +1518,6 @@ _________________________                   _________________________
                         ? "Muddatli"
                         : apartment.status === "ipoteka"
                         ? "Ipoteka"
-                        : apartment.status === "subsidiya"
-                        ? "Subsidiya"
                         : "Noma'lum"}
                     </span>
                   </div>
@@ -1481,7 +1564,11 @@ _________________________                   _________________________
                   </div>
                   <div className="flex justify-between">
                     <span>Muddat:</span>
-                    <span>{formData.totalMonths} oy</span>
+                    <span>{formData.totalMonths || "-"} oy</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Har oyning to‘lov sanasi:</span>
+                    <span>{formData.due_date || "-"}-kuni</span>
                   </div>
                   <div className="flex justify-between items-center pt-3 border-t">
                     <span className="font-semibold">Oylik to'lov:</span>
@@ -1549,7 +1636,14 @@ _________________________                   _________________________
                 </pre>
               </div>
             </CardContent>
-            <CardFooter className="flex flex-col sm:flex-row gap-2 justify-end border-t px-4 py-3">
+            <CardFooter className="flex flex-col sm:flex-row gap-2 justify-end border-t px-6 py-4">
+              <Button
+                variant="outline"
+                onClick={handlePrintContract}
+                className="w-full sm:w-auto"
+              >
+                <Printer className="mr-2 h-4 w-4" /> Chop etish
+              </Button>
               <Button
                 onClick={() =>
                   handleDownloadContractWord(
@@ -1557,37 +1651,14 @@ _________________________                   _________________________
                     requestReceipt.client
                   )
                 }
-                variant="default"
-                size="sm"
+                className="w-full sm:w-auto"
               >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-4 w-4 mr-2"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-                Word (.docx)
+                Yuklab olish (Word)
               </Button>
               <Button
-                onClick={handlePrintContract}
                 variant="secondary"
-                size="sm"
-              >
-                <Printer className="h-4 w-4 mr-2" /> Chop etish
-              </Button>
-              <Button
-                onClick={() => {
-                  setIsReceiptModalOpen(false);
-                  router.push(`/apartments/${apartment.id}`);
-                }}
-                variant="outline"
-                size="sm"
+                onClick={() => setIsReceiptModalOpen(false)}
+                className="w-full sm:w-auto"
               >
                 Yopish
               </Button>
