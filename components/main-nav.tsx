@@ -15,7 +15,7 @@ export function MainNav({ className, ...props }: MainNavProps) {
   const routes = [
     {
       href: "/",
-      label: "Bosh sahifa",
+      label: "Bosh Menu",
       icon: Home,
       active: pathname === "/",
     },

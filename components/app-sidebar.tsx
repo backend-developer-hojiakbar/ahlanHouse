@@ -61,7 +61,7 @@ export function AppSidebar({ ...props }) {
                 <SidebarMenuButton asChild isActive={isActive("/")} tooltip="Bosh sahifa">
                   <Link to="/">
                     <BarChart className="mr-2" />
-                    <span>Bosh sahifa</span>
+                    <span>Bosh Menu</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
