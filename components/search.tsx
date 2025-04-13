@@ -10,7 +10,7 @@ export function Search() {
     <div>
       <Input
         type="search"
-        placeholder="Qidirish..."
+        placeholder="Qidirish...1"
         className="md:w-[200px] lg:w-[300px]"
         value={search}
         onChange={(e) => setSearch(e.target.value)}

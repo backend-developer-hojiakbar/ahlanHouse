@@ -17,7 +17,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useRouter } from "next/navigation";
-import { Plus, Eye, Edit, Trash, ChevronLeft, ChevronRight, Home } from "lucide-react";
+// Eye va apartmentFilter bilan bog'liq elementlar olib tashlandi
+import { Plus, Edit, Trash, ChevronLeft, ChevronRight, Home } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -30,21 +31,21 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-// Xonadon interfeysi (API va Dialog uchun mos)
+// Xonadon interfeysi
 interface Apartment {
   id: number;
   room_number: string;
-  object_name: string; // API dagi object_name ga mos keladi
+  object_name: string;
 }
 
-// Mijoz interfeysi (apartments massivini saqlash uchun yangilangan)
+// Mijoz interfeysi
 interface Client {
   id: number;
   name: string;
   phone: string;
   address: string | null;
   balance: number;
-  apartments: Apartment[]; // Barcha xonadonlar uchun massiv
+  apartments: Apartment[];
   kafil_fio: string | null;
   kafil_address: string | null;
   kafil_phone_number: string | null;
@@ -55,7 +56,7 @@ export default function ClientsPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [apartmentFilter, setApartmentFilter] = useState(""); // Bu filtr endi xonadonlar ro'yxati uchun emas, balki qidiruv uchun ishlatilishi mumkin
+  // apartmentFilter state olib tashlandi
   const [open, setOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [apartmentsOpen, setApartmentsOpen] = useState(false);
@@ -63,10 +64,9 @@ export default function ClientsPage() {
   const [selectedClientApartments, setSelectedClientApartments] = useState<Apartment[]>([]);
   const [apartmentsLoading, setApartmentsLoading] = useState(false);
   const [accessToken, setAccessToken] = useState<string | null>(null);
-  const [viewLoading, setViewLoading] = useState<Record<number, boolean>>({});
   const [editLoading, setEditLoading] = useState<Record<number, boolean>>({});
 
-  // Pagination uchun o'zgaruvchilar
+  // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const clientsPerPage = 10;
 
@@ -107,45 +107,49 @@ export default function ClientsPage() {
     }
   }, []);
 
-  // Mijozning barcha xonadonlarini olish uchun funksiya
+  // Mijozning xonadonlarini olish
   const fetchClientApartments = async (clientId: number): Promise<Apartment[]> => {
-    if (!accessToken) {
-      // Token yo'qligi haqida ogohlantirish (agar kerak bo'lsa)
-      // toast(...)
-      return [];
-    }
+    if (!accessToken) return [];
 
-    setApartmentsLoading(true); // Dialog ichidagi yuklanish holatini boshqarish uchun
+    setApartmentsLoading(true);
     let allPayments: any[] = [];
-    let nextUrl: string | null = "http://api.ahlan.uz/payments/";
+    // API endpoint ni to'g'rilash kerak bo'lishi mumkin
+    let nextUrl: string | null = `http://api.ahlan.uz/payments/?user=${clientId}&limit=100`; // User bo'yicha filtr va limit
 
     try {
+        // To'g'ridan-to'g'ri user bo'yicha filtrlab so'rov yuborish
       while (nextUrl) {
-        const response = await fetch(nextUrl, {
-          method: "GET",
-          headers: getAuthHeaders(),
-        });
+          const response = await fetch(nextUrl, {
+              method: "GET",
+              headers: getAuthHeaders(),
+          });
 
-        if (!response.ok) {
-          throw new Error(`To'lovlarni olishda xatolik: ${response.statusText}`);
-        }
+          if (!response.ok) {
+              // Agar 404 (Not Found) qaytarsa, demak bu user uchun to'lov yo'q
+              if (response.status === 404) {
+                  console.warn(`User ${clientId} uchun to'lovlar topilmadi.`);
+                  setSelectedClientApartments([]);
+                  return [];
+              }
+              throw new Error(`To'lovlarni olishda xatolik (${clientId}): ${response.statusText}`);
+          }
 
-        const data = await response.json();
-        allPayments = [...allPayments, ...(data.results || [])];
-        nextUrl = data.next;
+          const data = await response.json();
+          allPayments = [...allPayments, ...(data.results || [])];
+          nextUrl = data.next; // Keyingi sahifa uchun URL
       }
 
-      // Faqat shu mijozga tegishli to'lovlarni filtrlaymiz
-      const clientPayments = allPayments.filter(
-        (payment: any) => payment.user === clientId
-      );
+      // Agar to'lovlar topilmasa
+      if (allPayments.length === 0) {
+        setSelectedClientApartments([]);
+        return [];
+      }
 
-      // Unikal xonadon ID larini ajratib olamiz
-      const uniqueApartmentIds = Array.from(new Set(clientPayments.map(p => p.apartment)));
+      const uniqueApartmentIds = Array.from(new Set(allPayments.map(p => p.apartment)));
 
-      // Har bir unikal xonadon uchun ma'lumot olamiz
       const apartments: Apartment[] = await Promise.all(
         uniqueApartmentIds.map(async (apartmentId: any) => {
+          if (!apartmentId) return null; // ID null bo'lsa o'tkazib yuborish
           try {
             const apartmentResponse = await fetch(
               `http://api.ahlan.uz/apartments/${apartmentId}/`,
@@ -157,9 +161,7 @@ export default function ClientsPage() {
 
             if (!apartmentResponse.ok) {
                console.error(`Xonadon ${apartmentId} ma'lumotlarini olishda xatolik: ${apartmentResponse.statusText}`);
-               // Xatolik bo'lsa ham davom etish uchun null yoki boshqa qiymat qaytarish mumkin
                return null;
-              // throw new Error(`Xonadon ${apartmentId} ma'lumotlarini olishda xatolik: ${apartmentResponse.statusText}`);
             }
             const apartmentData = await apartmentResponse.json();
             return {
@@ -169,15 +171,12 @@ export default function ClientsPage() {
             };
           } catch(error) {
              console.error(`Xonadon ${apartmentId} uchun fetch xatosi:`, error);
-             return null; // Xatolik bo'lgan xonadonni o'tkazib yuborish
+             return null;
           }
         })
       );
 
-      // null qiymatlarni filtrlab tashlaymiz
       const validApartments = apartments.filter(apt => apt !== null) as Apartment[];
-
-      // Bu funksiya faqat dialog uchun ishlatilsa, state ni shu yerda yangilaymiz
       setSelectedClientApartments(validApartments);
       return validApartments;
 
@@ -187,18 +186,17 @@ export default function ClientsPage() {
         description: error.message || "Mijoz xonadonlarini olishda xatolik yuz berdi",
         variant: "destructive",
       });
-      setSelectedClientApartments([]); // Xatolik bo'lsa state ni tozalash
+      setSelectedClientApartments([]);
       return [];
     } finally {
-      setApartmentsLoading(false); // Dialog yuklanishini to'xtatish
+      setApartmentsLoading(false);
     }
   };
 
-  // Mijozlarni olish (har bir mijoz uchun xonadonlarni ham yuklaydi)
+  // Mijozlarni olish
  const fetchClients = async () => {
     if (!accessToken) {
       console.warn("Access token not available.");
-      // Token yo'q bo'lsa login sahifasiga o'tkazish yoki xabar berish
        if (typeof window !== 'undefined') {
          router.push("/login");
        }
@@ -207,7 +205,7 @@ export default function ClientsPage() {
 
     setLoading(true);
     let allFormattedClients: Client[] = [];
-    let nextUrl: string | null = "http://api.ahlan.uz/users/";
+    let nextUrl: string | null = "http://api.ahlan.uz/users/?user_type=mijoz&limit=100"; // Mijozlarni filtrlab olish va limit
     try {
       while (nextUrl) {
         const response = await fetch(nextUrl, {
@@ -217,13 +215,9 @@ export default function ClientsPage() {
 
         if (!response.ok) {
           if (response.status === 401 && typeof window !== 'undefined') {
-            const confirmLogout = window.confirm(
-              "Sessiya tugagan. Qayta kirishni xohlaysizmi?"
-            );
-            if (confirmLogout) {
-              localStorage.removeItem("access_token");
-              router.push("/login");
-            }
+            // ... (sessiya tugaganligi haqida xabar)
+            localStorage.removeItem("access_token");
+            router.push("/login");
             throw new Error("Sessiya tugagan, qayta kirish kerak");
           }
           throw new Error(`Mijozlarni olishda xatolik: ${response.statusText}`);
@@ -232,50 +226,21 @@ export default function ClientsPage() {
         const data = await response.json();
         const clientsList = data.results || [];
 
-        const mijozClientsList = clientsList.filter(
-          (client: any) => client.user_type === "mijoz"
-        );
+        // user_type bo'yicha filtr API darajasida qilinganligi uchun bu yerda kerak emas
+        // const mijozClientsList = clientsList.filter( ... );
 
-        // Har bir mijoz ma'lumotini formatlash va xonadonlarini yuklash
         const formattedClientsBatch: Client[] = await Promise.all(
-          mijozClientsList.map(async (client: any): Promise<Client> => {
-             // VAQTINCHALIK: Xonadonlarni har safar yuklash o'rniga,
-             // kelajakda optimallashtirish uchun faqat kerak bo'lganda yuklash mumkin.
-             // Hozirgi talab - ro'yxatda ko'rsatish uchun shu yerda yuklaymiz.
+          clientsList.map(async (client: any): Promise<Client> => {
+            // Optimallashtirish: Xonadonlarni faqat dialog ochilganda yuklash
+            // Hozircha eski logikani qoldiramiz, lekin kelajakda o'zgartirish mumkin
             let clientApartments: Apartment[] = [];
             try {
-                // To'lovlar orqali xonadonlarni aniqlash
-                let clientPayments: any[] = [];
-                let paymentNextUrl: string | null = `http://api.ahlan.uz/payments/?user=${client.id}`; // Foydalanuvchi bo'yicha filtr
-                while(paymentNextUrl) {
-                    const paymentResponse = await fetch(paymentNextUrl, { headers: getAuthHeaders() });
-                    if (!paymentResponse.ok) break; // Xatolik bo'lsa to'xtatish
-                    const paymentData = await paymentResponse.json();
-                    clientPayments = [...clientPayments, ...(paymentData.results || [])];
-                    paymentNextUrl = paymentData.next;
-                }
-
-                const uniqueApartmentIds = Array.from(new Set(clientPayments.map(p => p.apartment)));
-
-                clientApartments = await Promise.all(
-                    uniqueApartmentIds.map(async (aptId) => {
-                        try {
-                            const aptResponse = await fetch(`http://api.ahlan.uz/apartments/${aptId}/`, { headers: getAuthHeaders() });
-                            if (!aptResponse.ok) return null;
-                            const aptData = await aptResponse.json();
-                            return {
-                                id: aptId,
-                                room_number: aptData.room_number || "N/A",
-                                object_name: aptData.object_name || "Noma'lum"
-                            };
-                        } catch { return null; }
-                    })
-                );
-                clientApartments = clientApartments.filter(apt => apt !== null) as Apartment[];
-
+                // To'g'ridan-to'g'ri mijoz ID si bo'yicha to'lovlarni so'rash optimallashtirilgan
+                clientApartments = await fetchClientApartments(client.id);
+                // fetchClientApartments state ni yangilagani uchun bu yerda qayta set qilish shart emas
             } catch (error) {
                 console.error(`Mijoz ${client.id} uchun xonadonlarni olishda xatolik: `, error);
-                clientApartments = []; // Xatolik bo'lsa bo'sh massiv
+                clientApartments = [];
             }
 
             return {
@@ -284,7 +249,7 @@ export default function ClientsPage() {
               phone: client.phone_number || "Noma'lum",
               address: client.address || null,
               balance: Number(client.balance) || 0,
-              apartments: clientApartments, // Yuklangan xonadonlar massivi
+              apartments: clientApartments, // Yuklangan xonadonlar
               kafil_fio: client.kafil_fio || null,
               kafil_address: client.kafil_address || null,
               kafil_phone_number: client.kafil_phone_number || null,
@@ -310,7 +275,7 @@ export default function ClientsPage() {
 
   // Mijoz yaratish
   const createClient = async (clientData: any) => {
-    if (!accessToken) { /* ... token xatoligi ... */ return; }
+    if (!accessToken) { toast({ title: "Xatolik", description: "Avtorizatsiya tokeni topilmadi.", variant: "destructive" }); return; }
 
     try {
       const response = await fetch("http://api.ahlan.uz/users/", {
@@ -319,23 +284,39 @@ export default function ClientsPage() {
         body: JSON.stringify({ ...clientData, user_type: "mijoz" }),
       });
 
-      if (!response.ok) { /* ... xatolikni qayta ishlash ... */ throw new Error(/*...*/); }
+       if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ detail: `Server xatosi: ${response.statusText}` }));
+            let errorMessage = `Mijoz qo'shishda xatolik (${response.status}):`;
+            if (typeof errorData === 'object' && errorData !== null) {
+                 errorMessage += "\n" + Object.entries(errorData)
+                     .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
+                     .join('\n');
+            } else {
+                 errorMessage += ` ${response.statusText}`;
+            }
+            throw new Error(errorMessage);
+        }
 
       toast({ title: "Muvaffaqiyat", description: "Yangi mijoz qo‘shildi" });
       await fetchClients(); // Ro'yxatni yangilash
       setOpen(false);
-      setCurrentPage(1); // Birinchi sahifaga o'tish
+      setCurrentPage(1); // Yangi mijoz qo'shilganda birinchi sahifaga o'tish
     } catch (error: any) {
-      toast({ /* ... xatolik xabari ... */ });
+      toast({
+         title: "Xatolik",
+         description: error.message || "Mijoz qo'shishda noma'lum xatolik",
+         variant: "destructive",
+         className: "whitespace-pre-wrap max-w-md", // Xato xabarini to'liq ko'rsatish
+        });
     }
   };
 
   // Mijozni yangilash
   const updateClient = async (id: number, clientData: any) => {
-    if (!accessToken) { /* ... token xatoligi ... */ return; }
+    if (!accessToken) { toast({ title: "Xatolik", description: "Avtorizatsiya tokeni topilmadi.", variant: "destructive" }); return; }
 
     const dataToSend = { ...clientData, user_type: "mijoz" };
-    if (!dataToSend.password) delete dataToSend.password; // Parol bo'sh bo'lsa o'chirish
+    if (!dataToSend.password) delete dataToSend.password; // Parol bo'sh bo'lsa, yubormaslik
 
     try {
       const response = await fetch(`http://api.ahlan.uz/users/${id}/`, {
@@ -344,19 +325,35 @@ export default function ClientsPage() {
         body: JSON.stringify(dataToSend),
       });
 
-      if (!response.ok) { /* ... xatolikni qayta ishlash ... */ throw new Error(/*...*/); }
+        if (!response.ok) {
+             const errorData = await response.json().catch(() => ({ detail: `Server xatosi: ${response.statusText}` }));
+             let errorMessage = `Mijozni yangilashda xatolik (${response.status}):`;
+             if (typeof errorData === 'object' && errorData !== null) {
+                  errorMessage += "\n" + Object.entries(errorData)
+                      .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
+                      .join('\n');
+             } else {
+                 errorMessage += ` ${response.statusText}`;
+             }
+             throw new Error(errorMessage);
+         }
 
       toast({ title: "Muvaffaqiyat", description: "Mijoz yangilandi" });
       await fetchClients(); // Ro'yxatni yangilash
       setEditOpen(false);
     } catch (error: any) {
-       toast({ /* ... xatolik xabari ... */ });
+       toast({
+         title: "Xatolik",
+         description: error.message || "Mijozni yangilashda noma'lum xatolik",
+         variant: "destructive",
+         className: "whitespace-pre-wrap max-w-md", // Xato xabarini to'liq ko'rsatish
+       });
     }
   };
 
   // Mijozni o'chirish
   const deleteClient = async (id: number) => {
-    if (!accessToken) { /* ... token xatoligi ... */ return; }
+    if (!accessToken) { toast({ title: "Xatolik", description: "Avtorizatsiya tokeni topilmadi.", variant: "destructive" }); return; }
     if (!window.confirm("Haqiqatan ham bu mijozni o'chirmoqchimisiz?")) return;
 
     try {
@@ -367,30 +364,51 @@ export default function ClientsPage() {
 
       if (response.status === 204) {
         toast({ title: "Muvaffaqiyat", description: "Mijoz o‘chirildi" });
-        // O'chirilgandan keyin ro'yxatni yangilash va paginationni to'g'rilash
+        // State dan darhol o'chirish
         const newClients = clients.filter(c => c.id !== id);
         setClients(newClients);
+
+        // Paginationni to'g'rilash
         const totalClientsAfterDelete = newClients.length;
         const totalPagesAfterDelete = Math.ceil(totalClientsAfterDelete / clientsPerPage);
-        if (currentPage > totalPagesAfterDelete && currentPage > 1) {
-          setCurrentPage(currentPage - 1);
-        } else if (totalClientsAfterDelete > 0 && currentClients.length === 1 && currentPage > 1) {
-             // Agar joriy sahifada faqat bitta mijoz qolgan bo'lsa va u o'chirilsa
-             setCurrentPage(currentPage - 1);
-        } else {
-            // Qolgan holatlarda, agar kerak bo'lsa fetchClients() ni chaqirish mumkin,
-            // lekin state ni to'g'ridan-to'g'ri yangilash tezroq
-            // await fetchClients();
+
+        // Agar joriy sahifa endi mavjud bo'lmasa (oxirgi sahifadagi yagona element o'chirilgan bo'lsa)
+        if (currentPage > totalPagesAfterDelete && totalPagesAfterDelete > 0) {
+          setCurrentPage(totalPagesAfterDelete);
+        } else if (currentClients.length === 1 && currentPage > 1) {
+            // Agar joriy sahifada faqat bitta element bo'lib, u o'chirilgan bo'lsa
+            setCurrentPage(currentPage - 1);
+        } else if (totalClientsAfterDelete === 0) {
+            setCurrentPage(1); // Agar umuman mijoz qolmasa
         }
-      } else if (!response.ok) { /* ... xatolikni qayta ishlash ... */ throw new Error(/*...*/); }
+        // Agar o'sha sahifada boshqa elementlar bo'lsa, qayta fetch qilish shart emas
+        // await fetchClients(); // Agar serverdan qayta yuklash zarur bo'lsa
+
+      } else if (!response.ok) {
+          let errorMessage = `Mijozni o'chirishda xatolik (${response.status}): ${response.statusText}`;
+           try {
+               const errorData = await response.json();
+               if (errorData && typeof errorData === 'object') {
+                   errorMessage = Object.entries(errorData)
+                       .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
+                       .join('\n');
+               }
+           } catch (e) { /* Ignore if response is not JSON */ }
+           throw new Error(errorMessage);
+       }
     } catch (error: any) {
-      toast({ /* ... xatolik xabari ... */ });
+      toast({
+         title: "Xatolik",
+         description: error.message || "Mijozni o'chirishda noma'lum xatolik",
+         variant: "destructive",
+         className: "whitespace-pre-wrap max-w-md", // Xato xabarini to'liq ko'rsatish
+       });
     }
   };
 
   // Komponent yuklanganda va token o'zgarganda mijozlarni olish
   useEffect(() => {
-    if (accessToken === null) return; // Token hali o'rnatilmagan bo'lsa kutish
+    if (accessToken === null) return; // Hali token yuklanmagan bo'lsa kutish
     if (!accessToken) {
       if (typeof window !== 'undefined') {
           toast({
@@ -403,15 +421,14 @@ export default function ClientsPage() {
       return;
     }
     fetchClients();
-  }, [accessToken, router]); // router ni dependency ga qo'shish
+  }, [accessToken, router]); // accessToken o'zgarganda fetch qilish
 
-  // Input o'zgarishlarini boshqarish (yangi mijoz formasi)
+  // Input o'zgarishlarini boshqarish
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  // Input o'zgarishlarini boshqarish (tahrirlash formasi)
   const handleEditChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setEditFormData((prev) => ({ ...prev, [name]: value }));
@@ -431,8 +448,8 @@ export default function ClientsPage() {
       kafil_phone_number: formData.kafil_phone_number || null,
     };
     createClient(newClient);
-    // Formani tozalash
-    setFormData({ fio: "", phone_number: "", password: "", user_type: "mijoz", address: "", balance: "0.0", kafil_fio: "", kafil_address: "", kafil_phone_number: "" });
+    // Formani tozalash (agar muvaffaqiyatli bo'lsa, createClient ichida bajarilishi mumkin)
+    // setFormData({ fio: "", phone_number: "", password: "", user_type: "mijoz", address: "", balance: "0.0", kafil_fio: "", kafil_address: "", kafil_phone_number: "" });
   };
 
   // Tahrirlash formasini jo'natish
@@ -442,7 +459,7 @@ export default function ClientsPage() {
     const updatedClient = {
       fio: editFormData.fio,
       phone_number: editFormData.phone_number,
-      password: editFormData.password || undefined, // Parol o'zgartirilmasa undefined yuborish
+      password: editFormData.password || undefined, // Parol o'zgartirilmasa undefined
       address: editFormData.address || null,
       balance: parseFloat(editFormData.balance) || 0.0,
       kafil_fio: editFormData.kafil_fio || null,
@@ -452,28 +469,9 @@ export default function ClientsPage() {
     updateClient(selectedClient.id, updatedClient);
   };
 
-  // Mijozni ko'rish sahifasiga o'tish
-  const handleViewClient = async (clientId: number) => {
-    setViewLoading((prev) => ({ ...prev, [clientId]: true }));
-    try {
-      router.push(`/clients/${clientId}`);
-      // Ko'rish tugmasi bosilganda yuklanishni darhol to'xtatmaslik mumkin,
-      // chunki sahifa o'zgarishi biroz vaqt oladi.
-      // Agar sahifa ochilmasa xatolikni ushlash kerak.
-    } catch (error: any) {
-      toast({
-        title: "Xatolik",
-        description: error.message || "Mijozni ko‘rishda xatolik yuz berdi",
-        variant: "destructive",
-      });
-      setViewLoading((prev) => ({ ...prev, [clientId]: false })); // Xatolik bo'lsa false qilish
-    }
-    // finally qismi kerak emas, chunki sahifa o'zgarishi kerak
-  };
-
   // Tahrirlash dialogini ochish
   const openEditDialog = (client: Client) => {
-    setEditLoading((prev) => ({ ...prev, [client.id]: true })); // Yuklanishni boshlash
+    setEditLoading((prev) => ({ ...prev, [client.id]: true }));
     setSelectedClient(client);
     setEditFormData({
       fio: client.name,
@@ -487,57 +485,47 @@ export default function ClientsPage() {
       kafil_phone_number: client.kafil_phone_number || "",
     });
     setEditOpen(true);
-    // Dialog ochilgandan so'ng yuklanishni to'xtatish
-    // Ma'lumotlar yuklangandan keyin buni qilish mantiqiyroq
     setEditLoading((prev) => ({ ...prev, [client.id]: false }));
   };
 
   // Xonadonlar dialogini ochish
   const openApartmentsDialog = async (client: Client) => {
     setSelectedClient(client);
+    setSelectedClientApartments([]); // Eskisini tozalash
     setApartmentsOpen(true); // Dialog ochish
-    // Dialog ochilganda xonadonlarni qayta yuklash (eng so'nggi ma'lumot uchun)
-    await fetchClientApartments(client.id);
+    await fetchClientApartments(client.id); // Xonadonlarni yuklash
   };
 
-  // Mijozlarni filtr va qidiruv bo'yicha filtrlaymiz
+  // Mijozlarni qidiruv bo'yicha filtrlaymiz
   const filteredClients = clients.filter((client) => {
     const searchTermLower = searchTerm.toLowerCase();
     const nameMatch = client.name.toLowerCase().includes(searchTermLower);
-    const phoneMatch = client.phone.includes(searchTerm); // Raqam bo'yicha to'g'ri qidiruv
+    const phoneMatch = client.phone.includes(searchTerm);
 
-    // Xonadon raqami bo'yicha filtr (agar xonadonlar mavjud bo'lsa)
-    const apartmentMatch = apartmentFilter
-      ? client.apartments.some(apt =>
-          apt.room_number.toLowerCase().includes(apartmentFilter.toLowerCase())
-        )
-      : true; // Filtr bo'sh bo'lsa, barcha mijozlar mos keladi
-
-    return (searchTerm === "" || nameMatch || phoneMatch) && apartmentMatch;
+    // apartmentMatch olib tashlandi
+    return searchTerm === "" || nameMatch || phoneMatch;
   });
 
-  // Pagination uchun hisob-kitoblar
+  // Pagination hisob-kitoblari
   const totalClients = filteredClients.length;
   const totalPages = Math.ceil(totalClients / clientsPerPage);
   const startIndex = (currentPage - 1) * clientsPerPage;
   const endIndex = startIndex + clientsPerPage;
   const currentClients = filteredClients.slice(startIndex, endIndex);
 
-  // Keyingi sahifaga o'tish
+  // Pagination funksiyalari
   const handleNextPage = () => {
     if (currentPage < totalPages) {
       setCurrentPage(currentPage + 1);
     }
   };
 
-  // Oldingi sahifaga o'tish
   const handlePrevPage = () => {
     if (currentPage > 1) {
       setCurrentPage(currentPage - 1);
     }
   };
 
-  // Muayyan sahifaga o'tish
   const handlePageChange = (page: number) => {
     if (page >= 1 && page <= totalPages) {
         setCurrentPage(page);
@@ -564,7 +552,7 @@ export default function ClientsPage() {
         {/* Page Title and Add Button */}
         <div className="flex items-center justify-between space-y-2">
           <h2 className="text-3xl font-bold tracking-tight">Mijozlar</h2>
-          {/* Yangi mijoz qo'shish dialogi triggeri */}
+          {/* Yangi mijoz qo'shish dialogi */}
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button>
@@ -572,7 +560,6 @@ export default function ClientsPage() {
                 Yangi mijoz qo'shish
               </Button>
             </DialogTrigger>
-            {/* Yangi mijoz qo'shish dialogi kontenti */}
             <DialogContent className="sm:max-w-[600px]">
               <form onSubmit={handleSubmit}>
                 <DialogHeader>
@@ -581,14 +568,12 @@ export default function ClientsPage() {
                     Yangi mijoz ma'lumotlarini kiriting
                   </DialogDescription>
                 </DialogHeader>
-                {/* Tabs for form sections */}
                 <Tabs defaultValue="general" className="w-full">
                   <TabsList className="grid w-full grid-cols-3">
                     <TabsTrigger value="general">Umumiy</TabsTrigger>
                     <TabsTrigger value="additional">Qo'shimcha</TabsTrigger>
                     <TabsTrigger value="guarantor">Kafil</TabsTrigger>
                   </TabsList>
-                  {/* General Tab */}
                   <TabsContent value="general">
                     <div className="grid gap-4 py-4">
                       <div className="grid grid-cols-2 gap-4">
@@ -611,16 +596,14 @@ export default function ClientsPage() {
                       </div>
                     </div>
                   </TabsContent>
-                  {/* Additional Tab */}
                   <TabsContent value="additional">
                     <div className="grid gap-4 py-4">
-                       <div className="space-y-2 col-span-2"> {/* Fixed grid layout */}
+                       <div className="space-y-2 col-span-2">
                           <Label htmlFor="address">Manzil</Label>
                           <Input id="address" name="address" value={formData.address} onChange={handleChange} />
                         </div>
                     </div>
                   </TabsContent>
-                  {/* Guarantor Tab */}
                   <TabsContent value="guarantor">
                     <div className="grid gap-4 py-4">
                       <div className="grid grid-cols-2 gap-4">
@@ -652,20 +635,15 @@ export default function ClientsPage() {
         <Card>
           <CardContent className="p-6">
             <div className="space-y-4">
-              {/* Filters */}
+              {/* Filters - Faqat qidiruv qoldi */}
               <div className="flex flex-col md:flex-row md:items-center gap-4">
                 <Input
                   placeholder="Mijozlarni qidirish (FIO yoki telefon)..."
                   value={searchTerm}
-                  onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                  onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }} // Qidiruvda 1-sahifaga o'tish
                   className="max-w-sm"
                 />
-                <Input
-                  placeholder="Xonadon raqami bo'yicha filtr..."
-                  value={apartmentFilter}
-                  onChange={(e) => { setApartmentFilter(e.target.value); setCurrentPage(1); }}
-                  className="max-w-sm"
-                />
+                {/* Xonadon raqami bo'yicha filtr inputi olib tashlandi */}
               </div>
 
               {/* Loading State or Table */}
@@ -684,16 +662,17 @@ export default function ClientsPage() {
                           <TableHead>F.I.O.</TableHead>
                           <TableHead>Telefon</TableHead>
                           <TableHead>Manzil</TableHead>
-                          <TableHead>Xonadon</TableHead> {/* O'zgartirilgan sarlavha */}
+                          <TableHead>Xonadon</TableHead>
                           <TableHead className="text-right">Amallar</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {currentClients.length === 0 ? (
                           <TableRow>
+                             {/* Colspan 6 ga o'zgartirildi, chunki bitta ustun kamaydi */}
                             <TableCell colSpan={6} className="h-24 text-center">
-                              {searchTerm || apartmentFilter
-                                ? `"${searchTerm}" ${apartmentFilter ? `va xonadon "${apartmentFilter}" ` : ''}bo'yicha mijozlar topilmadi.`
+                              {searchTerm
+                                ? `"${searchTerm}" bo'yicha mijozlar topilmadi.` // Xabar soddalashtirildi
                                 : "Mijozlar mavjud emas."}
                             </TableCell>
                           </TableRow>
@@ -704,10 +683,8 @@ export default function ClientsPage() {
                               <TableCell className="font-medium">{client.name}</TableCell>
                               <TableCell>{client.phone}</TableCell>
                               <TableCell>{client.address || "Noma'lum"}</TableCell>
-                              {/* === XONADON UCHUN YANGILANGAN QISM === */}
                               <TableCell>
                                 {client.apartments && client.apartments.length > 0 ? (
-                                  // Agar xonadonlar mavjud bo'lsa, dialog ochish tugmasi
                                   <Button
                                     variant="outline"
                                     size="sm"
@@ -717,24 +694,14 @@ export default function ClientsPage() {
                                     Xonadonlarni ko‘rish ({client.apartments.length})
                                   </Button>
                                 ) : (
-                                  // Agar xonadonlar massivi bo'sh bo'lsa
                                   <span className="text-muted-foreground italic text-xs">
                                     Xonadon biriktirilmagan
                                   </span>
                                 )}
                               </TableCell>
-                              {/* === XONADON QISMI TUGADI === */}
                               <TableCell className="text-right">
                                 <div className="flex justify-end space-x-1 md:space-x-2">
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => handleViewClient(client.id)}
-                                    title="Ko'rish"
-                                    disabled={viewLoading[client.id]}
-                                  >
-                                    {viewLoading[client.id] ? ( <span className="animate-pulse text-xs">...</span> ) : ( <Eye className="h-4 w-4" /> )}
-                                  </Button>
+                                  {/* Ko'rish tugmasi yo'q */}
                                   <Button
                                     variant="ghost"
                                     size="icon"
@@ -777,25 +744,9 @@ export default function ClientsPage() {
                         >
                           <ChevronLeft className="h-4 w-4" />
                         </Button>
-                        {/* Page Numbers (Optimallashtirish mumkin, masalan, faqat bir nechta raqam ko'rsatish) */}
-                        {/* Kichik ekranlar uchun oddiyroq pagination ko'rsatish */}
                         <span className="text-sm">
                            Sahifa {currentPage} / {totalPages}
                         </span>
-                        {/* Katta ekranlar uchun batafsil pagination
-                        <div className="hidden md:flex space-x-1">
-                          {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                            <Button
-                              key={page}
-                              variant={currentPage === page ? "default" : "outline"}
-                              size="sm"
-                              onClick={() => handlePageChange(page)}
-                            >
-                              {page}
-                            </Button>
-                          ))}
-                        </div>
-                        */}
                         <Button
                           variant="outline"
                           size="sm"
@@ -833,9 +784,9 @@ export default function ClientsPage() {
                 </p>
               </div>
             ) : (
-              <div className="rounded-md border max-h-[400px] overflow-y-auto"> {/* Added scroll */}
+              <div className="rounded-md border max-h-[400px] overflow-y-auto">
                 <Table>
-                  <TableHeader className="sticky top-0 bg-background"> {/* Sticky header */}
+                  <TableHeader className="sticky top-0 bg-background">
                     <TableRow>
                       <TableHead className="w-[50px]">No</TableHead>
                       <TableHead>Xonadon raqami</TableHead>
@@ -868,14 +819,12 @@ export default function ClientsPage() {
                 <DialogTitle>Mijozni tahrirlash</DialogTitle>
                 <DialogDescription>Mijoz ma'lumotlarini yangilang</DialogDescription>
               </DialogHeader>
-              {/* Tabs for edit form sections */}
               <Tabs defaultValue="general" className="w-full">
                 <TabsList className="grid w-full grid-cols-3">
                    <TabsTrigger value="general">Umumiy</TabsTrigger>
                    <TabsTrigger value="additional">Qo'shimcha</TabsTrigger>
                    <TabsTrigger value="guarantor">Kafil</TabsTrigger>
                  </TabsList>
-                 {/* General Edit Tab */}
                  <TabsContent value="general">
                    <div className="grid gap-4 py-4">
                      <div className="grid grid-cols-2 gap-4">
@@ -898,16 +847,14 @@ export default function ClientsPage() {
                      </div>
                    </div>
                  </TabsContent>
-                 {/* Additional Edit Tab */}
                  <TabsContent value="additional">
                    <div className="grid gap-4 py-4">
-                      <div className="space-y-2 col-span-2"> {/* Fixed grid layout */}
+                      <div className="space-y-2 col-span-2">
                          <Label htmlFor="edit-address">Manzil</Label>
                          <Input id="edit-address" name="address" value={editFormData.address} onChange={handleEditChange} />
                        </div>
                    </div>
                  </TabsContent>
-                 {/* Guarantor Edit Tab */}
                  <TabsContent value="guarantor">
                    <div className="grid gap-4 py-4">
                      <div className="grid grid-cols-2 gap-4">

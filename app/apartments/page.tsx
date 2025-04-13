@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Home, DollarSign, Calendar, Plus, Trash2, Edit, User, CreditCard } from "lucide-react";
+import { Home, Calendar, Plus, Trash2, Edit, CreditCard } from "lucide-react";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -83,6 +83,7 @@ export default function ApartmentsPage() {
   });
 
   const API_BASE_URL = "http://api.ahlan.uz";
+  const PLACEHOLDER_IMAGE = "https://via.placeholder.com/150"; // Standart rasm URL
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -201,42 +202,23 @@ export default function ApartmentsPage() {
         const data = await response.json();
         let tempApartments = [...(data.results || data)];
 
-        // Har bir xonadon uchun to'lov va mijoz ma'lumotlarini olish
         const detailFetchPromises = tempApartments.map(async (apartment: any) => {
           let payment = null;
-          let client = null;
-          let clientId = null;
+          let objectImage = null;
 
           // To'lov ma'lumotlarini olish
           const paymentResponse = await fetch(
-            `${API_BASE_URL}/payments/?apartment=${apartment.id}&ordering=-created_at&page_size=1`,
+            `${API_BASE_URL}/payments/?apartment=${apartment.id}&ordering=-created_at`,
             { method: "GET", headers: getAuthHeaders() }
           );
           if (paymentResponse.ok) {
             const paymentData = await paymentResponse.json();
             if (paymentData.results && paymentData.results.length > 0) {
               payment = paymentData.results[0];
-              clientId = payment.user;
             }
           }
 
-          // Agar to'lov orqali clientId topilmasa, owners dan olish
-          if (!clientId && apartment.owners && apartment.owners.length > 0) {
-            clientId = apartment.owners[0];
-          }
-
-          // Mijoz ma'lumotlarini olish
-          if (clientId) {
-            const clientResponse = await fetch(`${API_BASE_URL}/users/${clientId}/`, {
-              method: "GET",
-              headers: getAuthHeaders(),
-            });
-            if (clientResponse.ok) {
-              client = await clientResponse.json();
-            }
-          }
-
-          // Obyekt nomini olish (agar object_name bo'lmasa)
+          // Obyekt nomi va rasmini olish
           let objectName = apartment.object_name || "Noma'lum obyekt";
           if (!apartment.object_name && apartment.object) {
             const objectId = typeof apartment.object === "object" ? apartment.object.id : apartment.object;
@@ -247,14 +229,15 @@ export default function ApartmentsPage() {
             if (objectResponse.ok) {
               const objectData = await objectResponse.json();
               objectName = objectData.name || "Noma'lum obyekt";
+              objectImage = objectData.image || null; // Obyekt rasmini olish
             }
           }
 
           return {
             ...apartment,
             object_name: objectName,
+            object_image: objectImage, // Obyekt rasmini qo'shish
             payment,
-            client,
           };
         });
 
@@ -411,7 +394,10 @@ export default function ApartmentsPage() {
     }));
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string, paymentType?: string) => {
+    if (paymentType === "muddatli") {
+      return <Badge className="bg-orange-500 hover:bg-orange-600 text-white">Muddatli</Badge>;
+    }
     switch (status?.toLowerCase()) {
       case "bosh":
         return <Badge className="bg-blue-500 hover:bg-blue-600 text-white">Bo'sh</Badge>;
@@ -419,8 +405,6 @@ export default function ApartmentsPage() {
         return <Badge className="bg-red-500 hover:bg-red-600 text-white">Band</Badge>;
       case "sotilgan":
         return <Badge className="bg-green-500 hover:bg-green-600 text-white">Sotilgan</Badge>;
-      case "muddatli":
-        return <Badge className="bg-orange-500 hover:bg-orange-600 text-white">Muddatli</Badge>;
       case "ipoteka":
         return <Badge className="bg-purple-500 hover:bg-purple-600 text-white">Ipoteka</Badge>;
       case "subsidiya":
@@ -445,6 +429,10 @@ export default function ApartmentsPage() {
       default:
         return paymentType || "Noma'lum";
     }
+  };
+
+  const formatCurrency = (amount: number) => {
+    return amount.toLocaleString("us-US", { minimumFractionDigits: 0 }) + " $";
   };
 
   return (
@@ -557,10 +545,11 @@ export default function ApartmentsPage() {
         </Card>
 
         {loading ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-4">
             {Array.from({ length: 20 }).map((_, i) => (
-              <Card key={i}>
+              <Card key={i} className="min-h-[350px]">
                 <CardContent className="p-4 space-y-3">
+                  <Skeleton className="h-32 w-full" /> {/* Rasm uchun skeleton */}
                   <div className="flex justify-between">
                     <Skeleton className="h-6 w-20" />
                     <Skeleton className="h-5 w-16" />
@@ -582,27 +571,39 @@ export default function ApartmentsPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-4">
             {apartments.map((apartment) => (
               <Card
                 key={apartment.id}
-                className="overflow-hidden transition-shadow duration-200 hover:shadow-lg cursor-pointer"
+                className="overflow-hidden transition-shadow duration-200 hover:shadow-lg cursor-pointer min-h-[350px] flex flex-col"
                 onClick={() => router.push(`/apartments/${apartment.id}`)}
               >
-                <CardContent className="p-4 space-y-2">
+                <CardContent className="p-4 space-y-2 flex-grow flex flex-col">
+                  {/* Obyekt rasmi */}
+                  <div className="w-full h-32 mb-2">
+                    <img
+                      src={apartment.object_image || PLACEHOLDER_IMAGE}
+                      alt={apartment.object_name || "Obyekt rasmi"}
+                      className="w-full h-full object-cover rounded-md"
+                      onError={(e) => {
+                        e.currentTarget.src = PLACEHOLDER_IMAGE; // Rasm yuklanmasa placeholder
+                      }}
+                    />
+                  </div>
+
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="text-lg font-semibold">
                         Uy raqami: {apartment.room_number || "N/A"}
                       </h3>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-xs text-muted-foreground truncate">
                         {apartment.object_name || "Noma'lum obyekt"}
                       </p>
                     </div>
-                    {getStatusBadge(apartment.status)}
+                    {getStatusBadge(apartment.status, apartment.payment?.payment_type)}
                   </div>
 
-                  <div className="space-y-1 text-sm text-foreground">
+                  <div className="space-y-1 text-sm text-foreground flex-grow">
                     <div className="flex items-center">
                       <Home className="mr-2 h-4 w-4 text-muted-foreground flex-shrink-0" />
                       <span>
@@ -610,34 +611,37 @@ export default function ApartmentsPage() {
                         {apartment.floor || "?"} - qavat
                       </span>
                     </div>
-                    <div className="flex items-center">
-                      <DollarSign className="mr-2 h-4 w-4 text-muted-foreground flex-shrink-0" />
-                      <span className="font-medium">
-                        {Number(apartment.price)
-                          ? Number(apartment.price).toLocaleString("us-US", {
-                              style: "currency",
-                              currency: "USD",
-                              minimumFractionDigits: 0,
-                            })
-                          : "Narx ko'rsatilmagan"}
-                      </span>
-                    </div>
                     {apartment.status === "band" && apartment.reservation_date && (
                       <div className="flex items-center text-xs text-muted-foreground">
                         <Calendar className="mr-1.5 h-3.5 w-3.5" />
-                        <span>Band: {new Date(apartment.reservation_date).toLocaleDateString("us-US")}</span>
+                        <span>Band: {new Date(apartment.reservation_date).toLocaleDateString("uz-UZ")}</span>
                       </div>
                     )}
-                    {apartment.status !== "bosh" && (
-                      <>
-                        
-                        {apartment.payment && (
-                          <div className="flex items-center text-xs text-muted-foreground">
-                            <CreditCard className="mr-1.5 h-3.5 w-3.5" />
-                            <span>To'lov turi: {getPaymentTypeLabel(apartment.payment.payment_type)}</span>
+                    {apartment.payment && (
+                      <div className="space-y-1 text-xs text-muted-foreground max-h-20 overflow-hidden">
+                        <div className="flex items-center">
+                          <CreditCard className="mr-1.5 h-3.5 w-3.5" />
+                          <span className="truncate">To‘lov turi: {getPaymentTypeLabel(apartment.payment.payment_type)}</span>
+                        </div>
+                        {apartment.payment.payment_type === "naqd" && (
+                          <div className="truncate">
+                            <span>Jami to‘langan: {formatCurrency(Number(apartment.payment.total_amount))}</span>
                           </div>
                         )}
-                      </>
+                        {apartment.payment.payment_type === "muddatli" && (
+                          <div className="space-y-1">
+                            <div className="truncate">
+                              <span>Boshlang‘ich: {formatCurrency(Number(apartment.payment.initial_payment))}</span>
+                            </div>
+                            <div className="truncate">
+                              <span>Oylik: {formatCurrency(Number(apartment.payment.monthly_payment))}</span>
+                            </div>
+                            <div className="truncate">
+                              <span>Qolgan: {formatCurrency(Number(apartment.payment.total_amount) - Number(apartment.payment.paid_amount))}</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
 
@@ -698,7 +702,6 @@ export default function ApartmentsPage() {
         )}
       </main>
 
-      {/* Tahrirlash uchun Modal */}
       {selectedApartment && (
         <Dialog open={editModalOpen} onOpenChange={setEditModalOpen}>
           <DialogContent>

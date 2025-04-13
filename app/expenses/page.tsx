@@ -23,7 +23,24 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { format, isValid, parseISO } from "date-fns";
+import { format } from "date-fns";
+
+// --- Debounce Hook ---
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+
+  return debouncedValue;
+}
 
 // --- Interfaces ---
 interface Expense {
@@ -115,6 +132,7 @@ export default function ExpensesPage() {
     dateRange: "all",
   });
   const [searchTerm, setSearchTerm] = useState("");
+  const debouncedSearchTerm = useDebounce(searchTerm, 500);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -218,6 +236,7 @@ export default function ExpensesPage() {
         if (filters.dateRange === "today") totalsQueryParams.append("date__lte", today.toISOString().split("T")[0]);
       }
     }
+    if (debouncedSearchTerm) totalsQueryParams.append("search", debouncedSearchTerm);
     totalsQueryParams.append("page_size", "10000");
 
     let calculatedFilteredTotal = 0;
@@ -261,7 +280,6 @@ export default function ExpensesPage() {
     tableQueryParams.delete("page_size");
     tableQueryParams.set("page", currentPage.toString());
     tableQueryParams.set("page_size", itemsPerPage.toString());
-    if (searchTerm) tableQueryParams.append("search", searchTerm);
 
     try {
       const tableResponse = await fetch(`${API_BASE_URL}/expenses/?${tableQueryParams.toString()}`, {
@@ -282,9 +300,8 @@ export default function ExpensesPage() {
     } finally {
       setLoading(false);
     }
-  }, [accessToken, filters, currentPage, getAuthHeaders, itemsPerPage, searchTerm]);
+  }, [accessToken, filters, currentPage, debouncedSearchTerm, getAuthHeaders]);
 
-  // Modal uchun xarajatlar olish
   const fetchModalExpenses = useCallback(
     async (status: "To‘langan" | "Kutilmoqda") => {
       if (!accessToken) return;
@@ -310,6 +327,7 @@ export default function ExpensesPage() {
             if (filters.dateRange === "today") queryParams.append("date__lte", today.toISOString().split("T")[0]);
           }
         }
+        if (debouncedSearchTerm) queryParams.append("search", debouncedSearchTerm);
         queryParams.append("page_size", "1000");
 
         const response = await fetch(`${API_BASE_URL}/expenses/?${queryParams.toString()}`, {
@@ -328,7 +346,7 @@ export default function ExpensesPage() {
         setModalLoading(false);
       }
     },
-    [accessToken, filters, getAuthHeaders]
+    [accessToken, filters, debouncedSearchTerm, getAuthHeaders]
   );
 
   useEffect(() => {
@@ -341,7 +359,7 @@ export default function ExpensesPage() {
     if (accessToken) {
       fetchExpensesAndFilteredTotals();
     }
-  }, [accessToken, filters, currentPage, searchTerm, fetchExpensesAndFilteredTotals]);
+  }, [accessToken, filters, currentPage, debouncedSearchTerm, fetchExpensesAndFilteredTotals]);
 
   // --- CRUD Operations ---
   const createExpense = async (expenseData: any, action: "save" | "saveAndAdd" | "saveAndContinue") => {
@@ -379,7 +397,7 @@ export default function ExpensesPage() {
       setCurrentExpense(data);
       let formattedDate = data.date;
       if (data.date) {
-        try { formattedDate = format(parseISO(data.date + 'T00:00:00Z'), "yyyy-MM-dd"); }
+        try { formattedDate = format(new Date(data.date), "yyyy-MM-dd"); }
         catch { console.warn("Could not format date for input:", data.date); }
       }
       setFormData({
@@ -565,16 +583,11 @@ export default function ExpensesPage() {
     if (!dateString) return "-";
     if (!isClient) return dateString;
     try {
-      // Sana formatini tekshirish
       const date = new Date(dateString);
       if (isNaN(date.getTime())) {
-        // Agar sana noto‘g‘ri bo‘lsa, xom holatda qaytarish
         return dateString;
       }
-      const day = String(date.getDate()).padStart(2, '0');
-      const month = String(date.getMonth() + 1).padStart(2, '0'); // getMonth 0-11 bo‘ladi, shuning uchun +1 qo‘shamiz
-      const year = date.getFullYear();
-      return `${day}/${month}/${year}`; // "DD/MM/YYYY" formati
+      return format(date, "dd/MM/yyyy");
     } catch (e) {
       console.warn("Date formatting error:", e);
       return dateString;
@@ -615,43 +628,78 @@ export default function ExpensesPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[60px]">ID</TableHead><TableHead className="w-[120px]">Sana</TableHead>
-              <TableHead>Obyekt</TableHead><TableHead>Yetkazib beruvchi</TableHead><TableHead>Tavsif</TableHead>
-              <TableHead>Turi</TableHead><TableHead>Status</TableHead>
-              <TableHead className="text-right w-[150px]">Summa</TableHead><TableHead className="text-right w-[100px]">Amallar</TableHead>
+              <TableHead className="w-[60px]">#</TableHead>
+              <TableHead className="w-[120px]">Sana</TableHead>
+              <TableHead>Obleau</TableHead>
+              <TableHead>Yetkazib beruvchi</TableHead>
+              <TableHead>Tavsif</TableHead>
+              <TableHead>Turi</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right w-[150px]">Summa</TableHead>
+              <TableHead className="text-right w-[100px]">Amallar</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {expensesToRender.map((expense) => (
+            {expensesToRender.map((expense, index) => (
               <TableRow key={expense.id} className="hover:bg-muted/50">
-                <TableCell className="font-medium">{expense.id}</TableCell>
+                <TableCell className="font-medium">
+                  {(currentPage - 1) * itemsPerPage + index + 1}
+                </TableCell>
                 <TableCell>{formatDate(expense.date)}</TableCell>
                 <TableCell>{getObjectName(expense.object)}</TableCell>
                 <TableCell>{expense.supplier_name || `Yetk. ID: ${expense.supplier}`}</TableCell>
-                <TableCell className="max-w-[250px] truncate" title={expense.comment}>{expense.comment || "-"}</TableCell>
+                <TableCell className="max-w-[250px] truncate" title={expense.comment}>
+                  {expense.comment || "-"}
+                </TableCell>
                 <TableCell>
-                  <Badge variant="outline" className={`whitespace-nowrap ${getExpenseTypeStyle(expense.expense_type_name)}`}>
+                  <Badge
+                    variant="outline"
+                    className={`whitespace-nowrap ${getExpenseTypeStyle(expense.expense_type_name)}`}
+                  >
                     {expense.expense_type_name || `ID: ${expense.expense_type}`}
                   </Badge>
                 </TableCell>
                 <TableCell>
-                  <Badge variant={expense.status === 'To‘langan' ? 'success' : 'warning'} className="whitespace-nowrap">
+                  <Badge
+                    variant={expense.status === 'To‘langan' ? 'success' : 'warning'}
+                    className="whitespace-nowrap"
+                  >
                     {expense.status || "Noma'lum"}
                   </Badge>
                 </TableCell>
-                <TableCell className="text-right font-semibold">{formatCurrency(expense.amount)}</TableCell>
+                <TableCell className="text-right font-semibold">
+                  {formatCurrency(expense.amount)}
+                </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end space-x-1">
-                    <Button variant="ghost" size="icon" onClick={() => handleOpenEditDialog(expense.id)} title="Tahrirlash"><Edit className="h-4 w-4" /></Button>
-                    <Button variant="ghost" size="icon" onClick={() => deleteExpense(expense.id)} title="O'chirish"><Trash2 className="h-4 w-4 text-red-500 hover:text-red-700" /></Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleOpenEditDialog(expense.id)}
+                      title="Tahrirlash"
+                    >
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => deleteExpense(expense.id)}
+                      title="O'chirish"
+                    >
+                      <Trash2 className="h-4 w-4 text-red-500 hover:text-red-700" />
+                    </Button>
                   </div>
                 </TableCell>
               </TableRow>
             ))}
             <TableRow className="bg-muted hover:bg-muted font-bold sticky bottom-0">
-              <TableCell colSpan={7} className="text-right">Jami (Sahifada):</TableCell>
+              <TableCell colSpan={7} className="text-right">
+                Jami (Sahifada):
+              </TableCell>
               <TableCell className="text-right">
-                {formatCurrency(expensesToRender.reduce((sum, exp) => sum + Number(exp.amount || 0), 0))}
+                {formatCurrency(
+                  expensesToRender.reduce((sum, exp) => sum + Number(exp.amount || 0), 0)
+                )}
               </TableCell>
               <TableCell></TableCell>
             </TableRow>
@@ -770,7 +818,7 @@ export default function ExpensesPage() {
           <CardContent className="p-4 md:p-6">
             <div className="space-y-4">
               <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-                <Input placeholder="Qidirish..." value={searchTerm} onChange={handleSearchChange} className="max-w-xs md:max-w-sm w-full order-2 md:order-1" disabled={loading || loadingTotals} />
+                <Input placeholder="Yetkazib beruvchi yoki izoh bo'yicha qidiring..." value={searchTerm} onChange={handleSearchChange} className="max-w-xs md:max-w-sm w-full order-2 md:order-1" disabled={loading || loadingTotals} />
                 <div className="flex flex-wrap justify-start md:justify-end gap-2 w-full md:w-auto order-1 md:order-2">
                   <Select value={filters.object} onValueChange={(value) => handleFilterChange("object", value)} disabled={loading || loadingTotals}><SelectTrigger className="w-full sm:w-[160px]"><SelectValue placeholder="Obyekt" /></SelectTrigger><SelectContent><SelectItem value="all">Barcha Obyektlar</SelectItem>{properties.map((p) => (<SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>))}</SelectContent></Select>
                   <Select value={filters.expense_type} onValueChange={(value) => handleFilterChange("expense_type", value)} disabled={loading || loadingTotals}><SelectTrigger className="w-full sm:w-[160px]"><SelectValue placeholder="Turi" /></SelectTrigger><SelectContent><SelectItem value="all">Barcha Turlar</SelectItem>{expenseTypes.map((t) => (<SelectItem key={t.id} value={t.id.toString()}>{t.name}</SelectItem>))}</SelectContent></Select>

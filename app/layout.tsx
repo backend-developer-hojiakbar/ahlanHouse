@@ -4,7 +4,7 @@ import './globals.css'
 export const metadata: Metadata = {
   title: 'Ahlan House',
   description: 'Created with v0',
-  generator: 'v0.dev',
+  generator: 'Ahlan.uz',
 }
 
 export default function RootLayout({

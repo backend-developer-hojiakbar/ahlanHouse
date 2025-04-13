@@ -67,7 +67,7 @@ export default function ReserveApartmentPage() {
     kafilFio: "",
     kafilPhone: "",
     kafilAddress: "",
-    due_date: "", // Har oyning to‘lov sanasi uchun yangi maydon
+    due_date: "",
   });
 
   const API_BASE_URL = "http://api.ahlan.uz";
@@ -82,9 +82,18 @@ export default function ReserveApartmentPage() {
   useEffect(() => {
     if (typeof window !== "undefined") {
       const token = localStorage.getItem("access_token");
+      if (!token) {
+        toast({
+          title: "Xatolik",
+          description: "Avtorizatsiya qilinmagan.",
+          variant: "destructive",
+        });
+        router.push("/login");
+        return;
+      }
       setAccessToken(token);
     }
-  }, []);
+  }, [router]);
 
   const validatePhoneNumber = (phone: string) => {
     const phoneRegex = /^\+998\d{9}$/;
@@ -117,15 +126,7 @@ export default function ReserveApartmentPage() {
   };
 
   const fetchData = async () => {
-    if (!accessToken) {
-      toast({
-        title: "Xatolik",
-        description: "Avtorizatsiya qilinmagan.",
-        variant: "destructive",
-      });
-      router.push("/login");
-      return;
-    }
+    if (!accessToken) return;
 
     setLoading(true);
     try {
@@ -155,8 +156,7 @@ export default function ReserveApartmentPage() {
       setFormData((prev) => ({
         ...prev,
         totalAmount: apartmentData.price.toString(),
-        totalMonths: "",
-        due_date: "15", // Default qiymat sifatida 15-kuni
+        due_date: "15",
       }));
     } catch (error) {
       console.error("Fetch data error:", error);
@@ -182,7 +182,6 @@ export default function ReserveApartmentPage() {
       setFormData((prev) => ({
         ...prev,
         totalAmount: apartment.price.toString(),
-        totalMonths: "",
         due_date: prev.due_date || "15",
       }));
     }
@@ -343,7 +342,6 @@ export default function ReserveApartmentPage() {
       paymentDate.setMonth(currentDate.getMonth() + i);
       paymentDate.setDate(dueDate);
 
-      // Adjust if the due date exceeds the last day of the month
       const lastDayOfMonth = new Date(
         paymentDate.getFullYear(),
         paymentDate.getMonth() + 1,
@@ -415,7 +413,7 @@ export default function ReserveApartmentPage() {
 деб юритилади) бир томондан ҳамда «${client.fio}» (кейинги ўринларда
 «Буюртмачи» деб аталади), иккинчи томондан Ўзбекистон Республикасининг
 «Хўжалик юритувчи субъектлар фаолиятининг шартномавий-хуқуқий базаси
-тўғрисида»ги қонунига мувофиқ мазкур шартномани қуйидагилар тўғрисида
+тўғрисида»ги қонунига мувофиқ мазкур шартномани қуйидагилар тѝғрисида
 туздик.
 
                           I. ШАРТНОМА ПРЕДМЕТИ
@@ -455,7 +453,9 @@ export default function ReserveApartmentPage() {
           ? `band qilish uchun ${initialPaymentFormatted} сўм`
           : paymentType === "muddatli"
             ? `${formData.totalMonths} ой давомида (${endDateString} гача)`
-            : "тўлов шартларига мувофиқ"
+            : paymentType === "ipoteka"
+              ? `ipoteka shartlariga ko‘ra ${initialPaymentFormatted} сўм`
+              : "тўлов шартларига мувофиқ"
       }
    банкдаги ҳисоб-варағига хонадон умумий қийматини, яъни
    ${formattedPrice} (${priceWords}) сўм миқдорида пул маблағини
@@ -467,7 +467,9 @@ ${paymentType === "muddatli"
 ${paymentSchedule}`
         : paymentType === "band"
           ? `   - Band qilish uchun to'lov: ${initialPaymentFormatted} so'm (${currentDate}).`
-          : ""
+          : paymentType === "ipoteka"
+            ? `   - Boshlang‘ich to‘lov: ${initialPaymentFormatted} so'm (${currentDate}).`
+            : ""
       }
 
                     IV. ШАРТНОМАНИНГ АМАЛ ҚИЛИШИ
@@ -483,7 +485,9 @@ ${paymentSchedule}`
           ? "band qilish to‘lovini"
           : paymentType === "muddatli"
             ? `${endDateString} гача бўлган муддатда белгиланган тўловларни`
-            : "тўлов шартларига мувофиқ белгиланган тўловларни"
+            : paymentType === "ipoteka"
+              ? "ipoteka shartlariga ko‘ra belgilangan to‘lovlarni"
+              : "тўлов шартларига мувофиқ белгиланган тўловларни"
         } амалга оширмаса;
 
                          V. ЯКУНИЙ ҚОИДАЛАР
@@ -758,6 +762,37 @@ _________________________                   _________________________
     }
   };
 
+  const addPayment = async (paymentId: number, amount: number) => {
+    if (!accessToken || !paymentId) {
+      throw new Error("To'lov qo'shish uchun kerakli ma'lumotlar topilmadi.");
+    }
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/payments/${paymentId}/process_payment/`,
+        {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ amount }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(
+          `To'lov qo'shishda xatolik (${response.status}): ${
+            errorData.error || "Noma'lum xato"
+          }`
+        );
+      }
+
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      throw error;
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -779,10 +814,16 @@ _________________________                   _________________________
       return;
     }
 
-    if (apartment.status !== "sotuvda" && apartment.status !== "bosh") {
+    if (apartment.status !== "bosh") {
       toast({
         title: "Xatolik",
-        description: "Bu xonadon allaqachon band qilingan yoki sotilgan.",
+        description: `Bu xonadon allaqachon ${
+          apartment.status === "band"
+            ? "band qilingan"
+            : apartment.status === "muddatli"
+            ? "muddatli to'lovda"
+            : "sotilgan"
+        }.`,
         variant: "destructive",
       });
       return;
@@ -794,28 +835,24 @@ _________________________                   _________________________
         ? Number(formData.totalAmount) || 0
         : apartment.price;
 
-    if (paymentType === "naqd" || paymentType === "band") {
-      if (!formData.initialPayment || initialPayment <= 0) {
-        toast({
-          title: "Xatolik",
-          description: `${
-            paymentType === "naqd" ? "Naqd to'lov" : "Band qilish"
-          } uchun summa kiritilmagan yoki 0 dan kichik.`,
-          variant: "destructive",
-        });
-        return;
-      }
+    if (initialPayment <= 0) {
+      toast({
+        title: "Xatolik",
+        description: `${
+          paymentType === "naqd"
+            ? "Naqd to'lov"
+            : paymentType === "band"
+            ? "Band qilish"
+            : paymentType === "ipoteka"
+            ? "Ipoteka"
+            : "Muddatli to'lov"
+        } uchun summa kiritilmagan yoki 0 dan kichik.`,
+        variant: "destructive",
+      });
+      return;
     }
 
     if (paymentType === "muddatli") {
-      if (!formData.initialPayment || initialPayment <= 0) {
-        toast({
-          title: "Xatolik",
-          description: "Boshlang'ich to'lov kiritilmagan yoki 0 dan kichik.",
-          variant: "destructive",
-        });
-        return;
-      }
       if (!formData.totalMonths || Number(formData.totalMonths) <= 0) {
         toast({
           title: "Xatolik",
@@ -845,32 +882,6 @@ _________________________                   _________________________
         });
         return;
       }
-    }
-
-    if (
-      paymentType === "subsidiya" &&
-      (!formData.initialPayment || initialPayment <= 0)
-    ) {
-      toast({
-        title: "Xatolik",
-        description:
-          "Subsidiya uchun boshlang'ich to'lov kiritilmagan yoki 0 dan kichik.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (
-      paymentType === "ipoteka" &&
-      (!formData.initialPayment || initialPayment <= 0)
-    ) {
-      toast({
-        title: "Xatolik",
-        description:
-          "Ipoteka uchun boshlang'ich to'lov kiritilmagan yoki 0 dan kichik.",
-        variant: "destructive",
-      });
-      return;
     }
 
     setSubmitting(true);
@@ -905,36 +916,28 @@ _________________________                   _________________________
       }
 
       const durationMonths =
-        paymentType === "subsidiya" || paymentType === "ipoteka"
-          ? 1
-          : paymentType === "muddatli"
-          ? Number(formData.totalMonths)
-          : 0;
+        paymentType === "muddatli" ? Number(formData.totalMonths) : 0;
 
       const paymentPayload = {
         user: Number(formData.clientId),
         apartment: Number(params.id),
         payment_type: paymentType,
         total_amount: totalAmount.toString(),
-        initial_payment: formData.initialPayment || "0",
+        initial_payment: initialPayment.toString(),
         interest_rate: 0,
         duration_months: durationMonths,
         monthly_payment:
           paymentType === "muddatli" ? calculatedMonthlyPayment.toFixed(2) : "0",
         due_date: Number(formData.due_date) || 15,
-        paid_amount:
-          paymentType === "naqd" ? formData.initialPayment || "0" : "0",
-        status:
-          paymentType === "naqd"
-            ? "paid"
-            : paymentType === "subsidiya"
-            ? "subsidiya"
-            : paymentType === "ipoteka"
-            ? "ipoteka"
-            : paymentType === "muddatli"
-            ? "pending"
-            : "pending",
+        paid_amount: "0",
+        status: "pending",
         additional_info: formData.comments || "",
+        reservation_deadline:
+          paymentType === "band"
+            ? new Date(
+                Date.now() + 7 * 24 * 60 * 60 * 1000
+              ).toISOString()
+            : null,
       };
 
       const paymentResponse = await fetch(`${API_BASE_URL}/payments/`, {
@@ -952,6 +955,10 @@ _________________________                   _________________________
       }
 
       const paymentResult = await paymentResponse.json();
+
+      // Boshlang'ich to'lovni qayta ishlash
+      await addPayment(paymentResult.id, initialPayment);
+
       const contractText = generateContractText(
         paymentResult.id,
         finalClientDetails
@@ -968,8 +975,6 @@ _________________________                   _________________________
         description: `Xonadon №${apartment.room_number} ${
           paymentType === "muddatli"
             ? "muddatli to'lovga band qilindi"
-            : paymentType === "subsidiya"
-            ? "subsidiya bilan sotildi"
             : paymentType === "ipoteka"
             ? "ipoteka bilan band qilindi"
             : paymentType === "naqd"
@@ -978,47 +983,6 @@ _________________________                   _________________________
         }. To'lov ID: ${paymentResult.id}`,
       });
 
-      let newApartmentStatus = "";
-      switch (paymentType) {
-        case "naqd":
-          newApartmentStatus = "sotilgan";
-          break;
-        case "muddatli":
-          newApartmentStatus =
-            initialPayment >= totalAmount ? "sotilgan" : "muddatli";
-          break;
-        case "ipoteka":
-          newApartmentStatus = "ipoteka";
-          break;
-        case "subsidiya":
-          newApartmentStatus = "sotilgan"; // Subsidiya bo'lsa, apartment statusi "sotilgan" bo'ladi
-          break;
-        case "band":
-          newApartmentStatus = "band";
-          break;
-        default:
-          newApartmentStatus = "band";
-      }
-
-      const patchResponse = await fetch(
-        `${API_BASE_URL}/apartments/${params.id}/`,
-        {
-          method: "PATCH",
-          headers: getAuthHeaders(),
-          body: JSON.stringify({ status: newApartmentStatus }),
-        }
-      );
-
-      if (!patchResponse.ok) {
-        const errorData = await patchResponse.json().catch(() => ({}));
-        throw new Error(
-          `Xonadon statusini yangilashda xatolik (${patchResponse.status}): ${
-            errorData.detail || JSON.stringify(errorData)
-          }`
-        );
-      }
-
-      // Redirect to the apartment detail page after successful contract creation
       router.push(`/apartments/${params.id}`);
     } catch (error) {
       toast({
@@ -1315,6 +1279,7 @@ _________________________                   _________________________
                               totalMonths: "",
                               totalAmount:
                                 apartment?.price?.toString() || prev.totalAmount,
+                              due_date: value === "muddatli" ? "15" : "",
                             }));
                           }}
                         >
@@ -1327,14 +1292,15 @@ _________________________                   _________________________
                               Muddatli to‘lov
                             </SelectItem>
                             <SelectItem value="ipoteka">Ipoteka</SelectItem>
-                            <SelectItem value="subsidiya">Subsidiya</SelectItem>
+                            <SelectItem value="band">Band qilish</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
                       {paymentType === "muddatli" && (
                         <div className="space-y-2">
                           <Label htmlFor="totalAmount">
-                            Umumiy narx ($) <span className="text-red-500">*</span>
+                            Umumiy narx (so'm){" "}
+                            <span className="text-red-500">*</span>
                           </Label>
                           <Input
                             id="totalAmount"
@@ -1353,7 +1319,11 @@ _________________________                   _________________________
                         <Label htmlFor="initialPayment">
                           {paymentType === "muddatli"
                             ? "Boshlang'ich to'lov"
-                            : "To'lanadigan summa"}{" "}
+                            : paymentType === "ipoteka"
+                            ? "Boshlang'ich to'lov"
+                            : paymentType === "naqd"
+                            ? "To'liq summa"
+                            : "Band qilish summasi"}{" "}
                           <span className="text-red-500">*</span>
                         </Label>
                         <Input
@@ -1364,6 +1334,8 @@ _________________________                   _________________________
                           max={
                             paymentType === "muddatli"
                               ? formData.totalAmount
+                              : paymentType === "naqd"
+                              ? apartment?.price
                               : undefined
                           }
                           value={formData.initialPayment}
@@ -1410,6 +1382,18 @@ _________________________                   _________________________
                             </p>
                           </div>
                         </>
+                      )}
+                      {paymentType === "ipoteka" && (
+                        <div className="space-y-2">
+                          <Label htmlFor="bank_name">Bank nomi</Label>
+                          <Input
+                            id="bank_name"
+                            name="bank_name"
+                            value={formData.bank_name || ""}
+                            onChange={handleChange}
+                            placeholder="Masalan, Ipoteka Bank"
+                          />
+                        </div>
                       )}
                     </div>
                     <div className="space-y-2">
@@ -1491,7 +1475,7 @@ _________________________                   _________________________
                   <div className="flex justify-between pt-2 border-t">
                     <span className="font-semibold">Narx:</span>
                     <span className="font-bold text-lg text-primary">
-                      {Number(apartment.price).toLocaleString("us-US", {
+                      {Number(apartment.price).toLocaleString("uz-UZ", {
                         style: "currency",
                         currency: "USD",
                       })}
@@ -1501,23 +1485,23 @@ _________________________                   _________________________
                     <span>Holati:</span>
                     <span
                       className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                        apartment.status === "sotuvda" ||
                         apartment.status === "bosh"
                           ? "bg-green-100 text-green-800"
+                          : apartment.status === "band"
+                          ? "bg-yellow-100 text-yellow-800"
+                          : apartment.status === "muddatli"
+                          ? "bg-blue-100 text-blue-800"
                           : "bg-red-100 text-red-800"
                       }`}
                     >
-                      {apartment.status === "sotuvda" ||
-                      apartment.status === "bosh"
-                        ? "Sotuvda"
+                      {apartment.status === "bosh"
+                        ? "Bo'sh"
                         : apartment.status === "band"
                         ? "Band"
-                        : apartment.status === "sotilgan"
-                        ? "Sotilgan"
                         : apartment.status === "muddatli"
                         ? "Muddatli"
-                        : apartment.status === "ipoteka"
-                        ? "Ipoteka"
+                        : apartment.status === "sotilgan"
+                        ? "Sotilgan"
                         : "Noma'lum"}
                     </span>
                   </div>
@@ -1533,7 +1517,7 @@ _________________________                   _________________________
                   <div className="flex justify-between">
                     <span>Umumiy narx:</span>
                     <span>
-                      {Number(formData.totalAmount).toLocaleString("us-US", {
+                      {Number(formData.totalAmount).toLocaleString("uz-UZ", {
                         style: "currency",
                         currency: "USD",
                       })}
@@ -1543,7 +1527,7 @@ _________________________                   _________________________
                     <span>Boshlang'ich to'lov:</span>
                     <span>
                       {Number(formData.initialPayment || "0").toLocaleString(
-                        "us-US",
+                        "uz-UZ",
                         { style: "currency", currency: "USD" }
                       )}
                       ({calculateRemainingPercentage()}% qoldi)
@@ -1554,7 +1538,7 @@ _________________________                   _________________________
                     <span>
                       {(Number(formData.totalAmount) -
                         Number(formData.initialPayment || "0")).toLocaleString(
-                        "us-US",
+                        "uz-UZ",
                         {
                           style: "currency",
                           currency: "USD",
@@ -1581,7 +1565,7 @@ _________________________                   _________________________
                             Number(formData.initialPayment) <
                               Number(formData.totalAmount)
                           ) {
-                            return monthly.toLocaleString("us-US", {
+                            return monthly.toLocaleString("uz-UZ", {
                               style: "currency",
                               currency: "USD",
                               minimumFractionDigits: 2,

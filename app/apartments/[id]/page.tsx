@@ -9,9 +9,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
+  CardDescription,
 } from "@/components/ui/card";
 import { useParams, useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
@@ -39,13 +39,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Popover,
@@ -116,7 +109,6 @@ export default function ApartmentDetailPage() {
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
   const [paymentForm, setPaymentForm] = useState({
     amount: "",
-    paymentType: "naqd",
     description: "",
   });
 
@@ -132,38 +124,40 @@ export default function ApartmentDetailPage() {
     object: "",
   });
 
-  const [isEditUserPaymentModalOpen, setIsEditUserPaymentModalOpen] = useState(false);
-  const [editingUserPayment, setEditingUserPayment] = useState(null);
-  const [editUserPaymentForm, setEditUserPaymentForm] = useState({
+  const [isEditPaymentModalOpen, setIsEditPaymentModalOpen] = useState(false);
+  const [editingPayment, setEditingPayment] = useState(null);
+  const [editPaymentForm, setEditPaymentForm] = useState({
     amount: "",
-    paymentType: "naqd",
     description: "",
     date: new Date(),
   });
-  const [isUpdatingUserPayment, setIsUpdatingUserPayment] = useState(false);
-  const [deletingUserPaymentId, setDeletingUserPaymentId] = useState<number | null>(null);
+  const [isUpdatingPayment, setIsUpdatingPayment] = useState(false);
+  const [deletingPaymentId, setDeletingPaymentId] = useState<number | null>(null);
 
   const [totalPaid, setTotalPaid] = useState(0);
   const [remainingAmount, setRemainingAmount] = useState(0);
 
   // --- Utility Functions ---
-  const getAuthHeaders = useCallback((token = accessToken) => {
-    if (!token) {
-      console.error("Auth token is missing!");
-      return null;
-    }
-    return {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    };
-  }, [accessToken]);
+  const getAuthHeaders = useCallback(
+    (token = accessToken) => {
+      if (!token) {
+        console.error("Auth token is missing!");
+        return null;
+      }
+      return {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      };
+    },
+    [accessToken]
+  );
 
   const formatCurrency = useCallback((amount: string | number) => {
     const num = Number(amount);
     if (amount === null || amount === undefined || amount === "" || isNaN(num))
-      return "$0.00";
-    return num.toLocaleString("en-US", {
+      return "0 so'm";
+    return num.toLocaleString("uz-UZ", {
       style: "currency",
       currency: "USD",
       minimumFractionDigits: 2,
@@ -188,177 +182,189 @@ export default function ApartmentDetailPage() {
   const recalculateTotals = useCallback((currentApartmentData: any) => {
     if (!currentApartmentData) return;
 
-    const mainPmt = currentApartmentData.payments?.[0];
-    const userPmts = currentApartmentData.userPayments || [];
+    const payments = currentApartmentData.payments || [];
+    const totalPaidFromPayments = payments.reduce(
+      (sum: number, p: any) => sum + (parseFloat(p.paid_amount) || 0),
+      0
+    );
 
-    const paidFromMainPayment = mainPmt && mainPmt.paid_amount ? parseFloat(mainPmt.paid_amount) || 0 : 0;
-    const initialPayment = mainPmt ? parseFloat(mainPmt.initial_payment) || 0 : 0;
-    const userPaymentsTotal = userPmts.reduce((sum: number, up: any) => sum + (parseFloat(up.amount) || 0), 0);
-
-    const newTotalPaid = paidFromMainPayment > 0 ? paidFromMainPayment : initialPayment + userPaymentsTotal;
-
-    const totalAmount = mainPmt && mainPmt.total_amount
-      ? parseFloat(mainPmt.total_amount) || 0
+    const totalAmount = payments[0]?.total_amount
+      ? parseFloat(payments[0].total_amount) || 0
       : parseFloat(currentApartmentData.price) || 0;
 
-    const newRemainingAmount = totalAmount - newTotalPaid;
+    const newRemainingAmount = totalAmount - totalPaidFromPayments;
 
-    setTotalPaid(newTotalPaid);
+    setTotalPaid(totalPaidFromPayments);
     setRemainingAmount(newRemainingAmount > 0 ? newRemainingAmount : 0);
   }, []);
 
   // --- Data Fetching ---
-  const fetchApartmentDetails = useCallback(async (token: string) => {
-    if (!token || !params.id) {
-      setLoading(false);
-      return;
-    }
+  const fetchApartmentDetails = useCallback(
+    async (token: string) => {
+      if (!token || !params.id) {
+        setLoading(false);
+        return;
+      }
 
-    setLoading(true);
-    setApartment(null); // Eski ma'lumotlarni tozalash
-    try {
-      const apartmentId = params.id;
-      const headers = getAuthHeaders(token);
-      if (!headers) throw new Error("Avtorizatsiya tokeni yo'q.");
+      setLoading(true);
+      setApartment(null);
+      try {
+        const apartmentId = params.id;
+        const headers = getAuthHeaders(token);
+        if (!headers) throw new Error("Avtorizatsiya tokeni yo'q.");
 
-      const responses = await Promise.all([
-        fetch(`${API_BASE_URL}/apartments/${apartmentId}/`, { method: "GET", headers }).catch(
-          (e) => e
-        ),
-        fetch(
-          `${API_BASE_URL}/payments/?apartment=${apartmentId}&ordering=-created_at&page_size=1`,
-          { method: "GET", headers }
-        ).catch((e) => e),
-      ]);
+        const responses = await Promise.all([
+          fetch(`${API_BASE_URL}/apartments/${apartmentId}/`, {
+            method: "GET",
+            headers,
+          }).catch((e) => e),
+          fetch(
+            `${API_BASE_URL}/payments/?apartment=${apartmentId}&ordering=-created_at&page_size=100`,
+            { method: "GET", headers }
+          ).catch((e) => e),
+        ]);
 
-      const apartmentResponse = responses[0];
-      const mainPaymentResponse = responses[1];
+        const apartmentResponse = responses[0];
+        const paymentsResponse = responses[1];
 
-      if (!(apartmentResponse instanceof Response) || !apartmentResponse.ok) {
-        if (apartmentResponse.status === 404)
-          throw new Error(`Xonadon (ID: ${apartmentId}) topilmadi.`);
-        if (apartmentResponse.status === 401) {
-          localStorage.removeItem("access_token");
-          router.push("/login");
-          throw new Error("Sessiya muddati tugagan. Iltimos, qayta kiring.");
+        if (
+          !(apartmentResponse instanceof Response) ||
+          !apartmentResponse.ok
+        ) {
+          if (apartmentResponse.status === 404)
+            throw new Error(`Xonadon (ID: ${apartmentId}) topilmadi.`);
+          if (apartmentResponse.status === 401) {
+            localStorage.removeItem("access_token");
+            router.push("/login");
+            throw new Error("Sessiya muddati tugagan. Iltimos, qayta kiring.");
+          }
+          const errorText = await apartmentResponse
+            ?.text?.()
+            .catch(() => "Server xatosi");
+          throw new Error(
+            `Xonadon ma'lumotlarini olishda xatolik (${apartmentResponse?.status}): ${errorText}`
+          );
         }
-        const errorText = await apartmentResponse?.text?.().catch(() => "Server xatosi");
-        throw new Error(
-          `Xonadon ma'lumotlarini olishda xatolik (${apartmentResponse?.status}): ${errorText}`
-        );
-      }
-      const apartmentData = await apartmentResponse.json();
+        const apartmentData = await apartmentResponse.json();
 
-      let mainPayment = null;
-      let clientId = null;
-      if (mainPaymentResponse instanceof Response && mainPaymentResponse.ok) {
-        const paymentsData = await mainPaymentResponse.json();
-        if (paymentsData.results && paymentsData.results.length > 0) {
-          mainPayment = paymentsData.results[0];
-          clientId = mainPayment.user;
+        let payments = [];
+        let clientId = null;
+        if (paymentsResponse instanceof Response && paymentsResponse.ok) {
+          const paymentsData = await paymentsResponse.json();
+          payments = paymentsData.results || [];
+          if (payments.length > 0) {
+            clientId = payments[0].user;
+          }
+        } else {
+          console.warn(
+            "To'lovlarni olishda ogohlantirish:",
+            paymentsResponse?.status
+          );
         }
-      } else {
-        console.warn("Asosiy to'lovni olishda ogohlantirish:", mainPaymentResponse?.status);
-      }
 
-      if (!clientId && apartmentData.owners && apartmentData.owners.length > 0) {
-        clientId = apartmentData.owners[0];
-      }
+        if (!clientId && apartmentData.owners && apartmentData.owners.length > 0) {
+          clientId = apartmentData.owners[0];
+        }
 
-      let objectData = null;
-      let clientData = null;
-      let userPaymentsData: any[] = [];
-      let documentsData: any[] = [];
+        let objectData = null;
+        let clientData = null;
+        let documentsData: any[] = [];
 
-      const detailFetchPromises = [];
+        const detailFetchPromises = [];
 
-      if (apartmentData.object) {
-        const objectId =
-          typeof apartmentData.object === "object"
-            ? apartmentData.object.id
-            : apartmentData.object;
-        if (objectId) {
+        if (apartmentData.object) {
+          const objectId =
+            typeof apartmentData.object === "object"
+              ? apartmentData.object.id
+              : apartmentData.object;
+          if (objectId) {
+            detailFetchPromises.push(
+              fetch(`${API_BASE_URL}/objects/${objectId}/`, {
+                method: "GET",
+                headers,
+              })
+                .then((res) => (res.ok ? res.json() : null))
+                .catch(() => null)
+            );
+          } else {
+            detailFetchPromises.push(Promise.resolve(null));
+          }
+        } else {
+          detailFetchPromises.push(Promise.resolve(null));
+        }
+
+        if (clientId) {
           detailFetchPromises.push(
-            fetch(`${API_BASE_URL}/objects/${objectId}/`, { method: "GET", headers })
+            fetch(`${API_BASE_URL}/users/${clientId}/`, {
+              method: "GET",
+              headers,
+            })
               .then((res) => (res.ok ? res.json() : null))
               .catch(() => null)
           );
         } else {
           detailFetchPromises.push(Promise.resolve(null));
         }
-      } else {
-        detailFetchPromises.push(Promise.resolve(null));
+
+        if (payments.length > 0) {
+          detailFetchPromises.push(
+            fetch(
+              `${API_BASE_URL}/documents/?payment=${payments[0].id}&page_size=50`,
+              { method: "GET", headers }
+            )
+              .then((res) => (res.ok ? res.json() : { results: [] }))
+              .then((data) => data.results || [])
+              .catch(() => [])
+          );
+        } else {
+          detailFetchPromises.push(Promise.resolve([]));
+        }
+
+        const detailResults = await Promise.all(detailFetchPromises);
+
+        objectData = detailResults[0];
+        clientData = detailResults[1];
+        documentsData = detailResults[2];
+
+        const completeApartmentData = {
+          ...apartmentData,
+          object: objectData || { id: apartmentData.object, name: "Noma'lum obyekt" },
+          payments,
+          client: clientData,
+          documents: documentsData,
+        };
+
+        setApartment(completeApartmentData);
+        recalculateTotals(completeApartmentData);
+
+        setEditForm({
+          room_number: apartmentData.room_number || "",
+          floor: apartmentData.floor?.toString() || "",
+          rooms: apartmentData.rooms?.toString() || "",
+          area: apartmentData.area?.toString() || "",
+          price: apartmentData.price || "",
+          description: apartmentData.description || "",
+          status: apartmentData.status || "",
+          object:
+            objectData?.id?.toString() ||
+            apartmentData.object?.id?.toString() ||
+            apartmentData.object?.toString() ||
+            "",
+        });
+      } catch (error) {
+        console.error("Xonadon tafsilotlarini olishda xato:", error);
+        toast({
+          title: "Xatolik",
+          description: error.message || "Ma'lumotlarni olishda noma'lum xatolik.",
+          variant: "destructive",
+        });
+        setApartment(null);
+      } finally {
+        setLoading(false);
       }
-
-      if (clientId) {
-        detailFetchPromises.push(
-          fetch(`${API_BASE_URL}/users/${clientId}/`, { method: "GET", headers })
-            .then((res) => (res.ok ? res.json() : null))
-            .catch(() => null)
-        );
-      } else {
-        detailFetchPromises.push(Promise.resolve(null), Promise.resolve([]));
-      }
-
-      if (mainPayment?.id) {
-        detailFetchPromises.push(
-          fetch(
-            `${API_BASE_URL}/documents/?payment=${mainPayment.id}&page_size=50`,
-            { method: "GET", headers }
-          )
-            .then((res) => (res.ok ? res.json() : { results: [] }))
-            .then((data) => data.results || [])
-            .catch(() => [])
-        );
-      } else {
-        detailFetchPromises.push(Promise.resolve([]));
-      }
-
-      const detailResults = await Promise.all(detailFetchPromises);
-
-      objectData = detailResults[0];
-      clientData = detailResults[1];
-      userPaymentsData = detailResults[2];
-      documentsData = detailResults[3];
-
-      const completeApartmentData = {
-        ...apartmentData,
-        object: objectData || { id: apartmentData.object, name: "Noma'lum obyekt" },
-        payments: mainPayment ? [mainPayment] : [],
-        client: clientData,
-        userPayments: userPaymentsData,
-        documents: documentsData,
-      };
-
-      setApartment(completeApartmentData);
-      recalculateTotals(completeApartmentData);
-
-      setEditForm({
-        room_number: apartmentData.room_number || "",
-        floor: apartmentData.floor?.toString() || "",
-        rooms: apartmentData.rooms?.toString() || "",
-        area: apartmentData.area?.toString() || "",
-        price: apartmentData.price || "",
-        description: apartmentData.description || "",
-        status: apartmentData.status || "",
-        object:
-          objectData?.id?.toString() ||
-          apartmentData.object?.id?.toString() ||
-          apartmentData.object?.toString() ||
-          "",
-      });
-    } catch (error) {
-      console.error("Xonadon tafsilotlarini olishda xato:", error);
-      toast({
-        title: "Xatolik",
-        description: error.message || "Ma'lumotlarni olishda noma'lum xatolik.",
-        variant: "destructive",
-      });
-      setApartment(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [params.id, router, getAuthHeaders, recalculateTotals]);
+    },
+    [params.id, router, getAuthHeaders, recalculateTotals]
+  );
 
   // --- useEffect Hooks ---
   useEffect(() => {
@@ -378,7 +384,7 @@ export default function ApartmentDetailPage() {
     }
   }, [accessToken, params.id, fetchApartmentDetails]);
 
-  // --- Event Handlers (Add User Payment) ---
+  // --- Event Handlers (Add Payment) ---
   const handleOpenPaymentModal = () => {
     if (!apartment?.client?.id) {
       toast({
@@ -389,27 +395,27 @@ export default function ApartmentDetailPage() {
       return;
     }
     setSelectedDate(new Date());
-    setPaymentForm({ amount: "", paymentType: "naqd", description: "" });
+    setPaymentForm({ amount: "", description: "" });
     setIsPaymentModalOpen(true);
   };
 
   const handleClosePaymentModal = () => {
     setIsPaymentModalOpen(false);
-    setPaymentForm({ amount: "", paymentType: "naqd", description: "" });
+    setPaymentForm({ amount: "", description: "" });
   };
 
-  const handlePaymentChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handlePaymentChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
     const { name, value } = e.target;
     setPaymentForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handlePaymentTypeChange = (value: string) => {
-    setPaymentForm((prev) => ({ ...prev, paymentType: value }));
-  };
-
-  const handleAddUserPayment = async () => {
+  const handleAddPayment = async () => {
     if (!isPaymentModalOpen) {
-      console.warn("To'lov qo'shish faqat modal orqali amalga oshirilishi mumkin.");
+      console.warn(
+        "To‘lov qo‘shish faqat modal orqali amalga oshirilishi mumkin."
+      );
       return;
     }
 
@@ -430,49 +436,57 @@ export default function ApartmentDetailPage() {
     if (isNaN(paymentAmount) || paymentAmount <= 0) {
       toast({
         title: "Xatolik",
-        description: "Summa musbat son bo'lishi kerak.",
+        description: "Summa musbat son bo‘lishi kerak.",
         variant: "destructive",
       });
       setPaymentLoading(false);
       return;
     }
-    const formattedDate = format(selectedDate, "yyyy-MM-dd");
 
     const paymentData = {
+      apartment: params.id,
       user: clientId,
-      amount: paymentAmount.toFixed(2),
-      paymentType: paymentForm.paymentType,
-      description: paymentForm.description,
-      date: formattedDate,
+      paid_amount: paymentAmount.toString(),
+      payment_type: "naqd", // Faqat Naqd pul
+      additional_info: paymentForm.description,
+      created_at: format(selectedDate, "yyyy-MM-dd"),
+      total_amount: apartment.price,
+      status: "paid",
     };
 
     try {
-      const response = await fetch(`${API_BASE_URL}/user-payments/`, {
+      const response = await fetch(`${API_BASE_URL}/payments/`, {
         method: "POST",
-        headers: headers,
+        headers,
         body: JSON.stringify(paymentData),
       });
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({
-          detail: "Server javobini o'qib bo'lmadi",
+          error: "Server javobini o‘qib bo‘lmadi",
         }));
         throw new Error(
           `To‘lov qo‘shishda xatolik (${response.status}): ${
-            errorData.detail || JSON.stringify(errorData)
+            errorData.error || JSON.stringify(errorData)
           }`
         );
       }
-      const newPaymentResponse = await response.json();
-      toast({ title: "Muvaffaqiyat", description: "To‘lov muvaffaqiyatli qo‘shildi" });
 
-      const newUserPayment = { ...newPaymentResponse, date: formattedDate };
-      const updatedUserPayments = [...(apartment.userPayments || []), newUserPayment];
-      const updatedApartmentData = { ...apartment, userPayments: updatedUserPayments };
+      const newPayment = await response.json();
+      toast({
+        title: "Muvaffaqiyat",
+        description: "To‘lov muvaffaqiyatli qo‘shildi",
+      });
 
-      setApartment(updatedApartmentData);
-      recalculateTotals(updatedApartmentData);
+      if (accessToken) {
+        await fetchApartmentDetails(accessToken);
+      }
 
-      generateReceiptPDF({ ...paymentData, date: formattedDate });
+      generateReceiptPDF({
+        amount: paymentAmount.toFixed(2),
+        description: paymentForm.description,
+        date: format(selectedDate, "yyyy-MM-dd"),
+      });
       handleClosePaymentModal();
     } catch (error) {
       toast({
@@ -488,7 +502,9 @@ export default function ApartmentDetailPage() {
   // --- Event Handlers (Edit Main Apartment) ---
   const handleOpenEditModal = () => setIsEditModalOpen(true);
   const handleCloseEditModal = () => setIsEditModalOpen(false);
-  const handleEditChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleEditChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
     const { name, value } = e.target;
     setEditForm((prev) => ({ ...prev, [name]: value }));
   };
@@ -547,7 +563,7 @@ export default function ApartmentDetailPage() {
     try {
       const response = await fetch(`${API_BASE_URL}/apartments/${apartmentId}/`, {
         method: "PUT",
-        headers: headers,
+        headers,
         body: JSON.stringify(apartmentData),
       });
       if (!response.ok) {
@@ -560,7 +576,10 @@ export default function ApartmentDetailPage() {
           }`
         );
       }
-      toast({ title: "Muvaffaqiyat", description: "Xonadon muvaffaqiyatli yangilandi" });
+      toast({
+        title: "Muvaffaqiyat",
+        description: "Xonadon muvaffaqiyatli yangilandi",
+      });
       handleCloseEditModal();
       if (accessToken) fetchApartmentDetails(accessToken);
     } catch (error) {
@@ -574,84 +593,76 @@ export default function ApartmentDetailPage() {
     }
   };
 
-  // --- Event Handlers (Edit/Delete User Payment) ---
-  const handleOpenEditUserPaymentModal = (payment: any) => {
+  // --- Event Handlers (Edit/Delete Payment) ---
+  const handleOpenEditPaymentModal = (payment: any) => {
     if (!payment) return;
-    setEditingUserPayment(payment);
-    setEditUserPaymentForm({
-      amount: payment.amount || "",
-      paymentType: payment.payment_type || "naqd",
-      description: payment.description || "",
-      date: payment.date ? parseISO(payment.date) : new Date(),
+    setEditingPayment(payment);
+    setEditPaymentForm({
+      amount: payment.paid_amount || "",
+      description: payment.additional_info || "",
+      date: payment.created_at ? parseISO(payment.created_at) : new Date(),
     });
-    setIsEditUserPaymentModalOpen(true);
+    setIsEditPaymentModalOpen(true);
   };
 
-  const handleCloseEditUserPaymentModal = () => {
-    setIsEditUserPaymentModalOpen(false);
-    setEditingUserPayment(null);
-    setEditUserPaymentForm({
+  const handleCloseEditPaymentModal = () => {
+    setIsEditPaymentModalOpen(false);
+    setEditingPayment(null);
+    setEditPaymentForm({
       amount: "",
-      paymentType: "naqd",
       description: "",
       date: new Date(),
     });
   };
 
-  const handleEditUserPaymentChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleEditPaymentChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
     const { name, value } = e.target;
-    setEditUserPaymentForm((prev) => ({ ...prev, [name]: value }));
+    setEditPaymentForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleEditUserPaymentTypeChange = (value: string) => {
-    setEditUserPaymentForm((prev) => ({ ...prev, paymentType: value }));
-  };
-
-  const handleEditUserPaymentDateChange = (date: Date | undefined) => {
+  const handleEditPaymentDateChange = (date: Date | undefined) => {
     if (date) {
-      setEditUserPaymentForm((prev) => ({ ...prev, date }));
+      setEditPaymentForm((prev) => ({ ...prev, date }));
     }
   };
 
-  const handleUpdateUserPayment = async () => {
-    setIsUpdatingUserPayment(true);
+  const handleUpdatePayment = async () => {
+    setIsUpdatingPayment(true);
     const headers = getAuthHeaders();
-    if (!headers || !editingUserPayment?.id || !editUserPaymentForm.date) {
+    if (!headers || !editingPayment?.id || !editPaymentForm.date) {
       toast({
         title: "Xatolik",
         description: "To'lov ID, sana yoki avtorizatsiya tokeni topilmadi.",
         variant: "destructive",
       });
-      setIsUpdatingUserPayment(false);
+      setIsUpdatingPayment(false);
       return;
     }
 
-    const paymentAmount = Number(editUserPaymentForm.amount);
+    const paymentAmount = Number(editPaymentForm.amount);
     if (isNaN(paymentAmount) || paymentAmount <= 0) {
       toast({
         title: "Xatolik",
-        description: "Summa musbat son bo'lishi kerak.",
+        description: "Summa musbat son bo‘lishi kerak.",
         variant: "destructive",
       });
-      setIsUpdatingUserPayment(false);
+      setIsUpdatingPayment(false);
       return;
     }
 
-    const formattedDate = format(editUserPaymentForm.date, "yyyy-MM-dd");
-
     const updatedData = {
-      amount: paymentAmount.toFixed(2),
-      payment_type: editUserPaymentForm.paymentType,
-      description: editUserPaymentForm.description,
-      date: formattedDate,
+      payment_type: "naqd", // Faqat Naqd pul
+      additional_info: editPaymentForm.description,
     };
 
     try {
       const response = await fetch(
-        `${API_BASE_URL}/user-payments/${editingUserPayment.id}/`,
+        `${API_BASE_URL}/payments/${editingPayment.id}/`,
         {
           method: "PATCH",
-          headers: headers,
+          headers,
           body: JSON.stringify(updatedData),
         }
       );
@@ -661,54 +672,56 @@ export default function ApartmentDetailPage() {
           detail: "Server javobini o'qib bo'lmadi",
         }));
         throw new Error(
-          `Balans to'lovini yangilashda xatolik (${response.status}): ${
+          `To'lovni yangilashda xatolik (${response.status}): ${
             errorData.detail || JSON.stringify(errorData)
           }`
         );
       }
       const updatedPaymentFromServer = await response.json();
 
-      const updatedUserPayments = (apartment.userPayments || []).map((p: any) =>
+      const updatedPayments = (apartment.payments || []).map((p: any) =>
         p.id === updatedPaymentFromServer.id
-          ? { ...p, ...updatedPaymentFromServer, date: formattedDate }
+          ? { ...p, ...updatedPaymentFromServer }
           : p
       );
-      const updatedApartmentData = { ...apartment, userPayments: updatedUserPayments };
+      const updatedApartmentData = { ...apartment, payments: updatedPayments };
       setApartment(updatedApartmentData);
       recalculateTotals(updatedApartmentData);
 
       toast({
         title: "Muvaffaqiyat",
-        description: "Balans to'lovi muvaffaqiyatli yangilandi.",
+        description: "To'lov muvaffaqiyatli yangilandi.",
       });
-      handleCloseEditUserPaymentModal();
+      handleCloseEditPaymentModal();
     } catch (error) {
       toast({
         title: "Xatolik",
-        description: error.message || "Balans to'lovini yangilashda noma'lum xatolik.",
+        description: error.message || "To'lovni yangilashda noma'lum xatolik.",
         variant: "destructive",
       });
     } finally {
-      setIsUpdatingUserPayment(false);
+      setIsUpdatingPayment(false);
     }
   };
 
-  const handleDeleteUserPayment = async (paymentId: number) => {
+  const handleDeletePayment = async (paymentId: number) => {
     const headers = getAuthHeaders();
-    if (!headers || deletingUserPaymentId) return;
+    if (!headers || deletingPaymentId) return;
 
     if (
-      !window.confirm(`IDsi ${paymentId} bo'lgan balans to'lovini o'chirishga ishonchingiz komilmi?`)
+      !window.confirm(
+        `IDsi ${paymentId} bo'lgan to'lovni o'chirishga ishonchingiz komilmi?`
+      )
     ) {
       return;
     }
 
-    setDeletingUserPaymentId(paymentId);
+    setDeletingPaymentId(paymentId);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/user-payments/${paymentId}/`, {
+      const response = await fetch(`${API_BASE_URL}/payments/${paymentId}/`, {
         method: "DELETE",
-        headers: headers,
+        headers,
       });
 
       if (!response.ok && response.status !== 204) {
@@ -716,20 +729,20 @@ export default function ApartmentDetailPage() {
           detail: `Server xatosi (${response.status})`,
         }));
         throw new Error(
-          `Balans to'lovini o'chirishda xatolik: ${errorData.detail || response.statusText}`
+          `To'lovni o'chirishda xatolik: ${errorData.detail || response.statusText}`
         );
       }
 
-      const updatedUserPayments = (apartment.userPayments || []).filter(
+      const updatedPayments = (apartment.payments || []).filter(
         (p: any) => p.id !== paymentId
       );
-      const updatedApartmentData = { ...apartment, userPayments: updatedUserPayments };
+      const updatedApartmentData = { ...apartment, payments: updatedPayments };
       setApartment(updatedApartmentData);
       recalculateTotals(updatedApartmentData);
 
       toast({
         title: "Muvaffaqiyat!",
-        description: `Balans to'lovi (ID: ${paymentId}) muvaffaqiyatli o'chirildi.`,
+        description: `To'lov (ID: ${paymentId}) muvaffaqiyatli o'chirildi.`,
       });
     } catch (error) {
       toast({
@@ -738,7 +751,7 @@ export default function ApartmentDetailPage() {
         variant: "destructive",
       });
     } finally {
-      setDeletingUserPaymentId(null);
+      setDeletingPaymentId(null);
     }
   };
 
@@ -752,7 +765,9 @@ export default function ApartmentDetailPage() {
 
     doc.setFontSize(16);
     doc.setFont(undefined, "bold");
-    doc.text("TO'LOV KVITANSIYASI", pageWidth / 2, yPosition, { align: "center" });
+    doc.text("TO'LOV KVITANSIYASI", pageWidth / 2, yPosition, {
+      align: "center",
+    });
     yPosition += lineHeight * 2;
 
     doc.setFontSize(11);
@@ -763,7 +778,11 @@ export default function ApartmentDetailPage() {
     yPosition += lineHeight;
     doc.text(`Mijoz: ${apartment?.client?.fio || "Noma'lum"}`, margin, yPosition);
     yPosition += lineHeight;
-    doc.text(`Telefon: ${apartment?.client?.phone_number || "-"}`, margin, yPosition);
+    doc.text(
+      `Telefon: ${apartment?.client?.phone_number || "-"}`,
+      margin,
+      yPosition
+    );
     yPosition += lineHeight * 1.5;
 
     doc.setLineWidth(0.3);
@@ -779,8 +798,11 @@ export default function ApartmentDetailPage() {
     };
 
     drawRow("To'lov Summasi", formatCurrency(paymentData.amount));
-    drawRow("To'lov Sanasi", paymentData.date ? formatDate(paymentData.date) : "-");
-    drawRow("To'lov Usuli", getUserPaymentTypeLabel(paymentData.payment_type));
+    drawRow(
+      "To'lov Sanasi",
+      paymentData.date ? formatDate(paymentData.date) : "-"
+    );
+    drawRow("To'lov Usuli", "Naqd pul"); // Faqat Naqd pul
 
     if (paymentData.description) {
       yPosition += lineHeight * 0.5;
@@ -810,9 +832,14 @@ export default function ApartmentDetailPage() {
     );
     yPosition += lineHeight * 1.5;
     doc.setTextColor(0);
-    doc.text("Qabul qildi: _________________", pageWidth - margin - 65, yPosition, {
-      align: "right",
-    });
+    doc.text(
+      "Qabul qildi: _________________",
+      pageWidth - margin - 65,
+      yPosition,
+      {
+        align: "right",
+      }
+    );
 
     doc.save(
       `Kvitansiya-X${apartment?.room_number}-${format(
@@ -825,17 +852,41 @@ export default function ApartmentDetailPage() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "bosh":
-        return <Badge className="bg-blue-500 hover:bg-blue-600 text-white">Bo‘sh</Badge>;
+        return (
+          <Badge className="bg-blue-500 hover:bg-blue-600 text-white">
+            Bo‘sh
+          </Badge>
+        );
       case "band":
-        return <Badge className="bg-yellow-500 hover:bg-yellow-600 text-black">Band</Badge>;
+        return (
+          <Badge className="bg-yellow-500 hover:bg-yellow-600 text-black">
+            Band
+          </Badge>
+        );
       case "muddatli":
-        return <Badge className="bg-orange-500 hover:bg-orange-600 text-white">Muddatli</Badge>;
+        return (
+          <Badge className="bg-orange-500 hover:bg-orange-600 text-white">
+            Muddatli
+          </Badge>
+        );
       case "sotilgan":
-        return <Badge className="bg-green-500 hover:bg-green-600 text-white">Sotilgan</Badge>;
+        return (
+          <Badge className="bg-green-500 hover:bg-green-600 text-white">
+            Sotilgan
+          </Badge>
+        );
       case "ipoteka":
-        return <Badge className="bg-purple-500 hover:bg-purple-600 text-white">Ipoteka</Badge>;
+        return (
+          <Badge className="bg-purple-500 hover:bg-purple-600 text-white">
+            Ipoteka
+          </Badge>
+        );
       case "subsidiya":
-        return <Badge className="bg-teal-500 hover:bg-teal-600 text-white">Subsidiya</Badge>;
+        return (
+          <Badge className="bg-teal-500 hover:bg-teal-600 text-white">
+            Subsidiya
+          </Badge>
+        );
       default:
         return <Badge variant="secondary">{status || "Noma'lum"}</Badge>;
     }
@@ -844,12 +895,23 @@ export default function ApartmentDetailPage() {
   const getPaymentStatusBadge = (status: string) => {
     switch (status?.toLowerCase()) {
       case "paid":
-        return <Badge className="bg-green-600 hover:bg-green-700 text-white">To‘langan</Badge>;
+        return (
+          <Badge className="bg-green-600 hover:bg-green-700 text-white">
+            To‘langan
+          </Badge>
+        );
       case "active":
-        return <Badge className="bg-blue-600 hover:bg-blue-700 text-white">Aktiv</Badge>;
+        return (
+          <Badge className="bg-blue-600 hover:bg-blue-700 text-white">
+            Aktiv
+          </Badge>
+        );
       case "pending":
         return (
-          <Badge variant="outline" className="text-yellow-600 border-yellow-500">
+          <Badge
+            variant="outline"
+            className="text-yellow-600 border-yellow-500"
+          >
             Kutilmoqda
           </Badge>
         );
@@ -857,21 +919,6 @@ export default function ApartmentDetailPage() {
         return <Badge variant="destructive">Muddati o‘tgan</Badge>;
       default:
         return <Badge variant="secondary">{status || "Noma'lum"}</Badge>;
-    }
-  };
-
-  const getUserPaymentTypeLabel = (paymentType: string) => {
-    switch (paymentType) {
-      case "naqd":
-        return "Naqd pul";
-      case "plastik":
-        return "Plastik karta";
-      case "bank":
-        return "Bank o'tkazmasi";
-      default:
-        return paymentType
-          ? paymentType.charAt(0).toUpperCase() + paymentType.slice(1)
-          : "Noma'lum";
     }
   };
 
@@ -896,8 +943,8 @@ export default function ApartmentDetailPage() {
     const headers = getAuthHeaders();
     if (!headers || !paymentId) return;
 
-    const mainPmt = apartment?.payments?.find((p: any) => p.id === paymentId);
-    if (mainPmt?.payment_type === "band") {
+    const payment = apartment?.payments?.find((p: any) => p.id === paymentId);
+    if (payment?.payment_type === "band") {
       toast({
         title: "Ma'lumot",
         description: "'Band qilish' uchun alohida shartnoma generatsiya qilinmaydi.",
@@ -924,7 +971,7 @@ export default function ApartmentDetailPage() {
         const errorData = await response.json().catch(() => ({
           detail: "Server javobini o'qib bo'lmadi",
         }));
-        if (response.status === 404 && mainPmt?.payment_type === "band") {
+        if (response.status === 404 && payment?.payment_type === "band") {
           throw new Error("'Band qilish' uchun shartnoma mavjud emas.");
         }
         throw new Error(
@@ -956,11 +1003,15 @@ export default function ApartmentDetailPage() {
       window.URL.revokeObjectURL(url);
       a.remove();
 
-      toast({ title: "Muvaffaqiyat", description: `"${filename}" yuklab olindi.` });
+      toast({
+        title: "Muvaffaqiyat",
+        description: `"${filename}" yuklab olindi.`,
+      });
     } catch (error) {
       toast({
         title: "Xatolik",
-        description: (error as Error).message || "Shartnomani yuklashda noma'lum xatolik.",
+        description:
+          (error as Error).message || "Shartnomani yuklashda noma'lum xatolik.",
         variant: "destructive",
       });
     }
@@ -1004,13 +1055,16 @@ export default function ApartmentDetailPage() {
             <h2 className="text-2xl font-bold tracking-tight text-red-600">
               Xonadon topilmadi
             </h2>
-            <Button variant="outline" onClick={() => router.push("/apartments")}>
+            <Button
+              variant="outline"
+              onClick={() => router.push("/apartments")}
+            >
               <Home className="mr-2 h-4 w-4" /> Barcha xonadonlar
             </Button>
           </div>
           <p className="text-muted-foreground">
-            Ushbu ID ({params.id}) ga ega xonadon mavjud emas yoki ma'lumotlarni yuklashda
-            xatolik yuz berdi.
+            Ushbu ID ({params.id}) ga ega xonadon mavjud emas yoki ma'lumotlarni
+            yuklashda xatolik yuz berdi.
           </p>
         </div>
       </div>
@@ -1018,9 +1072,9 @@ export default function ApartmentDetailPage() {
   }
 
   const mainPayment = apartment.payments?.[0];
-  const userPayments = apartment.userPayments || [];
+  const payments = apartment.payments || [];
   const documents = apartment.documents || [];
-  const lastThreeUserPayments = [...userPayments].slice(0, 3);
+  const lastThreePayments = [...payments].slice(0, 3);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -1043,10 +1097,16 @@ export default function ApartmentDetailPage() {
             <h2 className="text-3xl font-bold tracking-tight">
               Xonadon № {apartment.room_number}
             </h2>
-            <p className="text-muted-foreground">{apartment.object?.name || "Noma'lum obyekt"}</p>
+            <p className="text-muted-foreground">
+              {apartment.object?.name || "Noma'lum obyekt"}
+            </p>
           </div>
           <div className="flex space-x-2 flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={() => router.push("/apartments")}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push("/apartments")}
+            >
               <Home className="mr-2 h-4 w-4" /> Barcha xonadonlar
             </Button>
             {apartment.object?.id && (
@@ -1059,12 +1119,18 @@ export default function ApartmentDetailPage() {
             {apartment.status === "bosh" && (
               <Button
                 size="sm"
-                onClick={() => router.push(`/apartments/${apartment.id}/reserve`)}
+                onClick={() =>
+                  router.push(`/apartments/${apartment.id}/reserve`)
+                }
               >
                 <User className="mr-2 h-4 w-4" /> Band qilish / Sotish
               </Button>
             )}
-            <Button variant="outline" size="sm" onClick={handleOpenEditModal}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleOpenEditModal}
+            >
               <Edit className="mr-2 h-4 w-4" /> Tahrirlash
             </Button>
             {mainPayment && (
@@ -1108,8 +1174,14 @@ export default function ApartmentDetailPage() {
                 <div className="p-4 md:p-6">
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6 border-b pb-4 dark:border-gray-700">
                     <InfoItem label="Qavat" value={apartment.floor ?? "-"} />
-                    <InfoItem label="Xonalar" value={`${apartment.rooms || "-"} xona`} />
-                    <InfoItem label="Maydon" value={`${apartment.area || "-"} m²`} />
+                    <InfoItem
+                      label="Xonalar"
+                      value={`${apartment.rooms || "-"} xona`}
+                    />
+                    <InfoItem
+                      label="Maydon"
+                      value={`${apartment.area || "-"} m²`}
+                    />
                     <InfoItem
                       label="Narx"
                       value={formatCurrency(apartment.price)}
@@ -1170,7 +1242,9 @@ export default function ApartmentDetailPage() {
                             />
                             <InfoItem
                               label="Kafil Tel:"
-                              value={apartment.client.kafil_phone_number || "-"}
+                              value={
+                                apartment.client.kafil_phone_number || "-"
+                              }
                               alignRight
                             />
                           </div>
@@ -1190,7 +1264,9 @@ export default function ApartmentDetailPage() {
                       </h4>
                       <InfoItem
                         label="Turi:"
-                        value={getMainPaymentTypeLabel(mainPayment.payment_type)}
+                        value={getMainPaymentTypeLabel(
+                          mainPayment.payment_type
+                        )}
                         alignRight
                         capitalizeValue
                       />
@@ -1256,36 +1332,37 @@ export default function ApartmentDetailPage() {
 
                   {apartment.status !== "bosh" &&
                     apartment.status !== "band" &&
-                    userPayments.length > 0 && (
+                    payments.length > 0 && (
                       <div className="border-t pt-3 space-y-2 dark:border-gray-700">
                         <h4 className="text-xs font-semibold text-muted-foreground mb-1 uppercase tracking-wider">
-                          Oxirgi Balans To‘lovlari
+                          Oxirgi To‘lovlar
                         </h4>
-                        {lastThreeUserPayments.map((up: any) => (
+                        {lastThreePayments.map((p: any) => (
                           <div
-                            key={up.id}
+                            key={p.id}
                             className="flex justify-between items-start text-xs gap-2"
                           >
                             <div className="flex-1">
-                              <div className="font-medium">{formatCurrency(up.amount)}</div>
+                              <div className="font-medium">
+                                {formatCurrency(p.paid_amount)}
+                              </div>
                               <div className="text-muted-foreground text-[11px]">
-                                {formatDate(up.date || up.created_at)} -{" "}
-                                {getUserPaymentTypeLabel(up.payment_type)}
+                                {formatDate(p.created_at)} - Naqd pul
                               </div>
                             </div>
                             <div className="text-muted-foreground text-right whitespace-nowrap text-[11px]">
-                              ID: {up.id}
+                              ID: {p.id}
                             </div>
                           </div>
                         ))}
-                        {userPayments.length > 3 && (
+                        {payments.length > 3 && (
                           <Button
                             variant="link"
                             size="sm"
                             className="p-0 h-auto text-blue-600 hover:underline text-xs"
                             onClick={() => {}}
                           >
-                            Barchasini ko‘rish ({userPayments.length})
+                            Barchasini ko‘rish ({payments.length})
                           </Button>
                         )}
                       </div>
@@ -1298,7 +1375,8 @@ export default function ApartmentDetailPage() {
                       onClick={handleOpenPaymentModal}
                       disabled={!apartment.client?.id}
                     >
-                      <CreditCard className="mr-2 h-4 w-4" /> Balansga To‘lov Qo‘shish
+                      <CreditCard className="mr-2 h-4 w-4" /> Balansga To‘lov
+                      Qo‘shish
                     </Button>
                   )}
                 </div>
@@ -1308,10 +1386,12 @@ export default function ApartmentDetailPage() {
         </div>
 
         {/* Tabs Section */}
-        {(mainPayment || userPayments.length > 0) && (
+        {payments.length > 0 && (
           <Tabs defaultValue="payments_history" className="mt-6">
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="payments_history">To‘lovlar Tarixi</TabsTrigger>
+              <TabsTrigger value="payments_history">
+                To‘lovlar Tarixi
+              </TabsTrigger>
               <TabsTrigger value="documents">Hujjatlar</TabsTrigger>
             </TabsList>
 
@@ -1327,7 +1407,9 @@ export default function ApartmentDetailPage() {
                 <CardContent>
                   {mainPayment && (
                     <div className="border-b pb-4 mb-4 dark:border-gray-700">
-                      <h4 className="text-sm font-semibold mb-2">Asosiy Shartnoma To‘lovi</h4>
+                      <h4 className="text-sm font-semibold mb-2">
+                        Asosiy Shartnoma To‘lovi
+                      </h4>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         <InfoItem
                           label="Shartnoma ID"
@@ -1336,7 +1418,9 @@ export default function ApartmentDetailPage() {
                         />
                         <InfoItem
                           label="Turi"
-                          value={getMainPaymentTypeLabel(mainPayment.payment_type)}
+                          value={getMainPaymentTypeLabel(
+                            mainPayment.payment_type
+                          )}
                           capitalizeValue
                         />
                         <InfoItem
@@ -1379,11 +1463,13 @@ export default function ApartmentDetailPage() {
                     </div>
                   )}
 
-                  {userPayments.length > 0 ? (
+                  {payments.length > 0 ? (
                     <div>
-                      <h4 className="text-sm font-semibold mb-2">Balans To‘lovlari</h4>
+                      <h4 className="text-sm font-semibold mb-2">
+                        To‘lovlar
+                      </h4>
                       <div className="space-y-3">
-                        {userPayments.map((payment: any) => (
+                        {payments.map((payment: any) => (
                           <div
                             key={payment.id}
                             className="flex items-center justify-between p-3 border rounded-lg dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
@@ -1392,22 +1478,22 @@ export default function ApartmentDetailPage() {
                               <div className="flex items-center justify-between">
                                 <div>
                                   <span className="font-medium">
-                                    {formatCurrency(payment.amount)}
+                                    {formatCurrency(payment.paid_amount)}
                                   </span>
                                   <span className="text-xs text-muted-foreground ml-2">
                                     (ID: {payment.id})
                                   </span>
                                 </div>
                                 <div className="text-sm text-muted-foreground">
-                                  {formatDate(payment.date || payment.created_at)}
+                                  {formatDate(payment.created_at)}
                                 </div>
                               </div>
                               <div className="text-sm text-muted-foreground">
-                                To‘lov usuli: {getUserPaymentTypeLabel(payment.payment_type)}
+                                To‘lov usuli: Naqd pul
                               </div>
-                              {payment.description && (
+                              {payment.additional_info && (
                                 <div className="text-sm text-muted-foreground mt-1">
-                                  Izoh: {payment.description}
+                                  Izoh: {payment.additional_info}
                                 </div>
                               )}
                             </div>
@@ -1415,17 +1501,19 @@ export default function ApartmentDetailPage() {
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => handleOpenEditUserPaymentModal(payment)}
+                                onClick={() =>
+                                  handleOpenEditPaymentModal(payment)
+                                }
                               >
                                 <Edit className="h-4 w-4" />
                               </Button>
                               <Button
                                 variant="destructive"
                                 size="sm"
-                                onClick={() => handleDeleteUserPayment(payment.id)}
-                                disabled={deletingUserPaymentId === payment.id}
+                                onClick={() => handleDeletePayment(payment.id)}
+                                disabled={deletingPaymentId === payment.id}
                               >
-                                {deletingUserPaymentId === payment.id ? (
+                                {deletingPaymentId === payment.id ? (
                                   <Loader2 className="h-4 w-4 animate-spin" />
                                 ) : (
                                   <Trash className="h-4 w-4" />
@@ -1438,7 +1526,7 @@ export default function ApartmentDetailPage() {
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">
-                      Balans to‘lovlari mavjud emas.
+                      To‘lovlar mavjud emas.
                     </p>
                   )}
                 </CardContent>
@@ -1495,13 +1583,17 @@ export default function ApartmentDetailPage() {
         )}
       </div>
 
-      {/* Add User Payment Modal */}
-      <Dialog open={isPaymentModalOpen} onOpenChange={setIsPaymentModalOpen}>
+      {/* Add Payment Modal */}
+      <Dialog
+        open={isPaymentModalOpen}
+        onOpenChange={setIsPaymentModalOpen}
+      >
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>Balansga To‘lov Qo‘shish</DialogTitle>
             <DialogDescription>
-              Mijoz balansiga yangi to‘lov qo‘shish uchun quyidagi ma’lumotlarni to‘ldiring.
+              Mijoz balansiga yangi to‘lov qo‘shish uchun quyidagi ma’lumotlarni
+              to‘ldiring.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
@@ -1520,24 +1612,6 @@ export default function ApartmentDetailPage() {
                 min="0"
                 step="0.01"
               />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="paymentType" className="text-right">
-                To‘lov Turi *
-              </Label>
-              <Select
-                value={paymentForm.paymentType}
-                onValueChange={handlePaymentTypeChange}
-              >
-                <SelectTrigger className="col-span-3">
-                  <SelectValue placeholder="To‘lov turini tanlang" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="naqd">Naqd pul</SelectItem>
-                  <SelectItem value="plastik">Plastik karta</SelectItem>
-                  <SelectItem value="bank">Bank o‘tkazmasi</SelectItem>
-                </SelectContent>
-              </Select>
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="date" className="text-right">
@@ -1560,7 +1634,10 @@ export default function ApartmentDetailPage() {
                     )}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
+                <PopoverContent
+                  className="w-auto p-0"
+                  align="start"
+                >
                   <Calendar
                     mode="single"
                     selected={selectedDate}
@@ -1594,7 +1671,7 @@ export default function ApartmentDetailPage() {
               Bekor qilish
             </Button>
             <Button
-              onClick={handleAddUserPayment}
+              onClick={handleAddPayment}
               disabled={
                 paymentLoading ||
                 !paymentForm.amount ||
@@ -1612,12 +1689,16 @@ export default function ApartmentDetailPage() {
       </Dialog>
 
       {/* Edit Apartment Modal */}
-      <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+      <Dialog
+        open={isEditModalOpen}
+        onOpenChange={setIsEditModalOpen}
+      >
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>Xonadonni Tahrirlash</DialogTitle>
             <DialogDescription>
-              Xonadon ma’lumotlarini yangilash uchun quyidagi maydonlarni to‘ldiring.
+              Xonadon ma’lumotlarini yangilash uchun quyidagi maydonlarni
+              to‘ldiring.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
@@ -1657,7 +1738,7 @@ export default function ApartmentDetailPage() {
               step="0.01"
             />
             <EditInput
-              label="Narx ($) *"
+              label="Narx (so'm) *"
               id="price"
               name="price"
               type="number"
@@ -1667,25 +1748,10 @@ export default function ApartmentDetailPage() {
               step="0.01"
             />
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="status" className="text-right text-sm">
-                Holati *
-              </Label>
-              <Select value={editForm.status} onValueChange={handleEditStatusChange}>
-                <SelectTrigger className="col-span-3">
-                  <SelectValue placeholder="Holatni tanlang" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="bosh">Bo‘sh</SelectItem>
-                  <SelectItem value="band">Band</SelectItem>
-                  <SelectItem value="muddatli">Muddatli</SelectItem>
-                  <SelectItem value="sotilgan">Sotilgan</SelectItem>
-                  <SelectItem value="ipoteka">Ipoteka</SelectItem>
-                  <SelectItem value="subsidiya">Subsidiya</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="description" className="text-right text-sm">
+              <Label
+                htmlFor="description"
+                className="text-right text-sm"
+              >
                 Tavsif
               </Label>
               <Textarea
@@ -1699,63 +1765,65 @@ export default function ApartmentDetailPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={handleCloseEditModal} disabled={editLoading}>
+            <Button
+              variant="outline"
+              onClick={handleCloseEditModal}
+              disabled={editLoading}
+            >
               Bekor qilish
             </Button>
-            <Button onClick={handleUpdateApartment} disabled={editLoading}>
-              {editLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            <Button
+              onClick={handleUpdateApartment}
+              disabled={editLoading}
+            >
+              {editLoading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
               {editLoading ? "Saqlanmoqda..." : "Saqlash"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Edit User Payment Modal */}
-      <Dialog open={isEditUserPaymentModalOpen} onOpenChange={setIsEditUserPaymentModalOpen}>
+      {/* Edit Payment Modal */}
+      <Dialog
+        open={isEditPaymentModalOpen}
+        onOpenChange={setIsEditPaymentModalOpen}
+      >
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Balans To‘lovini Tahrirlash</DialogTitle>
+            <DialogTitle>To‘lovni Tahrirlash</DialogTitle>
             <DialogDescription>
-              To‘lov ma’lumotlarini yangilash uchun quyidagi maydonlarni to‘ldiring.
+              To‘lov ma’lumotlarini yangilash uchun quyidagi maydonlarni
+              to‘ldiring.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="edit-amount" className="text-right">
+              <Label
+                htmlFor="edit-amount"
+                className="text-right"
+              >
                 Summa *
               </Label>
               <Input
                 id="edit-amount"
                 name="amount"
                 type="number"
-                value={editUserPaymentForm.amount}
-                onChange={handleEditUserPaymentChange}
+                value={editPaymentForm.amount}
+                onChange={handleEditPaymentChange}
                 className="col-span-3"
                 placeholder="Masalan: 1000000"
                 min="0"
                 step="0.01"
+                disabled
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="edit-paymentType" className="text-right">
-                To‘lov Turi *
-              </Label>
-              <Select
-                value={editUserPaymentForm.paymentType}
-                onValueChange={handleEditUserPaymentTypeChange}
+              <Label
+                htmlFor="edit-date"
+                className="text-right"
               >
-                <SelectTrigger className="col-span-3">
-                  <SelectValue placeholder="To‘lov turini tanlang" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="naqd">Naqd pul</SelectItem>
-                  <SelectItem value="plastik">Plastik karta</SelectItem>
-                  <SelectItem value="bank">Bank o‘tkazmasi</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="edit-date" className="text-right">
                 Sana *
               </Label>
               <Popover>
@@ -1764,22 +1832,26 @@ export default function ApartmentDetailPage() {
                     variant="outline"
                     className={cn(
                       "col-span-3 justify-start text-left font-normal",
-                      !editUserPaymentForm.date && "text-muted-foreground"
+                      !editPaymentForm.date && "text-muted-foreground"
                     )}
+                    disabled
                   >
                     <CalendarIcon className="mr-2 h-4 w-4" />
-                    {editUserPaymentForm.date ? (
-                      format(editUserPaymentForm.date, "PPP", { locale: uz })
+                    {editPaymentForm.date ? (
+                      format(editPaymentForm.date, "PPP", { locale: uz })
                     ) : (
                       <span>Sanani tanlang</span>
                     )}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
+                <PopoverContent
+                  className="w-auto p-0"
+                  align="start"
+                >
                   <Calendar
                     mode="single"
-                    selected={editUserPaymentForm.date}
-                    onSelect={handleEditUserPaymentDateChange}
+                    selected={editPaymentForm.date}
+                    onSelect={handleEditPaymentDateChange}
                     initialFocus
                     locale={uz}
                   />
@@ -1787,14 +1859,17 @@ export default function ApartmentDetailPage() {
               </Popover>
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="edit-description" className="text-right">
+              <Label
+                htmlFor="edit-description"
+                className="text-right"
+              >
                 Izoh
               </Label>
               <Textarea
                 id="edit-description"
                 name="description"
-                value={editUserPaymentForm.description}
-                onChange={handleEditUserPaymentChange}
+                value={editPaymentForm.description}
+                onChange={handleEditPaymentChange}
                 className="col-span-3"
                 placeholder="To‘lov haqida qo‘shimcha ma’lumot (ixtiyoriy)"
               />
@@ -1803,24 +1878,24 @@ export default function ApartmentDetailPage() {
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={handleCloseEditUserPaymentModal}
-              disabled={isUpdatingUserPayment}
+              onClick={handleCloseEditPaymentModal}
+              disabled={isUpdatingPayment}
             >
               Bekor qilish
             </Button>
             <Button
-              onClick={handleUpdateUserPayment}
+              onClick={handleUpdatePayment}
               disabled={
-                isUpdatingUserPayment ||
-                !editUserPaymentForm.amount ||
-                !editUserPaymentForm.date ||
-                parseFloat(editUserPaymentForm.amount) <= 0
+                isUpdatingPayment ||
+                !editPaymentForm.amount ||
+                !editPaymentForm.date ||
+                parseFloat(editPaymentForm.amount) <= 0
               }
             >
-              {isUpdatingUserPayment ? (
+              {isUpdatingPayment ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : null}
-              {isUpdatingUserPayment ? "Saqlanmoqda..." : "Saqlash"}
+              {isUpdatingPayment ? "Saqlanmoqda..." : "Saqlash"}
             </Button>
           </DialogFooter>
         </DialogContent>

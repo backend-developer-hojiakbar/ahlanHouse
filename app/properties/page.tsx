@@ -329,9 +329,6 @@ export default function PropertiesPage() {
               {/* CardFooter: Tugmalar o'ng tomonda, orasi ochilgan */}
               <CardFooter className="flex justify-end space-x-2 pt-4">
                  {/* Batafsil tugmasi Link bilan o'raldi */}
-                <Link href={`/properties/${object.id}`} passHref legacyBehavior={false}>
-                  <Button variant="link" size="sm">Batafsil</Button>
-                </Link>
                 <Button variant="outline" size="sm" onClick={() => handleEdit(object)}>
                   <Edit className="h-4 w-4" /> {/* Matnsiz, faqat ikonka */}
                   {/* <span className="ml-2">Tahrir</span> */}
