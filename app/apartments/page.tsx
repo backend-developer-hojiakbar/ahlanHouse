@@ -83,7 +83,6 @@ export default function ApartmentsPage() {
   });
 
   const API_BASE_URL = "http://api.ahlan.uz";
-  const PLACEHOLDER_IMAGE = "https://via.placeholder.com/150";
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -204,9 +203,7 @@ export default function ApartmentsPage() {
 
         const detailFetchPromises = tempApartments.map(async (apartment: any) => {
           let payment = null;
-          let objectImage = null;
 
-          // To'lov ma'lumotlarini olish
           const paymentResponse = await fetch(
             `${API_BASE_URL}/payments/?apartment=${apartment.id}&ordering=-created_at`,
             { method: "GET", headers: getAuthHeaders() }
@@ -228,14 +225,12 @@ export default function ApartmentsPage() {
             if (objectResponse.ok) {
               const objectData = await objectResponse.json();
               objectName = objectData.name || "Noma'lum obyekt";
-              objectImage = objectData.image || null; // Obyekt rasmini olish
             }
           }
 
           return {
             ...apartment,
             object_name: objectName,
-            object_image: objectImage, // Obyekt rasmini qo'shish
             payment,
           };
         });
@@ -544,11 +539,10 @@ export default function ApartmentsPage() {
         </Card>
 
         {loading ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             {Array.from({ length: 20 }).map((_, i) => (
-              <Card key={i} className="min-h-[350px]">
+              <Card key={i} className="min-h-[300px]">
                 <CardContent className="p-4 space-y-3">
-                  <Skeleton className="h-32 w-full" /> {/* Rasm uchun skeleton */}
                   <div className="flex justify-between">
                     <Skeleton className="h-6 w-20" />
                     <Skeleton className="h-5 w-16" />
@@ -570,26 +564,14 @@ export default function ApartmentsPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             {apartments.map((apartment) => (
               <Card
                 key={apartment.id}
-                className="overflow-hidden transition-shadow duration-200 hover:shadow-lg cursor-pointer min-h-[350px] flex flex-col"
+                className="overflow-hidden transition-shadow duration-200 hover:shadow-lg cursor-pointer min-h-[300px] flex flex-col"
                 onClick={() => router.push(`/apartments/${apartment.id}`)}
               >
                 <CardContent className="p-4 space-y-2 flex-grow flex flex-col">
-                  {/* Obyekt rasmi */}
-                  <div className="w-full h-32 mb-2">
-                    <img
-                      src={apartment.object_image || PLACEHOLDER_IMAGE}
-                      alt={apartment.object_name || "Obyekt rasmi"}
-                      className="w-full h-full object-cover rounded-md"
-                      onError={(e) => {
-                        e.currentTarget.src = PLACEHOLDER_IMAGE; // Rasm yuklanmasa placeholder
-                      }}
-                    />
-                  </div>
-
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="text-lg font-semibold">
