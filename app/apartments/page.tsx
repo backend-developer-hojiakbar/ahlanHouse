@@ -83,7 +83,7 @@ export default function ApartmentsPage() {
   });
 
   const API_BASE_URL = "http://api.ahlan.uz";
-  const PLACEHOLDER_IMAGE = "https://via.placeholder.com/150"; // Standart rasm URL
+  const PLACEHOLDER_IMAGE = "https://via.placeholder.com/150";
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -218,7 +218,6 @@ export default function ApartmentsPage() {
             }
           }
 
-          // Obyekt nomi va rasmini olish
           let objectName = apartment.object_name || "Noma'lum obyekt";
           if (!apartment.object_name && apartment.object) {
             const objectId = typeof apartment.object === "object" ? apartment.object.id : apartment.object;
