@@ -23,7 +23,6 @@ import {
 } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-// Interfeyslar
 interface Payment {
   id: number;
   user_fio: string;
@@ -39,7 +38,6 @@ interface SalesData {
   total: number;
 }
 
-// Overview komponenti
 const Overview = ({ data }: { data: SalesData[] }) => {
   return (
     <LineChart width={500} height={300} data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
@@ -76,14 +74,13 @@ export default function DashboardPage() {
   const [salesData, setSalesData] = useState<SalesData[]>([]);
   const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
 
-  // Modal uchun state’lar
   const [pendingModalOpen, setPendingModalOpen] = useState(false);
   const [overdueModalOpen, setOverdueModalOpen] = useState(false);
   const [remainingModalOpen, setRemainingModalOpen] = useState(false);
   const [modalPayments, setModalPayments] = useState<Payment[]>([]);
   const [modalLoading, setModalLoading] = useState(false);
 
-  // Access token olish
+  //token olish uchun yozilgan kode
   useEffect(() => {
     const token = localStorage.getItem("access_token");
     if (!token) {
@@ -93,7 +90,6 @@ export default function DashboardPage() {
     setAccessToken(token);
   }, [router]);
 
-  // API so‘rovlar uchun umumiy header
   const getAuthHeaders = useCallback(
     () => ({
       Accept: "application/json",
