@@ -185,7 +185,7 @@ export default function ReserveApartmentPage() {
         due_date: prev.due_date || "15",
       }));
     }
-  }, [paymentType, apartment]);
+  }, [apartment]);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
@@ -320,10 +320,7 @@ export default function ReserveApartmentPage() {
   const calculateRemainingPercentage = () => {
     if (!apartment || !formData.initialPayment) return 0;
     const initialPayment = Number(formData.initialPayment) || 0;
-    const totalPrice =
-      paymentType === "muddatli"
-        ? Number(formData.totalAmount) || 0
-        : apartment.price || 0;
+    const totalPrice = Number(formData.totalAmount) || apartment.price || 0;
     if (totalPrice <= 0) return 0;
     const remainingAmount = totalPrice - initialPayment;
     return ((remainingAmount / totalPrice) * 100).toFixed(1);
@@ -376,10 +373,7 @@ export default function ReserveApartmentPage() {
       Number(price || 0).toLocaleString("us-US");
     if (!apartment) return "Xonadon ma'lumotlari topilmadi.";
 
-    const finalPrice =
-      paymentType === "muddatli"
-        ? Number(formData.totalAmount)
-        : apartment.price;
+    const finalPrice = Number(formData.totalAmount) || apartment.price;
     const formattedPrice = finalPrice.toLocaleString("us-US");
     const priceWords = priceInWords(finalPrice);
     const initialPaymentFormatted = Number(
@@ -728,7 +722,7 @@ _________________________                   _________________________
         description: "Umumiy narx noto‘g‘ri yoki 0 dan kichik.",
         variant: "destructive",
       });
-      return;
+      return false;
     }
 
     try {
@@ -748,10 +742,12 @@ _________________________                   _________________________
       }
 
       setApartment((prev: any) => ({ ...prev, price: newPrice }));
+      setFormData((prev) => ({ ...prev, totalAmount: newPrice.toString() }));
       toast({
         title: "Muvaffaqiyat",
         description: "Xonadon narxi yangilandi.",
       });
+      return true;
     } catch (error) {
       toast({
         title: "Xatolik",
@@ -759,6 +755,7 @@ _________________________                   _________________________
           (error as Error).message || "Narxni yangilashda xatolik yuz berdi.",
         variant: "destructive",
       });
+      return false;
     }
   };
 
@@ -830,10 +827,7 @@ _________________________                   _________________________
     }
 
     const initialPayment = Number(formData.initialPayment) || 0;
-    const totalAmount =
-      paymentType === "muddatli"
-        ? Number(formData.totalAmount) || 0
-        : apartment.price;
+    const totalAmount = Number(formData.totalAmount) || apartment.price;
 
     if (initialPayment <= 0) {
       toast({
@@ -901,8 +895,12 @@ _________________________                   _________________________
           formData.kafilPhone || clientDetails.kafil_phone_number || null,
       };
 
-      if (paymentType === "muddatli" && totalAmount !== apartment.price) {
-        await updateApartmentPrice();
+      // Update apartment price if it has changed
+      if (totalAmount !== apartment.price) {
+        const priceUpdated = await updateApartmentPrice();
+        if (!priceUpdated) {
+          throw new Error("Narxni yangilashda xatolik yuz berdi.");
+        }
       }
 
       let calculatedMonthlyPayment = 0;
@@ -1277,8 +1275,7 @@ _________________________                   _________________________
                             setFormData((prev) => ({
                               ...prev,
                               totalMonths: "",
-                              totalAmount:
-                                apartment?.price?.toString() || prev.totalAmount,
+                              totalAmount: apartment?.price?.toString() || prev.totalAmount,
                               due_date: value === "muddatli" ? "15" : "",
                             }));
                           }}
@@ -1296,23 +1293,24 @@ _________________________                   _________________________
                           </SelectContent>
                         </Select>
                       </div>
-                      {paymentType === "muddatli" && (
-                        <div className="space-y-2">
-                          <Label htmlFor="totalAmount">
-                            Umumiy narx (so'm){" "}
-                            <span className="text-red-500">*</span>
-                          </Label>
-                          <Input
-                            id="totalAmount"
-                            name="totalAmount"
-                            type="number"
-                            min="0"
-                            value={formData.totalAmount}
-                            onChange={handleChange}
-                            required
-                          />
-                        </div>
-                      )}
+                      <div className="space-y-2">
+                        <Label htmlFor="totalAmount">
+                          Umumiy narx (so'm){" "}
+                          <span className="text-red-500">*</span>
+                        </Label>
+                        <Input
+                          id="totalAmount"
+                          name="totalAmount"
+                          type="number"
+                          min="0"
+                          value={formData.totalAmount}
+                          onChange={handleChange}
+                          required
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Joriy narx: {apartment?.price.toLocaleString("uz-UZ")} so'm
+                        </p>
+                      </div>
                     </div>
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <div className="space-y-2">
@@ -1332,10 +1330,10 @@ _________________________                   _________________________
                           type="number"
                           min="0"
                           max={
-                            paymentType === "muddatli"
+                            paymentType === "muddatli" || paymentType === "ipoteka"
                               ? formData.totalAmount
                               : paymentType === "naqd"
-                              ? apartment?.price
+                              ? formData.totalAmount
                               : undefined
                           }
                           value={formData.initialPayment}
@@ -1477,7 +1475,7 @@ _________________________                   _________________________
                     <span className="font-bold text-lg text-primary">
                       {Number(apartment.price).toLocaleString("uz-UZ", {
                         style: "currency",
-                        currency: "USD",
+                        currency: "UZS",
                       })}
                     </span>
                   </div>
@@ -1519,7 +1517,7 @@ _________________________                   _________________________
                     <span>
                       {Number(formData.totalAmount).toLocaleString("uz-UZ", {
                         style: "currency",
-                        currency: "USD",
+                        currency: "UZS",
                       })}
                     </span>
                   </div>
@@ -1528,7 +1526,7 @@ _________________________                   _________________________
                     <span>
                       {Number(formData.initialPayment || "0").toLocaleString(
                         "uz-UZ",
-                        { style: "currency", currency: "USD" }
+                        { style: "currency", currency: "UZS" }
                       )}
                       ({calculateRemainingPercentage()}% qoldi)
                     </span>
@@ -1541,7 +1539,7 @@ _________________________                   _________________________
                         "uz-UZ",
                         {
                           style: "currency",
-                          currency: "USD",
+                          currency: "UZS",
                         }
                       )}
                     </span>
@@ -1567,7 +1565,7 @@ _________________________                   _________________________
                           ) {
                             return monthly.toLocaleString("uz-UZ", {
                               style: "currency",
-                              currency: "USD",
+                              currency: "UZS",
                               minimumFractionDigits: 2,
                             });
                           } else {

@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Toaster, toast as hotToast } from "react-hot-toast";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://api.ahlan.uz";
 
@@ -213,9 +214,8 @@ export default function PropertiesPage() {
         throw new Error(errorData.detail);
       }
 
-      toast({
-        title: "Muvaffaqiyat",
-        description: "Obyekt muvaffaqiyatli yangilandi",
+      hotToast.success("Obyekt muvaffaqiyatli yangilandi", {
+        position: "top-right",
       });
       setOpenEditDialog(false);
       loadObjects();
@@ -254,9 +254,8 @@ export default function PropertiesPage() {
         throw new Error(errorData.detail);
       }
 
-      toast({
-        title: "Muvaffaqiyat",
-        description: "Obyekt muvaffaqiyatli o'chirildi",
+      hotToast.success("Obyekt muvaffaqiyatli o'chirildi", {
+        position: "top-center",
       });
       loadObjects();
     } catch (error) {
@@ -294,6 +293,7 @@ export default function PropertiesPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-50">
+      <Toaster />
       <header className="border-b bg-white shadow-sm">
         <div className="flex h-16 items-center px-4 container mx-auto">
           <MainNav className="mx-6" />

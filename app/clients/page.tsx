@@ -17,7 +17,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useRouter } from "next/navigation";
-// Eye va apartmentFilter bilan bog'liq elementlar olib tashlandi
 import { Plus, Edit, Trash, ChevronLeft, ChevronRight, Home } from "lucide-react";
 import {
   Dialog,
@@ -30,6 +29,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Toaster, toast as hotToast } from "react-hot-toast";
 
 // Xonadon interfeysi
 interface Apartment {
@@ -55,8 +55,8 @@ export default function ClientsPage() {
   const router = useRouter();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isMounted, setIsMounted] = useState(false); // Added to track client-side mounting
   const [searchTerm, setSearchTerm] = useState("");
-  // apartmentFilter state olib tashlandi
   const [open, setOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [apartmentsOpen, setApartmentsOpen] = useState(false);
@@ -94,18 +94,23 @@ export default function ClientsPage() {
     kafil_phone_number: "",
   });
 
+  // Set isMounted to true only on the client
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  // Initialize accessToken on client-side only
+  useEffect(() => {
+    if (!isMounted) return; // Skip on server-side
+    const token = localStorage.getItem("access_token");
+    setAccessToken(token);
+  }, [isMounted]);
+
   const getAuthHeaders = () => ({
     Accept: "application/json",
     "Content-Type": "application/json",
     Authorization: `Bearer ${accessToken}`,
   });
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const token = localStorage.getItem("access_token");
-      setAccessToken(token);
-    }
-  }, []);
 
   // Mijozning xonadonlarini olish
   const fetchClientApartments = async (clientId: number): Promise<Apartment[]> => {
@@ -113,43 +118,39 @@ export default function ClientsPage() {
 
     setApartmentsLoading(true);
     let allPayments: any[] = [];
-    // API endpoint ni to'g'rilash kerak bo'lishi mumkin
-    let nextUrl: string | null = `http://api.ahlan.uz/payments/?user=${clientId}&limit=100`; // User bo'yicha filtr va limit
+    let nextUrl: string | null = `http://api.ahlan.uz/payments/?user=${clientId}&limit=100`;
 
     try {
-        // To'g'ridan-to'g'ri user bo'yicha filtrlab so'rov yuborish
       while (nextUrl) {
-          const response = await fetch(nextUrl, {
-              method: "GET",
-              headers: getAuthHeaders(),
-          });
+        const response = await fetch(nextUrl, {
+          method: "GET",
+          headers: getAuthHeaders(),
+        });
 
-          if (!response.ok) {
-              // Agar 404 (Not Found) qaytarsa, demak bu user uchun to'lov yo'q
-              if (response.status === 404) {
-                  console.warn(`User ${clientId} uchun to'lovlar topilmadi.`);
-                  setSelectedClientApartments([]);
-                  return [];
-              }
-              throw new Error(`To'lovlarni olishda xatolik (${clientId}): ${response.statusText}`);
+        if (!response.ok) {
+          if (response.status === 404) {
+            console.warn(`User ${clientId} uchun to'lovlar topilmadi.`);
+            setSelectedClientApartments([]);
+            return [];
           }
+          throw new Error(`To'lovlarni olishda xatolik (${clientId}): ${response.statusText}`);
+        }
 
-          const data = await response.json();
-          allPayments = [...allPayments, ...(data.results || [])];
-          nextUrl = data.next; // Keyingi sahifa uchun URL
+        const data = await response.json();
+        allPayments = [...allPayments, ...(data.results || [])];
+        nextUrl = data.next;
       }
 
-      // Agar to'lovlar topilmasa
       if (allPayments.length === 0) {
         setSelectedClientApartments([]);
         return [];
       }
 
-      const uniqueApartmentIds = Array.from(new Set(allPayments.map(p => p.apartment)));
+      const uniqueApartmentIds = Array.from(new Set(allPayments.map((p) => p.apartment)));
 
       const apartments: Apartment[] = await Promise.all(
         uniqueApartmentIds.map(async (apartmentId: any) => {
-          if (!apartmentId) return null; // ID null bo'lsa o'tkazib yuborish
+          if (!apartmentId) return null;
           try {
             const apartmentResponse = await fetch(
               `http://api.ahlan.uz/apartments/${apartmentId}/`,
@@ -160,8 +161,10 @@ export default function ClientsPage() {
             );
 
             if (!apartmentResponse.ok) {
-               console.error(`Xonadon ${apartmentId} ma'lumotlarini olishda xatolik: ${apartmentResponse.statusText}`);
-               return null;
+              console.error(
+                `Xonadon ${apartmentId} ma'lumotlarini olishda xatolik: ${apartmentResponse.statusText}`
+              );
+              return null;
             }
             const apartmentData = await apartmentResponse.json();
             return {
@@ -169,17 +172,16 @@ export default function ClientsPage() {
               room_number: apartmentData.room_number || "N/A",
               object_name: apartmentData.object_name || "Noma'lum obyekt",
             };
-          } catch(error) {
-             console.error(`Xonadon ${apartmentId} uchun fetch xatosi:`, error);
-             return null;
+          } catch (error) {
+            console.error(`Xonadon ${apartmentId} uchun fetch xatosi:`, error);
+            return null;
           }
         })
       );
 
-      const validApartments = apartments.filter(apt => apt !== null) as Apartment[];
+      const validApartments = apartments.filter((apt) => apt !== null) as Apartment[];
       setSelectedClientApartments(validApartments);
       return validApartments;
-
     } catch (error: any) {
       toast({
         title: "Xatolik",
@@ -194,18 +196,18 @@ export default function ClientsPage() {
   };
 
   // Mijozlarni olish
- const fetchClients = async () => {
+  const fetchClients = async () => {
     if (!accessToken) {
       console.warn("Access token not available.");
-       if (typeof window !== 'undefined') {
-         router.push("/login");
-       }
-       return;
+      if (isMounted) {
+        router.push("/login");
+      }
+      return;
     }
 
     setLoading(true);
     let allFormattedClients: Client[] = [];
-    let nextUrl: string | null = "http://api.ahlan.uz/users/?user_type=mijoz&limit=100"; // Mijozlarni filtrlab olish va limit
+    let nextUrl: string | null = "http://api.ahlan.uz/users/?user_type=mijoz&limit=100";
     try {
       while (nextUrl) {
         const response = await fetch(nextUrl, {
@@ -214,8 +216,7 @@ export default function ClientsPage() {
         });
 
         if (!response.ok) {
-          if (response.status === 401 && typeof window !== 'undefined') {
-            // ... (sessiya tugaganligi haqida xabar)
+          if (response.status === 401 && isMounted) {
             localStorage.removeItem("access_token");
             router.push("/login");
             throw new Error("Sessiya tugagan, qayta kirish kerak");
@@ -226,21 +227,14 @@ export default function ClientsPage() {
         const data = await response.json();
         const clientsList = data.results || [];
 
-        // user_type bo'yicha filtr API darajasida qilinganligi uchun bu yerda kerak emas
-        // const mijozClientsList = clientsList.filter( ... );
-
         const formattedClientsBatch: Client[] = await Promise.all(
           clientsList.map(async (client: any): Promise<Client> => {
-            // Optimallashtirish: Xonadonlarni faqat dialog ochilganda yuklash
-            // Hozircha eski logikani qoldiramiz, lekin kelajakda o'zgartirish mumkin
             let clientApartments: Apartment[] = [];
             try {
-                // To'g'ridan-to'g'ri mijoz ID si bo'yicha to'lovlarni so'rash optimallashtirilgan
-                clientApartments = await fetchClientApartments(client.id);
-                // fetchClientApartments state ni yangilagani uchun bu yerda qayta set qilish shart emas
+              clientApartments = await fetchClientApartments(client.id);
             } catch (error) {
-                console.error(`Mijoz ${client.id} uchun xonadonlarni olishda xatolik: `, error);
-                clientApartments = [];
+              console.error(`Mijoz ${client.id} uchun xonadonlarni olishda xatolik: `, error);
+              clientApartments = [];
             }
 
             return {
@@ -249,7 +243,7 @@ export default function ClientsPage() {
               phone: client.phone_number || "Noma'lum",
               address: client.address || null,
               balance: Number(client.balance) || 0,
-              apartments: clientApartments, // Yuklangan xonadonlar
+              apartments: clientApartments,
               kafil_fio: client.kafil_fio || null,
               kafil_address: client.kafil_address || null,
               kafil_phone_number: client.kafil_phone_number || null,
@@ -262,11 +256,13 @@ export default function ClientsPage() {
       }
       setClients(allFormattedClients);
     } catch (error: any) {
-      toast({
-        title: "Xatolik",
-        description: error.message || "Mijozlarni olishda xatolik yuz berdi",
-        variant: "destructive",
-      });
+      if (isMounted) {
+        toast({
+          title: "Xatolik",
+          description: error.message || "Mijozlarni olishda xatolik yuz berdi",
+          variant: "destructive",
+        });
+      }
       setClients([]);
     } finally {
       setLoading(false);
@@ -275,7 +271,16 @@ export default function ClientsPage() {
 
   // Mijoz yaratish
   const createClient = async (clientData: any) => {
-    if (!accessToken) { toast({ title: "Xatolik", description: "Avtorizatsiya tokeni topilmadi.", variant: "destructive" }); return; }
+    if (!accessToken) {
+      if (isMounted) {
+        toast({
+          title: "Xatolik",
+          description: "Avtorizatsiya tokeni topilmadi.",
+          variant: "destructive",
+        });
+      }
+      return;
+    }
 
     try {
       const response = await fetch("http://api.ahlan.uz/users/", {
@@ -284,77 +289,115 @@ export default function ClientsPage() {
         body: JSON.stringify({ ...clientData, user_type: "mijoz" }),
       });
 
-       if (!response.ok) {
-            const errorData = await response.json().catch(() => ({ detail: `Server xatosi: ${response.statusText}` }));
-            let errorMessage = `Mijoz qo'shishda xatolik (${response.status}):`;
-            if (typeof errorData === 'object' && errorData !== null) {
-                 errorMessage += "\n" + Object.entries(errorData)
-                     .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
-                     .join('\n');
-            } else {
-                 errorMessage += ` ${response.statusText}`;
-            }
-            throw new Error(errorMessage);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({
+          detail: `Server xatosi: ${response.statusText}`,
+        }));
+        let errorMessage = `Mijoz qo'shishda xatolik (${response.status}):`;
+        if (typeof errorData === "object" && errorData !== null) {
+          errorMessage +=
+            "\n" +
+            Object.entries(errorData)
+              .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`)
+              .join("\n");
+        } else {
+          errorMessage += ` ${response.statusText}`;
         }
+        throw new Error(errorMessage);
+      }
 
-      toast({ title: "Muvaffaqiyat", description: "Yangi mijoz qo‘shildi" });
-      await fetchClients(); // Ro'yxatni yangilash
-      setOpen(false);
-      setCurrentPage(1); // Yangi mijoz qo'shilganda birinchi sahifaga o'tish
-    } catch (error: any) {
-      toast({
-         title: "Xatolik",
-         description: error.message || "Mijoz qo'shishda noma'lum xatolik",
-         variant: "destructive",
-         className: "whitespace-pre-wrap max-w-md", // Xato xabarini to'liq ko'rsatish
+      if (isMounted) {
+        hotToast.success("Yangi mijoz qo‘shildi", {
+          position: "top-center",
         });
+      }
+      await fetchClients();
+      setOpen(false);
+      setCurrentPage(1);
+    } catch (error: any) {
+      if (isMounted) {
+        toast({
+          title: "Xatolik",
+          description: error.message || "Mijoz qo'shishda noma'lum xatolik",
+          variant: "destructive",
+          className: "whitespace-pre-wrap max-w-md",
+        });
+      }
     }
   };
 
   // Mijozni yangilash
   const updateClient = async (id: number, clientData: any) => {
-    if (!accessToken) { toast({ title: "Xatolik", description: "Avtorizatsiya tokeni topilmadi.", variant: "destructive" }); return; }
+    if (!accessToken) {
+      if (isMounted) {
+        toast({
+          title: "Xatolik",
+          description: "Avtorizatsiya tokeni topilmadi.",
+          variant: "destructive",
+        });
+      }
+      return;
+    }
 
     const dataToSend = { ...clientData, user_type: "mijoz" };
-    if (!dataToSend.password) delete dataToSend.password; // Parol bo'sh bo'lsa, yubormaslik
+    if (!dataToSend.password) delete dataToSend.password;
 
     try {
       const response = await fetch(`http://api.ahlan.uz/users/${id}/`, {
-        method: "PUT", // yoki PATCH
+        method: "PUT",
         headers: getAuthHeaders(),
         body: JSON.stringify(dataToSend),
       });
 
-        if (!response.ok) {
-             const errorData = await response.json().catch(() => ({ detail: `Server xatosi: ${response.statusText}` }));
-             let errorMessage = `Mijozni yangilashda xatolik (${response.status}):`;
-             if (typeof errorData === 'object' && errorData !== null) {
-                  errorMessage += "\n" + Object.entries(errorData)
-                      .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
-                      .join('\n');
-             } else {
-                 errorMessage += ` ${response.statusText}`;
-             }
-             throw new Error(errorMessage);
-         }
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({
+          detail: `Server xatosi: ${response.statusText}`,
+        }));
+        let errorMessage = `Mijozni yangilashda xatolik (${response.status}):`;
+        if (typeof errorData === "object" && errorData !== null) {
+          errorMessage +=
+            "\n" +
+            Object.entries(errorData)
+              .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`)
+              .join("\n");
+        } else {
+          errorMessage += ` ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
+      }
 
-      toast({ title: "Muvaffaqiyat", description: "Mijoz yangilandi" });
-      await fetchClients(); // Ro'yxatni yangilash
+      if (isMounted) {
+        hotToast.success("Mijoz yangilandi", {
+          position: "top-center",
+        });
+      }
+      await fetchClients();
       setEditOpen(false);
     } catch (error: any) {
-       toast({
-         title: "Xatolik",
-         description: error.message || "Mijozni yangilashda noma'lum xatolik",
-         variant: "destructive",
-         className: "whitespace-pre-wrap max-w-md", // Xato xabarini to'liq ko'rsatish
-       });
+      if (isMounted) {
+        toast({
+          title: "Xatolik",
+          description: error.message || "Mijozni yangilashda noma'lum xatolik",
+          variant: "destructive",
+          className: "whitespace-pre-wrap max-w-md",
+        });
+      }
     }
   };
 
   // Mijozni o'chirish
   const deleteClient = async (id: number) => {
-    if (!accessToken) { toast({ title: "Xatolik", description: "Avtorizatsiya tokeni topilmadi.", variant: "destructive" }); return; }
-    if (!window.confirm("Haqiqatan ham bu mijozni o'chirmoqchimisiz?")) return;
+    if (!accessToken) {
+      if (isMounted) {
+        toast({
+          title: "Xatolik",
+          description: "Avtorizatsiya tokeni topilmadi.",
+          variant: "destructive",
+        });
+      }
+      return;
+    }
+    if (!isMounted || !window.confirm("Haqiqatan ham bu mijozni o'chirmoqchimisiz?")) return;
 
     try {
       const response = await fetch(`http://api.ahlan.uz/users/${id}/`, {
@@ -363,65 +406,64 @@ export default function ClientsPage() {
       });
 
       if (response.status === 204) {
-        toast({ title: "Muvaffaqiyat", description: "Mijoz o‘chirildi" });
-        // State dan darhol o'chirish
-        const newClients = clients.filter(c => c.id !== id);
+        if (isMounted) {
+          hotToast.success("Mijoz o‘chirildi", {
+            position: "top-center",
+          });
+        }
+        const newClients = clients.filter((c) => c.id !== id);
         setClients(newClients);
 
-        // Paginationni to'g'rilash
         const totalClientsAfterDelete = newClients.length;
         const totalPagesAfterDelete = Math.ceil(totalClientsAfterDelete / clientsPerPage);
 
-        // Agar joriy sahifa endi mavjud bo'lmasa (oxirgi sahifadagi yagona element o'chirilgan bo'lsa)
         if (currentPage > totalPagesAfterDelete && totalPagesAfterDelete > 0) {
           setCurrentPage(totalPagesAfterDelete);
         } else if (currentClients.length === 1 && currentPage > 1) {
-            // Agar joriy sahifada faqat bitta element bo'lib, u o'chirilgan bo'lsa
-            setCurrentPage(currentPage - 1);
+          setCurrentPage(currentPage - 1);
         } else if (totalClientsAfterDelete === 0) {
-            setCurrentPage(1); // Agar umuman mijoz qolmasa
+          setCurrentPage(1);
         }
-        // Agar o'sha sahifada boshqa elementlar bo'lsa, qayta fetch qilish shart emas
-        // await fetchClients(); // Agar serverdan qayta yuklash zarur bo'lsa
-
       } else if (!response.ok) {
-          let errorMessage = `Mijozni o'chirishda xatolik (${response.status}): ${response.statusText}`;
-           try {
-               const errorData = await response.json();
-               if (errorData && typeof errorData === 'object') {
-                   errorMessage = Object.entries(errorData)
-                       .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
-                       .join('\n');
-               }
-           } catch (e) { /* Ignore if response is not JSON */ }
-           throw new Error(errorMessage);
-       }
+        let errorMessage = `Mijozni o'chirishda xatolik (${response.status}): ${response.statusText}`;
+        try {
+          const errorData = await response.json();
+          if (errorData && typeof errorData === "object") {
+            errorMessage = Object.entries(errorData)
+              .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`)
+              .join("\n");
+          }
+        } catch (e) {
+          /* Ignore if response is not JSON */
+        }
+        throw new Error(errorMessage);
+      }
     } catch (error: any) {
-      toast({
-         title: "Xatolik",
-         description: error.message || "Mijozni o'chirishda noma'lum xatolik",
-         variant: "destructive",
-         className: "whitespace-pre-wrap max-w-md", // Xato xabarini to'liq ko'rsatish
-       });
+      if (isMounted) {
+        toast({
+          title: "Xatolik",
+          description: error.message || "Mijozni o'chirishda noma'lum xatolik",
+          variant: "destructive",
+          className: "whitespace-pre-wrap max-w-md",
+        });
+      }
     }
   };
 
   // Komponent yuklanganda va token o'zgarganda mijozlarni olish
   useEffect(() => {
-    if (accessToken === null) return; // Hali token yuklanmagan bo'lsa kutish
+    if (!isMounted || accessToken === null) return;
     if (!accessToken) {
-      if (typeof window !== 'undefined') {
-          toast({
-              title: "Xatolik",
-              description: "Tizimga kirish talab qilinadi",
-              variant: "destructive",
-          });
-          router.push("/login");
-      }
+      toast({
+        title: "Xatolik",
+        description: "Tizimga kirish talab qilinadi",
+        variant: "destructive",
+      });
+      router.push("/login");
       return;
     }
     fetchClients();
-  }, [accessToken, router]); // accessToken o'zgarganda fetch qilish
+  }, [accessToken, router, isMounted]);
 
   // Input o'zgarishlarini boshqarish
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -448,8 +490,6 @@ export default function ClientsPage() {
       kafil_phone_number: formData.kafil_phone_number || null,
     };
     createClient(newClient);
-    // Formani tozalash (agar muvaffaqiyatli bo'lsa, createClient ichida bajarilishi mumkin)
-    // setFormData({ fio: "", phone_number: "", password: "", user_type: "mijoz", address: "", balance: "0.0", kafil_fio: "", kafil_address: "", kafil_phone_number: "" });
   };
 
   // Tahrirlash formasini jo'natish
@@ -459,7 +499,7 @@ export default function ClientsPage() {
     const updatedClient = {
       fio: editFormData.fio,
       phone_number: editFormData.phone_number,
-      password: editFormData.password || undefined, // Parol o'zgartirilmasa undefined
+      password: editFormData.password || undefined,
       address: editFormData.address || null,
       balance: parseFloat(editFormData.balance) || 0.0,
       kafil_fio: editFormData.kafil_fio || null,
@@ -476,7 +516,7 @@ export default function ClientsPage() {
     setEditFormData({
       fio: client.name,
       phone_number: client.phone,
-      password: "", // Parolni ko'rsatmaslik
+      password: "",
       user_type: "mijoz",
       address: client.address || "",
       balance: client.balance.toString(),
@@ -491,9 +531,9 @@ export default function ClientsPage() {
   // Xonadonlar dialogini ochish
   const openApartmentsDialog = async (client: Client) => {
     setSelectedClient(client);
-    setSelectedClientApartments([]); // Eskisini tozalash
-    setApartmentsOpen(true); // Dialog ochish
-    await fetchClientApartments(client.id); // Xonadonlarni yuklash
+    setSelectedClientApartments([]);
+    setApartmentsOpen(true);
+    await fetchClientApartments(client.id);
   };
 
   // Mijozlarni qidiruv bo'yicha filtrlaymiz
@@ -502,7 +542,6 @@ export default function ClientsPage() {
     const nameMatch = client.name.toLowerCase().includes(searchTermLower);
     const phoneMatch = client.phone.includes(searchTerm);
 
-    // apartmentMatch olib tashlandi
     return searchTerm === "" || nameMatch || phoneMatch;
   });
 
@@ -528,14 +567,23 @@ export default function ClientsPage() {
 
   const handlePageChange = (page: number) => {
     if (page >= 1 && page <= totalPages) {
-        setCurrentPage(page);
+      setCurrentPage(page);
     }
   };
 
+  // Render loading state until the component is mounted
+  if (!isMounted) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <p className="text-muted-foreground">Yuklanmoqda...</p>
+      </div>
+    );
+  }
 
   // --- JSX Rendering ---
   return (
     <div className="flex min-h-screen flex-col">
+      <Toaster />
       {/* Header */}
       <div className="border-b">
         <div className="flex h-16 items-center px-4">
@@ -564,9 +612,7 @@ export default function ClientsPage() {
               <form onSubmit={handleSubmit}>
                 <DialogHeader>
                   <DialogTitle>Yangi mijoz qo'shish</DialogTitle>
-                  <DialogDescription>
-                    Yangi mijoz ma'lumotlarini kiriting
-                  </DialogDescription>
+                  <DialogDescription>Yangi mijoz ma'lumotlarini kiriting</DialogDescription>
                 </DialogHeader>
                 <Tabs defaultValue="general" className="w-full">
                   <TabsList className="grid w-full grid-cols-3">
@@ -579,15 +625,34 @@ export default function ClientsPage() {
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="phone_number">Telefon raqami *</Label>
-                          <Input id="phone_number" name="phone_number" value={formData.phone_number} onChange={handleChange} required />
+                          <Input
+                            id="phone_number"
+                            name="phone_number"
+                            value={formData.phone_number}
+                            onChange={handleChange}
+                            required
+                          />
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="fio">F.I.O. *</Label>
-                          <Input id="fio" name="fio" value={formData.fio} onChange={handleChange} required />
+                          <Input
+                            id="fio"
+                            name="fio"
+                            value={formData.fio}
+                            onChange={handleChange}
+                            required
+                          />
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="password">Parol *</Label>
-                          <Input id="password" name="password" type="password" value={formData.password} onChange={handleChange} required />
+                          <Input
+                            id="password"
+                            name="password"
+                            type="password"
+                            value={formData.password}
+                            onChange={handleChange}
+                            required
+                          />
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="user_type">Foydalanuvchi turi *</Label>
@@ -598,10 +663,15 @@ export default function ClientsPage() {
                   </TabsContent>
                   <TabsContent value="additional">
                     <div className="grid gap-4 py-4">
-                       <div className="space-y-2 col-span-2">
-                          <Label htmlFor="address">Manzil</Label>
-                          <Input id="address" name="address" value={formData.address} onChange={handleChange} />
-                        </div>
+                      <div className="space-y-2 col-span-2">
+                        <Label htmlFor="address">Manzil</Label>
+                        <Input
+                          id="address"
+                          name="address"
+                          value={formData.address}
+                          onChange={handleChange}
+                        />
+                      </div>
                     </div>
                   </TabsContent>
                   <TabsContent value="guarantor">
@@ -609,15 +679,30 @@ export default function ClientsPage() {
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="kafil_fio">Kafil F.I.O.</Label>
-                          <Input id="kafil_fio" name="kafil_fio" value={formData.kafil_fio} onChange={handleChange} />
+                          <Input
+                            id="kafil_fio"
+                            name="kafil_fio"
+                            value={formData.kafil_fio}
+                            onChange={handleChange}
+                          />
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="kafil_phone_number">Kafil telefon raqami</Label>
-                          <Input id="kafil_phone_number" name="kafil_phone_number" value={formData.kafil_phone_number} onChange={handleChange} />
+                          <Input
+                            id="kafil_phone_number"
+                            name="kafil_phone_number"
+                            value={formData.kafil_phone_number}
+                            onChange={handleChange}
+                          />
                         </div>
                         <div className="space-y-2 col-span-2">
                           <Label htmlFor="kafil_address">Kafil manzili</Label>
-                          <Input id="kafil_address" name="kafil_address" value={formData.kafil_address} onChange={handleChange} />
+                          <Input
+                            id="kafil_address"
+                            name="kafil_address"
+                            value={formData.kafil_address}
+                            onChange={handleChange}
+                          />
                         </div>
                       </div>
                     </div>
@@ -640,10 +725,12 @@ export default function ClientsPage() {
                 <Input
                   placeholder="Mijozlarni qidirish (FIO yoki telefon)..."
                   value={searchTerm}
-                  onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }} // Qidiruvda 1-sahifaga o'tish
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    setCurrentPage(1);
+                  }}
                   className="max-w-sm"
                 />
-                {/* Xonadon raqami bo'yicha filtr inputi olib tashlandi */}
               </div>
 
               {/* Loading State or Table */}
@@ -669,10 +756,9 @@ export default function ClientsPage() {
                       <TableBody>
                         {currentClients.length === 0 ? (
                           <TableRow>
-                             {/* Colspan 6 ga o'zgartirildi, chunki bitta ustun kamaydi */}
                             <TableCell colSpan={6} className="h-24 text-center">
                               {searchTerm
-                                ? `"${searchTerm}" bo'yicha mijozlar topilmadi.` // Xabar soddalashtirildi
+                                ? `"${searchTerm}" bo'yicha mijozlar topilmadi.`
                                 : "Mijozlar mavjud emas."}
                             </TableCell>
                           </TableRow>
@@ -701,7 +787,6 @@ export default function ClientsPage() {
                               </TableCell>
                               <TableCell className="text-right">
                                 <div className="flex justify-end space-x-1 md:space-x-2">
-                                  {/* Ko'rish tugmasi yo'q */}
                                   <Button
                                     variant="ghost"
                                     size="icon"
@@ -709,7 +794,11 @@ export default function ClientsPage() {
                                     title="Tahrirlash"
                                     disabled={editLoading[client.id]}
                                   >
-                                     {editLoading[client.id] ? ( <span className="animate-pulse text-xs">...</span> ) : ( <Edit className="h-4 w-4" /> )}
+                                    {editLoading[client.id] ? (
+                                      <span className="animate-pulse text-xs">...</span>
+                                    ) : (
+                                      <Edit className="h-4 w-4" />
+                                    )}
                                   </Button>
                                   <Button
                                     variant="ghost"
@@ -733,7 +822,8 @@ export default function ClientsPage() {
                   {totalPages > 1 && (
                     <div className="flex flex-col sm:flex-row items-center justify-between mt-4 space-y-2 sm:space-y-0">
                       <div className="text-sm text-muted-foreground">
-                        Jami {totalClients} ta mijozdan {startIndex + 1} - {Math.min(endIndex, totalClients)} ko‘rsatilmoqda.
+                        Jami {totalClients} ta mijozdan {startIndex + 1} -{" "}
+                        {Math.min(endIndex, totalClients)} ko‘rsatilmoqda.
                       </div>
                       <div className="flex items-center space-x-2">
                         <Button
@@ -745,7 +835,7 @@ export default function ClientsPage() {
                           <ChevronLeft className="h-4 w-4" />
                         </Button>
                         <span className="text-sm">
-                           Sahifa {currentPage} / {totalPages}
+                          Sahifa {currentPage} / {totalPages}
                         </span>
                         <Button
                           variant="outline"
@@ -806,9 +896,11 @@ export default function ClientsPage() {
               </div>
             )}
             <DialogFooter>
-              <Button variant="outline" onClick={() => setApartmentsOpen(false)}>Yopish</Button>
+              <Button variant="outline" onClick={() => setApartmentsOpen(false)}>
+                Yopish
+              </Button>
             </DialogFooter>
-          </DialogContent>
+            </DialogContent>
         </Dialog>
 
         {/* Edit Client Dialog */}
@@ -821,66 +913,107 @@ export default function ClientsPage() {
               </DialogHeader>
               <Tabs defaultValue="general" className="w-full">
                 <TabsList className="grid w-full grid-cols-3">
-                   <TabsTrigger value="general">Umumiy</TabsTrigger>
-                   <TabsTrigger value="additional">Qo'shimcha</TabsTrigger>
-                   <TabsTrigger value="guarantor">Kafil</TabsTrigger>
-                 </TabsList>
-                 <TabsContent value="general">
-                   <div className="grid gap-4 py-4">
-                     <div className="grid grid-cols-2 gap-4">
-                       <div className="space-y-2">
-                         <Label htmlFor="edit-phone_number">Telefon raqami *</Label>
-                         <Input id="edit-phone_number" name="phone_number" value={editFormData.phone_number} onChange={handleEditChange} required />
-                       </div>
-                       <div className="space-y-2">
-                         <Label htmlFor="edit-fio">F.I.O. *</Label>
-                         <Input id="edit-fio" name="fio" value={editFormData.fio} onChange={handleEditChange} required />
-                       </div>
-                       <div className="space-y-2">
-                         <Label htmlFor="edit-password">Yangi parol</Label>
-                         <Input id="edit-password" name="password" type="password" value={editFormData.password} onChange={handleEditChange} placeholder="O'zgartirmasangiz bo'sh qoldiring"/>
-                       </div>
-                       <div className="space-y-2">
-                         <Label htmlFor="edit-user_type">Foydalanuvchi turi *</Label>
-                         <Input id="edit-user_type" name="user_type" value="Mijoz" disabled />
-                       </div>
-                     </div>
-                   </div>
-                 </TabsContent>
-                 <TabsContent value="additional">
-                   <div className="grid gap-4 py-4">
+                  <TabsTrigger value="general">Umumiy</TabsTrigger>
+                  <TabsTrigger value="additional">Qo'shimcha</TabsTrigger>
+                  <TabsTrigger value="guarantor">Kafil</TabsTrigger>
+                </TabsList>
+                <TabsContent value="general">
+                  <div className="grid gap-4 py-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-phone_number">Telefon raqami *</Label>
+                        <Input
+                          id="edit-phone_number"
+                          name="phone_number"
+                          value={editFormData.phone_number}
+                          onChange={handleEditChange}
+                          required
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-fio">F.I.O. *</Label>
+                        <Input
+                          id="edit-fio"
+                          name="fio"
+                          value={editFormData.fio}
+                          onChange={handleEditChange}
+                          required
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-password">Yangi parol</Label>
+                        <Input
+                          id="edit-password"
+                          name="password"
+                          type="password"
+                          value={editFormData.password}
+                          onChange={handleEditChange}
+                          placeholder="O'zgartirmasangiz bo'sh qoldiring"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-user_type">Foydalanuvchi turi *</Label>
+                        <Input id="edit-user_type" name="user_type" value="Mijoz" disabled />
+                      </div>
+                    </div>
+                  </div>
+                </TabsContent>
+                <TabsContent value="additional">
+                  <div className="grid gap-4 py-4">
+                    <div className="space-y-2 col-span-2">
+                      <Label htmlFor="edit-address">Manzil</Label>
+                      <Input
+                        id="edit-address"
+                        name="address"
+                        value={editFormData.address}
+                        onChange={handleEditChange}
+                      />
+                    </div>
+                  </div>
+                </TabsContent>
+                <TabsContent value="guarantor">
+                  <div className="grid gap-4 py-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-kafil_fio">Kafil F.I.O.</Label>
+                        <Input
+                          id="edit-kafil_fio"
+                          name="kafil_fio"
+                          value={editFormData.kafil_fio}
+                          onChange={handleEditChange}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-kafil_phone_number">Kafil telefon raqami</Label>
+                        <Input
+                          id="edit-kafil_phone_number"
+                          name="kafil_phone_number"
+                          value={editFormData.kafil_phone_number}
+                          onChange={handleEditChange}
+                        />
+                      </div>
                       <div className="space-y-2 col-span-2">
-                         <Label htmlFor="edit-address">Manzil</Label>
-                         <Input id="edit-address" name="address" value={editFormData.address} onChange={handleEditChange} />
-                       </div>
-                   </div>
-                 </TabsContent>
-                 <TabsContent value="guarantor">
-                   <div className="grid gap-4 py-4">
-                     <div className="grid grid-cols-2 gap-4">
-                       <div className="space-y-2">
-                         <Label htmlFor="edit-kafil_fio">Kafil F.I.O.</Label>
-                         <Input id="edit-kafil_fio" name="kafil_fio" value={editFormData.kafil_fio} onChange={handleEditChange} />
-                       </div>
-                       <div className="space-y-2">
-                         <Label htmlFor="edit-kafil_phone_number">Kafil telefon raqami</Label>
-                         <Input id="edit-kafil_phone_number" name="kafil_phone_number" value={editFormData.kafil_phone_number} onChange={handleEditChange} />
-                       </div>
-                       <div className="space-y-2 col-span-2">
-                         <Label htmlFor="edit-kafil_address">Kafil manzili</Label>
-                         <Input id="edit-kafil_address" name="kafil_address" value={editFormData.kafil_address} onChange={handleEditChange} />
-                       </div>
-                     </div>
-                   </div>
-                 </TabsContent>
-               </Tabs>
+                        <Label htmlFor="edit-kafil_address">Kafil manzili</Label>
+                        <Input
+                          id="edit-kafil_address"
+                          name="kafil_address"
+                          value={editFormData.kafil_address}
+                          onChange={handleEditChange}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </TabsContent>
+              </Tabs>
               <DialogFooter>
                 <Button type="submit">O'zgarishlarni saqlash</Button>
               </DialogFooter>
             </form>
           </DialogContent>
         </Dialog>
-      </div> {/* End Main Content */}
-    </div> // End Main Container
+      </div>
+      {/* End Main Content */}
+    </div>
+    // End Main Container
   );
 }

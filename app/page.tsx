@@ -9,7 +9,7 @@ import { UserNav } from "@/components/user-nav";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CalendarDateRangePicker } from "@/components/date-range-picker";
-import { Building, Home, Users, CreditCard, DollarSign, TrendingUp, ChevronLeft, ChevronRight, Loader2, Eye } from "lucide-react";
+import { CreditCard, DollarSign, Home, Loader2, Users } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
@@ -22,7 +22,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import Image from "next/image";
 
 // Interfeyslar
 interface Payment {
@@ -33,16 +32,6 @@ interface Payment {
   created_at: string;
   due_date?: string;
   status: string;
-}
-
-interface Object {
-  id: number;
-  name: string;
-  address: string;
-  description: string;
-  total_apartments: number;
-  floors: number;
-  image_url?: string; // Rasm URL uchun yangi maydon
 }
 
 interface SalesData {
@@ -83,23 +72,14 @@ export default function DashboardPage() {
     paymentsDueToday: 0,
     paymentsPaidToday: 0,
   });
-  const [objects, setObjects] = useState<Object[]>([]);
   const [recentPayments, setRecentPayments] = useState<Payment[]>([]);
   const [salesData, setSalesData] = useState<SalesData[]>([]);
   const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
-  const [loadingObjects, setLoadingObjects] = useState(true);
-
-  // Pagination uchun state’lar
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const itemsPerPage = 8; // Har bir sahifada 8 ta obyekt
 
   // Modal uchun state’lar
   const [pendingModalOpen, setPendingModalOpen] = useState(false);
   const [overdueModalOpen, setOverdueModalOpen] = useState(false);
   const [remainingModalOpen, setRemainingModalOpen] = useState(false);
-  const [imageModalOpen, setImageModalOpen] = useState(false);
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [modalPayments, setModalPayments] = useState<Payment[]>([]);
   const [modalLoading, setModalLoading] = useState(false);
 
@@ -171,67 +151,6 @@ export default function DashboardPage() {
     fetchStats();
   }, [accessToken, router, dateRange, getAuthHeaders]);
 
-  // Obyektlar ro‘yxatini olish (pagination bilan)
-  useEffect(() => {
-    if (!accessToken) return;
-
-    const fetchObjects = async () => {
-      setLoadingObjects(true);
-      try {
-        const queryParams = new URLSearchParams({
-          page: currentPage.toString(),
-          page_size: itemsPerPage.toString(),
-        });
-
-        const response = await fetch(`http://api.ahlan.uz/objects/?${queryParams.toString()}`, {
-          method: "GET",
-          headers: getAuthHeaders(),
-        });
-
-        if (!response.ok) {
-          if (response.status === 401) {
-            localStorage.removeItem("access_token");
-            router.push("/login");
-            return;
-          }
-          throw new Error("Obyektlarni olishda xatolik");
-        }
-
-        const data = await response.json();
-        const objectsList = data.results || [];
-        setObjects(objectsList);
-        setTotalPages(data.count ? Math.ceil(data.count / itemsPerPage) : 1);
-      } catch (error: any) {
-        toast({ title: "Xatolik", description: error.message, variant: "destructive" });
-        setObjects([
-          {
-            id: 1,
-            name: "SmartHOUSE",
-            address: "Toshkent shaxar",
-            description: "Test",
-            total_apartments: 48,
-            floors: 12,
-            image_url: "https://via.placeholder.com/300",
-          },
-          {
-            id: 2,
-            name: "AhlanTEST",
-            address: "Fargona",
-            description: "Test",
-            total_apartments: 36,
-            floors: 9,
-            image_url: "https://via.placeholder.com/300",
-          },
-        ]);
-        setTotalPages(1);
-      } finally {
-        setLoadingObjects(false);
-      }
-    };
-
-    fetchObjects();
-  }, [accessToken, router, currentPage, getAuthHeaders]);
-
   // So'nggi to'lovlarni olish
   useEffect(() => {
     if (!accessToken) return;
@@ -284,7 +203,7 @@ export default function DashboardPage() {
         const monthlySales = payments.reduce((acc: Record<string, number>, payment: Payment) => {
           if (!payment.created_at || !payment.total_amount) return acc;
           const date = new Date(payment.created_at);
-          if (isNaN(date.getTime())) return acc;
+          if (isNaN( date.getTime() )) return acc;
           const monthYear = date.toLocaleString("default", { month: "short", year: "numeric" });
           acc[monthYear] = (acc[monthYear] || 0) + parseFloat(payment.total_amount);
           return acc;
@@ -369,21 +288,9 @@ export default function DashboardPage() {
     fetchModalPayments("remaining");
   };
 
-  const handleOpenImageModal = (imageUrl: string) => {
-    setSelectedImage(imageUrl);
-    setImageModalOpen(true);
-  };
-
   // Sana oralig‘ini o‘zgartirish
   const handleDateRangeChange = (range: { from: Date | null; to: Date | null }) => {
     setDateRange(range);
-  };
-
-  // Pagination handler
-  const handlePageChange = (page: number) => {
-    if (page >= 1 && page <= totalPages) {
-      setCurrentPage(page);
-    }
   };
 
   // Formatlash funksiyalari
@@ -405,7 +312,7 @@ export default function DashboardPage() {
     }
   };
 
-  if (loading || loadingObjects) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -435,10 +342,9 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <Tabs defaultValue="properties" className="space-y-4">
+        <Tabs defaultValue="overview" className="space-y-4">
           <TabsList>
             <TabsTrigger value="overview">Umumiy ko'rinish</TabsTrigger>
-            <TabsTrigger value="properties">Obyektlar</TabsTrigger>
             <TabsTrigger value="sales">Sotuvlar</TabsTrigger>
             <TabsTrigger value="payments">To'lovlar</TabsTrigger>
           </TabsList>
@@ -531,125 +437,6 @@ export default function DashboardPage() {
             </div>
           </TabsContent>
 
-          <TabsContent value="properties" className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Jami obyektlar</CardTitle>
-                  <Building className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{stats.totalProperties}</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Jami xonadonlar</CardTitle>
-                  <Home className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{stats.totalApartments}</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Bo'sh xonadonlar</CardTitle>
-                  <Home className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{stats.availableApartments}</div>
-                  <p className="text-xs text-muted-foreground">
-                    {stats.totalApartments ? Math.round((stats.availableApartments / stats.totalApartments) * 100) : 0}% jami xonadonlardan
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Obyektlar</CardTitle>
-                <CardDescription>Barcha obyektlar ro'yxati</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {loadingObjects ? (
-                  <div className="flex items-center justify-center h-[200px]">
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                    <span className="ml-2 text-muted-foreground">Yuklanmoqda...</span>
-                  </div>
-                ) : objects.length === 0 ? (
-                  <div className="flex items-center justify-center h-[200px]">
-                    <p className="text-muted-foreground">Obyektlar topilmadi.</p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="grid gap-4 md:grid-cols-4">
-                      {objects.map((object) => (
-                        <Card key={object.id} className="flex flex-col">
-                          <div className="relative w-full h-48">
-                            <Image
-                              src={object.image_url || "https://via.placeholder.com/300"}
-                              alt={object.name}
-                              layout="fill"
-                              objectFit="cover"
-                              className="rounded-t-lg"
-                            />
-                          </div>
-                          <CardHeader>
-                            <CardTitle>{object.name}</CardTitle>
-                            <CardDescription>{object.address}</CardDescription>
-                          </CardHeader>
-                          <CardContent className="flex-1">
-                            <p>{object.description}</p>
-                            <p>Jami xonadonlar: {object.total_apartments}</p>
-                            <p>Qavatlar soni: {object.floors}</p>
-                          </CardContent>
-                          <div className="p-4 pt-0 flex gap-2">
-                            <Button
-                              className="w-full"
-                              variant="outline"
-                              onClick={() => handleOpenImageModal(object.image_url || "https://via.placeholder.com/300")}
-                            >
-                              <Eye className="h-4 w-4 mr-2" />
-                              Rasmni ko'rish
-                            </Button>
-                            <Button
-                              className="w-full"
-                              variant="outline"
-                              onClick={() => router.push(`/properties/${object.id}`)}
-                            >
-                              Batafsil
-                            </Button>
-                          </div>
-                        </Card>
-                      ))}
-                    </div>
-                    {totalPages > 1 && (
-                      <div className="flex items-center justify-between mt-4">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handlePageChange(currentPage - 1)}
-                          disabled={currentPage === 1 || loadingObjects}
-                        >
-                          <ChevronLeft className="h-4 w-4 mr-2" /> Oldingi
-                        </Button>
-                        <span className="text-sm text-muted-foreground">{currentPage} / {totalPages} sahifa</span>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handlePageChange(currentPage + 1)}
-                          disabled={currentPage === totalPages || loadingObjects}
-                        >
-                          Keyingi <ChevronRight className="h-4 w-4 ml-2" />
-                        </Button>
-                      </div>
-                    )}
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
           <TabsContent value="sales" className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
               <Card>
@@ -682,7 +469,7 @@ export default function DashboardPage() {
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">O'rtacha narx</CardTitle>
-                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                  <DollarSign className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{formatCurrency(Math.round(stats.averagePrice))}</div>
@@ -746,218 +533,199 @@ export default function DashboardPage() {
             </div>
           </TabsContent>
         </Tabs>
-
-        {/* Kutilayotgan to‘lovlar modali */}
-        <Dialog open={pendingModalOpen} onOpenChange={setPendingModalOpen}>
-          <DialogContent className="sm:max-w-[800px] max-h-[80vh] flex flex-col">
-            <DialogHeader>
-              <DialogTitle>Kutilayotgan To‘lovlar Ro‘yxati</DialogTitle>
-              <DialogDescription>
-                Quyida filtrlangan kutilayotgan to‘lovlar ro‘yxati keltirilgan.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="flex-1 overflow-y-auto">
-              {modalLoading ? (
-                <div className="flex items-center justify-center h-[200px]">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                  <span className="ml-2 text-muted-foreground">Yuklanmoqda...</span>
-                </div>
-              ) : modalPayments.length === 0 ? (
-                <div className="flex items-center justify-center h-[200px]">
-                  <p className="text-muted-foreground">Kutilayotgan to‘lovlar topilmadi.</p>
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-[60px]">ID</TableHead>
-                      <TableHead>Mijoz</TableHead>
-                      <TableHead>Xonadon</TableHead>
-                      <TableHead>Sana</TableHead>
-                      <TableHead>Oxirgi muddat</TableHead>
-                      <TableHead className="text-right w-[150px]">Summa</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {modalPayments.map((payment) => (
-                      <TableRow key={payment.id}>
-                        <TableCell>{payment.id}</TableCell>
-                        <TableCell>{payment.user_fio}</TableCell>
-                        <TableCell>{payment.apartment_info}</TableCell>
-                        <TableCell>{formatDate(payment.created_at)}</TableCell>
-                        <TableCell>{formatDate(payment.due_date)}</TableCell>
-                        <TableCell className="text-right font-semibold">
-                          {formatCurrency(payment.total_amount)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    <TableRow className="bg-muted font-bold">
-                      <TableCell colSpan={5} className="text-right">Jami:</TableCell>
-                      <TableCell className="text-right">
-                        {formatCurrency(modalPayments.reduce((sum, p) => sum + Number(p.total_amount || 0), 0))}
-                      </TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              )}
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setPendingModalOpen(false)} disabled={modalLoading}>
-                Yopish
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* Muddati o‘tgan to‘lovlar modali */}
-        <Dialog open={overdueModalOpen} onOpenChange={setOverdueModalOpen}>
-          <DialogContent className="sm:max-w-[800px] max-h-[80vh] flex flex-col">
-            <DialogHeader>
-              <DialogTitle>Muddati O‘tgan To‘lovlar Ro‘yxati</DialogTitle>
-              <DialogDescription>
-                Quyida filtrlangan muddati o‘tgan to‘lovlar ro‘yxati keltirilgan.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="flex-1 overflow-y-auto">
-              {modalLoading ? (
-                <div className="flex items-center justify-center h-[200px]">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                  <span className="ml-2 text-muted-foreground">Yuklanmoqda...</span>
-                </div>
-              ) : modalPayments.length === 0 ? (
-                <div className="flex items-center justify-center h-[200px]">
-                  <p className="text-muted-foreground">Muddati o‘tgan to‘lovlar topilmadi.</p>
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-[60px]">ID</TableHead>
-                      <TableHead>Mijoz</TableHead>
-                      <TableHead>Xonadon</TableHead>
-                      <TableHead>Sana</TableHead>
-                      <TableHead>Oxirgi muddat</TableHead>
-                      <TableHead className="text-right w-[150px]">Summa</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {modalPayments.map((payment) => (
-                      <TableRow key={payment.id}>
-                        <TableCell>{payment.id}</TableCell>
-                        <TableCell>{payment.user_fio}</TableCell>
-                        <TableCell>{payment.apartment_info}</TableCell>
-                        <TableCell>{formatDate(payment.created_at)}</TableCell>
-                        <TableCell>{formatDate(payment.due_date)}</TableCell>
-                        <TableCell className="text-right font-semibold">
-                          {formatCurrency(payment.total_amount)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    <TableRow className="bg-muted font-bold">
-                      <TableCell colSpan={5} className="text-right">Jami:</TableCell>
-                      <TableCell className="text-right">
-                        {formatCurrency(modalPayments.reduce((sum, p) => sum + Number(p.total_amount || 0), 0))}
-                      </TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              )}
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setOverdueModalOpen(false)} disabled={modalLoading}>
-                Yopish
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* To‘lov qilinishi kerak modali */}
-        <Dialog open={remainingModalOpen} onOpenChange={setRemainingModalOpen}>
-          <DialogContent className="sm:max-w-[800px] max-h-[80vh] flex flex-col">
-            <DialogHeader>
-              <DialogTitle>To‘lov Qilinishi Kerak Bo‘lgan Ro‘yxat</DialogTitle>
-              <DialogDescription>
-                Quyida to‘lov qilinishi kerak bo‘lgan ro‘yxat keltirilgan.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="flex-1 overflow-y-auto">
-              {modalLoading ? (
-                <div className="flex items-center justify-center h-[200px]">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                  <span className="ml-2 text-muted-foreground">Yuklanmoqda...</span>
-                </div>
-              ) : modalPayments.length === 0 ? (
-                <div className="flex items-center justify-center h-[200px]">
-                  <p className="text-muted-foreground">To‘lov qilinishi kerak bo‘lganlar topilmadi.</p>
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-[60px]">ID</TableHead>
-                      <TableHead>Mijoz</TableHead>
-                      <TableHead>Xonadon</TableHead>
-                      <TableHead>Sana</TableHead>
-                      <TableHead>Oxirgi muddat</TableHead>
-                      <TableHead className="text-right w-[150px]">Summa</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {modalPayments.map((payment) => (
-                      <TableRow key={payment.id}>
-                        <TableCell>{payment.id}</TableCell>
-                        <TableCell>{payment.user_fio}</TableCell>
-                        <TableCell>{payment.apartment_info}</TableCell>
-                        <TableCell>{formatDate(payment.created_at)}</TableCell>
-                        <TableCell>{formatDate(payment.due_date)}</TableCell>
-                        <TableCell className="text-right font-semibold">
-                          {formatCurrency(payment.total_amount)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    <TableRow className="bg-muted font-bold">
-                      <TableCell colSpan={5} className="text-right">Jami:</TableCell>
-                      <TableCell className="text-right">
-                        {formatCurrency(modalPayments.reduce((sum, p) => sum + Number(p.total_amount || 0), 0))}
-                      </TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              )}
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setRemainingModalOpen(false)} disabled={modalLoading}>
-                Yopish
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* Rasmni ko'rish uchun modal */}
-        <Dialog open={imageModalOpen} onOpenChange={setImageModalOpen}>
-          <DialogContent className="sm:max-w-[800px]">
-            <DialogHeader>
-              <DialogTitle>Obyekt rasmi</DialogTitle>
-            </DialogHeader>
-            {selectedImage && (
-              <div className="relative w-full h-[400px]">
-                <Image
-                  src={selectedImage}
-                  alt="Obyekt rasmi"
-                  layout="fill"
-                  objectFit="contain"
-                  className="rounded-lg"
-                />
-              </div>
-            )}
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setImageModalOpen(false)}>
-                Yopish
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </div>
+
+      {/* Kutilayotgan to‘lovlar modali */}
+      <Dialog open={pendingModalOpen} onOpenChange={setPendingModalOpen}>
+        <DialogContent className="sm:max-w-[800px] max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Kutilayotgan To‘lovlar Ro‘yxati</DialogTitle>
+            <DialogDescription>
+              Quyida filtrlangan kutilayotgan to‘lovlar ro‘yxati keltirilgan.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto">
+            {modalLoading ? (
+              <div className="flex items-center justify-center h-[200px]">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                <span className="ml-2 text-muted-foreground">Yuklanmoqda...</span>
+              </div>
+            ) : modalPayments.length === 0 ? (
+              <div className="flex items-center justify-center h-[200px]">
+                <p className="text-muted-foreground">Kutilayotgan to‘lovlar topilmadi.</p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[60px]">ID</TableHead>
+                    <TableHead>Mijoz</TableHead>
+                    <TableHead>Xonadon</TableHead>
+                    <TableHead>Sana</TableHead>
+                    <TableHead>Oxirgi muddat</TableHead>
+                    <TableHead className="text-right w-[150px]">Summa</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {modalPayments.map((payment) => (
+                    <TableRow key={payment.id}>
+                      <TableCell>{payment.id}</TableCell>
+                      <TableCell>{payment.user_fio}</TableCell>
+                      <TableCell>{payment.apartment_info}</TableCell>
+                      <TableCell>{formatDate(payment.created_at)}</TableCell>
+                      <TableCell>{formatDate(payment.due_date)}</TableCell>
+                      <TableCell className="text-right font-semibold">
+                        {formatCurrency(payment.total_amount)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  <TableRow className="bg-muted font-bold">
+                    <TableCell colSpan={5} className="text-right">Jami:</TableCell>
+                    <TableCell className="text-right">
+                      {formatCurrency(modalPayments.reduce((sum, p) => sum + Number(p.total_amount || 0), 0))}
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingModalOpen(false)} disabled={modalLoading}>
+              Yopish
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Muddati o‘tgan to‘lovlar modali */}
+      <Dialog open={overdueModalOpen} onOpenChange={setOverdueModalOpen}>
+        <DialogContent className="sm:max-w-[800px] max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Muddati O‘tgan To‘lovlar Ro‘yxati</DialogTitle>
+            <DialogDescription>
+              Quyida filtrlangan muddati o‘tgan to‘lovlar ro‘yxati keltirilgan.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto">
+            {modalLoading ? (
+              <div className="flex items-center justify-center h-[200px]">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                <span className="ml-2 text-muted-foreground">Yuklanmoqda...</span>
+              </div>
+            ) : modalPayments.length === 0 ? (
+              <div className="flex items-center justify-center h-[200px]">
+                <p className="text-muted-foreground">Muddati o‘tgan to‘lovlar topilmadi.</p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[60px]">ID</TableHead>
+                    <TableHead>Mijoz</TableHead>
+                    <TableHead>Xonadon</TableHead>
+                    <TableHead>Sana</TableHead>
+                    <TableHead>Oxirgi muddat</TableHead>
+                    <TableHead className="text-right w-[150px]">Summa</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {modalPayments.map((payment) => (
+                    <TableRow key={payment.id}>
+                      <TableCell>{payment.id}</TableCell>
+                      <TableCell>{payment.user_fio}</TableCell>
+                      <TableCell>{payment.apartment_info}</TableCell>
+                      <TableCell>{formatDate(payment.created_at)}</TableCell>
+                      <TableCell>{formatDate(payment.due_date)}</TableCell>
+                      <TableCell className="text-right font-semibold">
+                        {formatCurrency(payment.total_amount)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  <TableRow className="bg-muted font-bold">
+                    <TableCell colSpan={5} className="text-right">Jami:</TableCell>
+                    <TableCell className="text-right">
+                      {formatCurrency(modalPayments.reduce((sum, p) => sum + Number(p.total_amount || 0), 0))}
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOverdueModalOpen(false)} disabled={modalLoading}>
+              Yopish
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* To‘lov qilinishi kerak modali */}
+      <Dialog open={remainingModalOpen} onOpenChange={setRemainingModalOpen}>
+        <DialogContent className="sm:max-w-[800px] max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>To‘lov Qilinishi Kerak Bo‘lgan Ro‘yxat</DialogTitle>
+            <DialogDescription>
+              Quyida to‘lov qilinishi kerak bo‘lgan ro‘yxat keltirilgan.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto">
+            {modalLoading ? (
+              <div className="flex items-center justify-center h-[200px]">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                <span className="ml-2 text-muted-foreground">Yuklanmoqda...</span>
+              </div>
+            ) : modalPayments.length === 0 ? (
+              <div className="flex items-center justify-center h-[200px]">
+                <p className="text-muted-foreground">To‘lov qilinishi kerak bo‘lganlar topilmadi.</p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[60px]">ID</TableHead>
+                    <TableHead>Mijoz</TableHead>
+                    <TableHead>Xonadon</TableHead>
+                    <TableHead>Sana</TableHead>
+                    <TableHead>Oxirgi muddat</TableHead>
+                    <TableHead className="text-right w-[150px]">Summa</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {modalPayments.map((payment) => (
+                    <TableRow key={payment.id}>
+                      <TableCell>{payment.id}</TableCell>
+                      <TableCell>{payment.user_fio}</TableCell>
+                      <TableCell>{payment.apartment_info}</TableCell>
+                      <TableCell>{formatDate(payment.created_at)}</TableCell>
+                      <TableCell>{formatDate(payment.due_date)}</TableCell>
+                      <TableCell className="text-right font-semibold">
+                        {formatCurrency(payment.total_amount)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  <TableRow className="bg-muted font-bold">
+                    <TableCell colSpan={5} className="text-right">Jami:</TableCell>
+                    <TableCell className="text-right">
+                      {formatCurrency(modalPayments.reduce((sum, p) => sum + Number(p.total_amount || 0), 0))}
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRemainingModalOpen(false)} disabled={modalLoading}>
+              Yopish
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <footer className="border-t bg-muted/40 py-4">
+        <div className="container mx-auto text-center text-sm text-muted-foreground">
+        Version 1.0 | Barcha huquqlar ximoyalangan | Ushbu Dastur CDCGroup tomonidan yaratilgan | CraDev Company tomonidan qo'llab quvvatlanadi | since 2019
+        </div>
+      </footer>
     </div>
   );
 }

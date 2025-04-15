@@ -28,6 +28,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
+import { Toaster, toast as hotToast } from "react-hot-toast";
 
 const ALL_STATUSES = [
   { value: "bosh", label: "Bo'sh" },
@@ -71,7 +72,9 @@ export default function ApartmentsPage() {
     property: propertyIdParam || "",
   });
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [selectedApartment, setSelectedApartment] = useState<any | null>(null);
+  const [apartmentToDelete, setApartmentToDelete] = useState<number | null>(null);
   const [editForm, setEditForm] = useState({
     room_number: "",
     rooms: "",
@@ -260,12 +263,16 @@ export default function ApartmentsPage() {
     }
   };
 
-  const deleteApartment = async (id: number) => {
-    if (!accessToken) return;
-    if (!window.confirm("Haqiqatan ham bu xonadonni o‘chirmoqchimisiz?")) return;
+  const openDeleteModal = (id: number) => {
+    setApartmentToDelete(id);
+    setDeleteModalOpen(true);
+  };
+
+  const confirmDeleteApartment = async () => {
+    if (!accessToken || !apartmentToDelete) return;
 
     try {
-      const response = await fetch(`${API_BASE_URL}/apartments/${id}/`, {
+      const response = await fetch(`${API_BASE_URL}/apartments/${apartmentToDelete}/`, {
         method: "DELETE",
         headers: getAuthHeaders(),
       });
@@ -285,9 +292,8 @@ export default function ApartmentsPage() {
         throw new Error(`Xonadonni o‘chirishda xatolik (${response.status})`);
       }
 
-      toast({
-        title: "Muvaffaqiyat",
-        description: "Xonadon muvaffaqiyatli o‘chirildi.",
+      hotToast.success("Muvaffaqiyatli o‘chirildi", {
+        position: "top-right",
       });
       fetchApartments();
     } catch (error) {
@@ -296,6 +302,9 @@ export default function ApartmentsPage() {
         description: (error as Error).message || "Xonadonni o‘chirishda xatolik.",
         variant: "destructive",
       });
+    } finally {
+      setDeleteModalOpen(false);
+      setApartmentToDelete(null);
     }
   };
 
@@ -431,6 +440,7 @@ export default function ApartmentsPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-muted/40">
+      <Toaster />
       <div className="border-b bg-background">
         <div className="flex h-16 items-center px-4 md:px-6">
           <MainNav className="mx-6 hidden md:flex" />
@@ -454,7 +464,7 @@ export default function ApartmentsPage() {
 
         <Card>
           <CardContent className="p-4 md:p-6">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5 xl:grid-cols-5">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div className="space-y-1.5">
                 <Label htmlFor="status">Holati</Label>
                 <Select
@@ -645,7 +655,7 @@ export default function ApartmentsPage() {
                           className="flex-1 font-semibold rounded-md shadow-md"
                           onClick={(e) => {
                             e.stopPropagation();
-                            deleteApartment(apartment.id);
+                            openDeleteModal(apartment.id);
                           }}
                         >
                           <Trash2 className="mr-2 h-4 w-4" /> O‘chirish
@@ -658,7 +668,7 @@ export default function ApartmentsPage() {
                         className="w-full font-semibold rounded-md shadow-md"
                         onClick={(e) => {
                           e.stopPropagation();
-                          deleteApartment(apartment.id);
+                          openDeleteModal(apartment.id);
                         }}
                       >
                         <Trash2 className="mr-2 h-4 w-4" /> O‘chirish
@@ -795,6 +805,31 @@ export default function ApartmentsPage() {
           </DialogContent>
         </Dialog>
       )}
+
+      <Dialog open={deleteModalOpen} onOpenChange={setDeleteModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Xonadonni o‘chirish</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p>Haqiqatan ham ushbu xonadonni o‘chirmoqchimisiz?</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteModalOpen(false)}>
+              Bekor qilish
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteApartment}>
+              O‘chirish
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <footer className="border-t bg-muted/40 py-4">
+        <div className="container mx-auto text-center text-sm text-muted-foreground">
+          Version 1.0 | Barcha huquqlar ximoyalangan | Ushbu Dastur CDCGroup tomonidan yaratilgan | CraDev Company tomonidan qo'llab quvvatlanadi | since 2019
+        </div>
+      </footer>
     </div>
   );
-} 
+}
