@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react"; // useCallback qo'shildi
+import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { MainNav } from "@/components/main-nav";
 import { Search } from "@/components/search";
 import { UserNav } from "@/components/user-nav";
 import { PlusCircle, Edit, Trash } from "lucide-react";
-import Link from "next/link"; // Link import qilingan
+import Link from "next/link";
 import { toast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -16,20 +16,90 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 
-const API_BASE_URL = "http://api.ahlan.uz"; // API URL ni konstantaga chiqardik
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://api.ahlan.uz";
+
+// Global xato boshqaruvchi
+const handleApiError = (error, response, router) => {
+  if (response?.status === 401) {
+    toast({
+      title: "Sessiya muddati tugagan",
+      description: "Iltimos, tizimga qayta kiring.",
+      variant: "destructive",
+    });
+    localStorage.removeItem("access_token");
+    router.push("/login");
+    return true;
+  }
+  toast({
+    title: "Xatolik",
+    description: error.message || "Noma'lum xatolik yuz berdi",
+    variant: "destructive",
+  });
+  return false;
+};
+
+// Obyekt kartasi komponenti
+const ObjectCard = ({ object, onEdit, onDelete }) => {
+  return (
+    <Card className="shadow-md flex flex-col transition-transform hover:scale-[1.02] hover:shadow-lg">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-lg font-semibold truncate">{object.name}</CardTitle>
+      </CardHeader>
+      <CardContent className="flex-grow pt-0">
+        <div className="text-sm space-y-1">
+          <p className="truncate"><span className="font-medium">Manzil:</span> {object.address}</p>
+          <p><span className="font-medium">Xonadonlar:</span> {object.total_apartments}</p>
+          <p><span className="font-medium">Qavatlar:</span> {object.floors}</p>
+          {object.description && (
+            <p className="text-gray-600 truncate" title={object.description}>
+              <span className="font-medium">Tavsif:</span>{" "}
+              {object.description.length > 30
+                ? `${object.description.substring(0, 30)}...`
+                : object.description}
+            </p>
+          )}
+        </div>
+      </CardContent>
+      <CardFooter className="flex justify-end space-x-2 pt-2">
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={() => onEdit(object)}
+          className="h-8 w-8"
+          title="Tahrirlash"
+        >
+          <Edit className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="destructive"
+          size="icon"
+          onClick={() => onDelete(object.id)}
+          className="h-8 w-8"
+          title="O'chirish"
+        >
+          <Trash className="h-4 w-4" />
+        </Button>
+      </CardFooter>
+    </Card>
+  );
+};
 
 export default function PropertiesPage() {
   const router = useRouter();
   const [objects, setObjects] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [accessToken, setAccessToken] = useState(null);
   const [openEditDialog, setOpenEditDialog] = useState(false);
+  const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
+  const [objectToDelete, setObjectToDelete] = useState(null);
   const [selectedObject, setSelectedObject] = useState(null);
   const [formData, setFormData] = useState({
     name: "",
@@ -37,25 +107,24 @@ export default function PropertiesPage() {
     floors: "",
     address: "",
     description: "",
-    image: null,
   });
 
-  // useCallback bilan o'ralgan getAuthHeaders
-  const getAuthHeaders = useCallback(() => {
-    if (!accessToken) return {}; // Token yo'q bo'lsa bo'sh obyekt qaytaramiz
-    return {
-      Authorization: `Bearer ${accessToken}`,
-      // Content-Type ni bu yerda qo'shish shart emas, FormData uchun fetch o'zi qo'yadi
-      // Faqat JSON uchun Accept yoki Content-Type kerak bo'lishi mumkin
-       Accept: "application/json",
-    };
-  }, [accessToken]); // accessToken o'zgarganda qayta yaratiladi
+  const getAuthHeaders = useCallback(
+    () => {
+      if (!accessToken) return {};
+      return {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      };
+    },
+    [accessToken]
+  );
 
-  // useCallback bilan o'ralgan loadObjects
   const loadObjects = useCallback(async () => {
-    if (!accessToken) return; // Token yo'q bo'lsa funksiyadan chiqamiz
+    if (!accessToken) return;
 
-    setLoading(true);
+    setIsInitialLoading(true);
     let allObjects = [];
     let nextUrl = `${API_BASE_URL}/objects/`;
 
@@ -63,27 +132,15 @@ export default function PropertiesPage() {
       while (nextUrl) {
         const response = await fetch(nextUrl, {
           method: "GET",
-          headers: {
-             ...getAuthHeaders(), // getAuthHeaders dan foydalanish
-            "Content-Type": "application/json", // GET uchun Content-Type shart emas, lekin Accept muhim
-          },
+          headers: getAuthHeaders(),
         });
 
         if (!response.ok) {
-          if (response.status === 401) {
-             // Token eskirgan yoki yaroqsiz bo'lsa, login sahifasiga yo'naltirish
-             toast({
-                title: "Sessiya muddati tugagan",
-                description: "Iltimos, tizimga qayta kiring.",
-                variant: "destructive",
-            });
-            localStorage.removeItem("access_token"); // Eskirgan token o'chiriladi
-            router.push("/login");
-            return; // Funksiyadan chiqish
-          }
-          // Boshqa xatoliklar
-          const errorData = await response.json().catch(() => ({ detail: "Server bilan bog'lanishda xatolik" }));
-          throw new Error(errorData.detail || "Obyektlarni olishda noma'lum xatolik");
+          const errorData = await response.json().catch(() => ({
+            detail: "Server bilan bog'lanishda xatolik",
+          }));
+          if (handleApiError(new Error(errorData.detail), response, router)) return;
+          throw new Error(errorData.detail);
         }
 
         const data = await response.json();
@@ -98,34 +155,31 @@ export default function PropertiesPage() {
         description: error.message || "Obyektlarni yuklashda xatolik yuz berdi",
         variant: "destructive",
       });
-
     } finally {
-      setLoading(false);
+      setIsInitialLoading(false);
     }
-  }, [accessToken, router, getAuthHeaders]); // getAuthHeaders qo'shildi
+  }, [accessToken, router, getAuthHeaders]);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const token = localStorage.getItem("access_token");
-       if (!token) {
-           toast({
-                title: "Avtorizatsiya yo'q",
-                description: "Iltimos, tizimga kiring.",
-                variant: "destructive",
-            });
-            router.push("/login");
-       } else {
-            setAccessToken(token);
-       }
+    const initialToken =
+      typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    if (!initialToken) {
+      toast({
+        title: "Avtorizatsiya yo'q",
+        description: "Iltimos, tizimga kiring.",
+        variant: "destructive",
+      });
+      router.push("/login");
+    } else {
+      setAccessToken(initialToken);
     }
-  }, [router]); // router dependency qoladi
+  }, [router]);
 
-  // accessToken o'zgarganda yoki loadObjects funksiyasi o'zgarganda (useCallback tufayli kamdan-kam) obyektlarni yuklash
   useEffect(() => {
-    if (accessToken) {
+    if (accessToken && objects.length === 0) {
       loadObjects();
     }
-  }, [accessToken, loadObjects]); // loadObjects dependency ga qo'shildi
+  }, [accessToken, objects.length, loadObjects]);
 
   const handleEdit = (object) => {
     setSelectedObject(object);
@@ -135,48 +189,28 @@ export default function PropertiesPage() {
       floors: object.floors || "",
       address: object.address || "",
       description: object.description || "",
-      image: null, // Rasm har doim qayta tanlanishi kerak
     });
     setOpenEditDialog(true);
-  };
-
-  const handleFileChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      setFormData((prev) => ({ ...prev, image: e.target.files[0] }));
-    } else {
-         setFormData((prev) => ({ ...prev, image: null })); // Fayl tanlanmasa null qilish
-    }
   };
 
   const handleUpdate = async (e) => {
     e.preventDefault();
     if (!selectedObject) return;
 
-    const formDataToSend = new FormData();
-    // Faqat o'zgargan yoki mavjud bo'lgan qiymatlarni qo'shamiz
-    formDataToSend.append("name", formData.name);
-    formDataToSend.append("total_apartments", formData.total_apartments);
-    formDataToSend.append("floors", formData.floors);
-    formDataToSend.append("address", formData.address);
-    formDataToSend.append("description", formData.description);
-    if (formData.image) {
-      formDataToSend.append("image", formData.image);
-    }
-    // Agar rasm o'zgartirilmasa, uni PUT request bilan yubormaslik kerak
-    // Lekin DRF odatda PUT da barcha maydonlarni kutadi. PATCH yaxshiroq bo'lishi mumkin.
-    // Hozircha PUT da rasm yuborilmasa, eski rasm o'chib ketishi mumkin (backend ga bog'liq).
-
-    setLoading(true); // Yangilash paytida loading holatini ko'rsatish
+    setIsUpdating(true);
     try {
       const response = await fetch(`${API_BASE_URL}/objects/${selectedObject.id}/`, {
-        method: "PUT", // Yoki PATCH (agar backend qo'llab-quvvatlasa va faqat o'zgargan maydonlarni yubormoqchi bo'lsangiz)
-        headers: getAuthHeaders(), // Authorization sarlavhasi qo'shildi
-        body: formDataToSend,
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify(formData),
       });
 
       if (!response.ok) {
-         const errorData = await response.json().catch(() => ({ detail: "Server javobida xatolik" }));
-         throw new Error(errorData.detail || `Obyektni yangilashda xatolik: ${response.statusText}`);
+        const errorData = await response.json().catch(() => ({
+          detail: "Server javobida xatolik",
+        }));
+        if (handleApiError(new Error(errorData.detail), response, router)) return;
+        throw new Error(errorData.detail);
       }
 
       toast({
@@ -184,66 +218,62 @@ export default function PropertiesPage() {
         description: "Obyekt muvaffaqiyatli yangilandi",
       });
       setOpenEditDialog(false);
-      loadObjects(); // Ro'yxatni yangilash
+      loadObjects();
     } catch (error) {
       console.error("Error updating object:", error);
       toast({
         title: "Xatolik",
-        description: error.message || "Obyektni yangilashda noma'lum xatolik yuz berdi",
+        description: error.message || "Obyektni yangilashda xatolik yuz berdi",
         variant: "destructive",
       });
     } finally {
-        setLoading(false); // Loading holatini tugatish
+      setIsUpdating(false);
     }
   };
 
   const handleDelete = async (id) => {
-    // confirm o'rniga Dialog ishlatish mumkin (ko'proq UI nazorati uchun)
-    if (!window.confirm("Ushbu obyektni o'chirishni tasdiqlaysizmi?")) return;
+    setObjectToDelete(id);
+    setOpenDeleteDialog(true);
+  };
 
-    setLoading(true); // O'chirish paytida loading holati
+  const confirmDelete = async () => {
+    if (!objectToDelete) return;
+
+    setIsDeleting(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/objects/${id}/`, {
+      const response = await fetch(`${API_BASE_URL}/objects/${objectToDelete}/`, {
         method: "DELETE",
-        headers: getAuthHeaders(), // Authorization sarlavhasi qo'shildi
+        headers: getAuthHeaders(),
       });
 
-      // DELETE so'rovi muvaffaqiyatli bo'lsa odatda 204 No Content statusini qaytaradi
-      if (response.status === 204) {
-          toast({
-            title: "Muvaffaqiyat",
-            description: "Obyekt muvaffaqiyatli o'chirildi",
-          });
-          // O'chirilgan obyektni state dan olib tashlash (qayta fetch qilmasdan)
-          // setObjects(prevObjects => prevObjects.filter(obj => obj.id !== id));
-          // Yoki ro'yxatni qayta yuklash
-          loadObjects();
-      } else if (!response.ok) {
-           const errorData = await response.json().catch(() => ({ detail: "Server javobida xatolik" }));
-           throw new Error(errorData.detail || `Obyektni o'chirishda xatolik: ${response.statusText}`);
-      } else {
-           // Bu holat kam uchraydi (masalan, 200 OK bilan body qaytarsa)
-            toast({
-                title: "Muvaffaqiyat",
-                description: "Obyekt o'chirildi (status: " + response.status + ")",
-            });
-            loadObjects();
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({
+          detail: "Server javobida xatolik",
+        }));
+        if (handleApiError(new Error(errorData.detail), response, router)) return;
+        throw new Error(errorData.detail);
       }
 
+      toast({
+        title: "Muvaffaqiyat",
+        description: "Obyekt muvaffaqiyatli o'chirildi",
+      });
+      loadObjects();
     } catch (error) {
       console.error("Error deleting object:", error);
       toast({
         title: "Xatolik",
-        description: error.message || "Obyektni o'chirishda noma'lum xatolik yuz berdi",
+        description: error.message || "Obyektni o'chirishda xatolik yuz berdi",
         variant: "destructive",
       });
     } finally {
-        setLoading(false); // Loading holatini tugatish
+      setIsDeleting(false);
+      setOpenDeleteDialog(false);
+      setObjectToDelete(null);
     }
   };
 
-  // Loading holati uchun spinner yaxshi, o'zgartirish shart emas
-  if (loading && objects.length === 0) { // Faqat boshlang'ich yuklashda to'liq ekranli loader
+  if (isInitialLoading && objects.length === 0) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -254,96 +284,62 @@ export default function PropertiesPage() {
     );
   }
 
-  // Token hali yuklanmagan bo'lsa (qisqa muddat)
-  if (accessToken === null && typeof window !== 'undefined' && localStorage.getItem('access_token')) {
-      return (
-           <div className="flex items-center justify-center min-h-screen">
-               <p>Sessiya tekshirilmoqda...</p>
-           </div>
-      );
+  if (accessToken === null && typeof window !== "undefined" && localStorage.getItem("access_token")) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <p>Sessiya tekshirilmoqda...</p>
+      </div>
+    );
   }
 
-
   return (
-    <div className="flex min-h-screen flex-col">
-      {/* Header qismi o'zgarishsiz */}
-      <div className="border-b">
-        <div className="flex h-16 items-center px-4">
+    <div className="flex min-h-screen flex-col bg-gray-50">
+      <header className="border-b bg-white shadow-sm">
+        <div className="flex h-16 items-center px-4 container mx-auto">
           <MainNav className="mx-6" />
           <div className="ml-auto flex items-center space-x-4">
             <Search />
             <UserNav />
           </div>
         </div>
-      </div>
+      </header>
 
-      {/* Content qismi */}
-      <div className="flex-1 space-y-4 p-8 pt-6">
-        <div className="flex items-center justify-between space-y-2">
-          <h2 className="text-3xl font-bold tracking-tight">Obyektlar</h2>
+      <main className="flex-1 space-y-6 p-4 md:p-8 pt-6 container mx-auto">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between space-y-4 md:space-y-0">
+          <h2 className="text-3xl font-bold tracking-tight text-gray-800">Obyektlar</h2>
           <Link href="/properties/add" legacyBehavior={false}>
-            <Button>
+            <Button className="bg-blue-600 hover:bg-blue-700">
               <PlusCircle className="mr-2 h-4 w-4" />
               Yangi obyekt qo'shish
             </Button>
           </Link>
         </div>
 
-        {/* Loading indikatori (kichikroq, update/delete paytida) */}
-        {loading && <p className="text-center py-4">Amal bajarilmoqda...</p>}
-
-        {/* Obyektlar ro'yxati */}
-        {!loading && objects.length === 0 && (
-            <p className="text-center text-gray-500 py-10">Hozircha obyektlar mavjud emas.</p>
+        {(isUpdating || isDeleting) && (
+          <div className="text-center py-4 text-gray-600 animate-pulse">
+            Amal bajarilmoqda...
+          </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {objects.map((object) => (
-            <Card key={object.id} className="shadow-lg flex flex-col"> {/* flex flex-col qo'shildi */}
-              <CardHeader className="p-0"> {/* Padding olib tashlandi, rasm to'liq egallasin */}
-                <img
-                  src={object.image || "https://via.placeholder.com/300x150?text=Rasm+yo'q"} // Placeholderga matn qo'shildi
-                  alt={object.name}
-                  className="w-full h-48 object-cover rounded-t-md" // Rasm yuqoriga yopishadi
-                  onError={(e) => { e.target.onerror = null; e.target.src="https://via.placeholder.com/300x150?text=Rasm+yuklanmadi"; }} // Rasm yuklanmasa
-                />
-              </CardHeader>
-              <CardContent className="flex-grow pt-4"> {/* flex-grow qo'shildi, kontent egallaydi */}
-                <CardTitle className="text-xl font-semibold mb-1">{object.name}</CardTitle>
-                <p className="text-sm text-gray-600 mb-2">{object.address}</p>
-                <div className="text-sm space-y-1">
-                    <p>
-                    <span className="font-medium">Xonadonlar:</span> {object.total_apartments}
-                    </p>
-                    <p>
-                    <span className="font-medium">Qavatlar:</span> {object.floors}
-                    </p>
-                    {object.description && (
-                         <p className="text-gray-700 pt-1">
-                           <span className="font-medium">Tavsif:</span> {object.description.substring(0, 50)}{object.description.length > 50 ? '...' : ''} {/* Tavsifni qisqartirish */}
-                         </p>
-                    )}
-                </div>
+        {!isInitialLoading && objects.length === 0 && (
+          <div className="text-center py-10 bg-white rounded-lg shadow">
+            <p className="text-gray-500">Hozircha obyektlar mavjud emas.</p>
+          </div>
+        )}
 
-              </CardContent>
-              {/* CardFooter: Tugmalar o'ng tomonda, orasi ochilgan */}
-              <CardFooter className="flex justify-end space-x-2 pt-4">
-                 {/* Batafsil tugmasi Link bilan o'raldi */}
-                <Button variant="outline" size="sm" onClick={() => handleEdit(object)}>
-                  <Edit className="h-4 w-4" /> {/* Matnsiz, faqat ikonka */}
-                  {/* <span className="ml-2">Tahrir</span> */}
-                </Button>
-                <Button variant="destructive" size="sm" onClick={() => handleDelete(object.id)}>
-                  <Trash className="h-4 w-4" /> {/* Matnsiz, faqat ikonka */}
-                   {/* <span className="ml-2">O'chirish</span> */}
-                </Button>
-              </CardFooter>
-            </Card>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {objects.map((object) => (
+            <ObjectCard
+              key={object.id}
+              object={object}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+            />
           ))}
         </div>
-      </div>
+      </main>
 
-      {/* Edit Dialog (o'zgarishsiz qoldi, lekin forma elementlari yaxshilanishi mumkin) */}
+      {/* Tahrirlash dialogi */}
       <Dialog open={openEditDialog} onOpenChange={setOpenEditDialog}>
         <DialogContent className="sm:max-w-[600px]">
           <form onSubmit={handleUpdate}>
@@ -352,47 +348,117 @@ export default function PropertiesPage() {
               <DialogDescription>Obyekt ma'lumotlarini yangilang.</DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
-               {/* Inputlar uchun Label va Input juftliklari */}
-               <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="name" className="text-right">Nomi</Label>
-                <Input id="name" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="col-span-3" required />
-              </div>
-               <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="total_apartments" className="text-right">Xonadonlar soni</Label>
-                <Input id="total_apartments" type="number" value={formData.total_apartments} onChange={(e) => setFormData({ ...formData, total_apartments: e.target.value })} className="col-span-3" required />
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="name" className="text-right font-medium">
+                  Nomi
+                </Label>
+                <Input
+                  id="name"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  className="col-span-3"
+                  required
+                />
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="floors" className="text-right">Qavatlar</Label>
-                <Input id="floors" type="number" value={formData.floors} onChange={(e) => setFormData({ ...formData, floors: e.target.value })} className="col-span-3" required />
+                <Label htmlFor="total_apartments" className="text-right font-medium">
+                  Xonadonlar soni
+                </Label>
+                <Input
+                  id="total_apartments"
+                  type="number"
+                  value={formData.total_apartments}
+                  onChange={(e) =>
+                    setFormData({ ...formData, total_apartments: e.target.value })
+                  }
+                  className="col-span-3"
+                  required
+                  min="0"
+                />
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="address" className="text-right">Manzil</Label>
-                <Input id="address" value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} className="col-span-3" required />
+                <Label htmlFor="floors" className="text-right font-medium">
+                  Qavatlar
+                </Label>
+                <Input
+                  id="floors"
+                  type="number"
+                  value={formData.floors}
+                  onChange={(e) => setFormData({ ...formData, floors: e.target.value })}
+                  className="col-span-3"
+                  required
+                  min="0"
+                />
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
-                 <Label htmlFor="description" className="text-right">Tavsif</Label>
-                 {/* Tavsif uchun <Textarea> ishlatish mumkin */}
-                <Input id="description" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} className="col-span-3" />
+                <Label htmlFor="address" className="text-right font-medium">
+                  Manzil
+                </Label>
+                <Input
+                  id="address"
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  className="col-span-3"
+                  required
+                />
               </div>
-               <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="image" className="text-right">Rasm</Label>
-                <Input id="image" type="file" onChange={handleFileChange} className="col-span-3" accept="image/*" />
-                 {/* Eski rasmni ko'rsatish uchun joy (agar kerak bo'lsa) */}
-                 {selectedObject?.image && !formData.image && (
-                    <div className="col-span-3 col-start-2 mt-2">
-                        <img src={selectedObject.image} alt="Joriy rasm" className="h-20 w-auto rounded" />
-                        <p className="text-xs text-gray-500 mt-1">Yangi rasm tanlanmasa, shu rasm qoladi (backend ga bog'liq).</p>
-                    </div>
-                 )}
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="description" className="text-right font-medium">
+                  Tavsif
+                </Label>
+                <Textarea
+                  id="description"
+                  value={formData.description}
+                  onChange={(e) =>
+                    setFormData({ ...formData, description: e.target.value })
+                  }
+                  className="col-span-3"
+                  rows={4}
+                />
               </div>
             </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setOpenEditDialog(false)}>Bekor qilish</Button>
-              <Button type="submit" disabled={loading}> {/* Saqlash paytida disable qilish */}
-                  {loading ? "Saqlanmoqda..." : "Saqlash"}
+            <DialogFooter className="flex flex-col sm:flex-row sm:justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setOpenEditDialog(false)}
+                disabled={isUpdating}
+              >
+                Bekor qilish
+              </Button>
+              <Button type="submit" disabled={isUpdating} className="bg-blue-600 hover:bg-blue-700">
+                {isUpdating ? "Saqlanmoqda..." : "Saqlash"}
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* O‘chirish dialogi */}
+      <Dialog open={openDeleteDialog} onOpenChange={setOpenDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Obyektni o'chirish</DialogTitle>
+            <DialogDescription>
+              Ushbu obyektni o'chirishni tasdiqlaysizmi? Bu amalni qaytarib bo'lmaydi.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex flex-col sm:flex-row sm:justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setOpenDeleteDialog(false)}
+              disabled={isDeleting}
+            >
+              Bekor qilish
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDelete}
+              disabled={isDeleting}
+            >
+              {isDeleting ? "O'chirilmoqda..." : "O'chirish"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

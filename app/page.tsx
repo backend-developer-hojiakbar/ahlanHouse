@@ -9,7 +9,7 @@ import { UserNav } from "@/components/user-nav";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CalendarDateRangePicker } from "@/components/date-range-picker";
-import { Building, Home, Users, CreditCard, DollarSign, TrendingUp, BarChart, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { Building, Home, Users, CreditCard, DollarSign, TrendingUp, ChevronLeft, ChevronRight, Loader2, Eye } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import Image from "next/image";
 
 // Interfeyslar
 interface Payment {
@@ -41,16 +42,22 @@ interface Object {
   description: string;
   total_apartments: number;
   floors: number;
+  image_url?: string; // Rasm URL uchun yangi maydon
+}
+
+interface SalesData {
+  name: string;
+  total: number;
 }
 
 // Overview komponenti
-const Overview = ({ data }) => {
+const Overview = ({ data }: { data: SalesData[] }) => {
   return (
     <LineChart width={500} height={300} data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
       <CartesianGrid strokeDasharray="3 3" />
       <XAxis dataKey="name" />
       <YAxis />
-      <Tooltip formatter={(value) => value.toLocaleString("us-US", { style: "currency", currency: "USD" })} />
+      <Tooltip formatter={(value: number) => value.toLocaleString("us-US", { style: "currency", currency: "USD" })} />
       <Legend />
       <Line type="monotone" dataKey="total" stroke="#8884d8" activeDot={{ r: 8 }} />
     </LineChart>
@@ -78,66 +85,62 @@ export default function DashboardPage() {
   });
   const [objects, setObjects] = useState<Object[]>([]);
   const [recentPayments, setRecentPayments] = useState<Payment[]>([]);
-  const [salesData, setSalesData] = useState<any[]>([]);
-  const [dateRange, setDateRange] = useState({ from: null, to: null });
+  const [salesData, setSalesData] = useState<SalesData[]>([]);
+  const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });
   const [loadingObjects, setLoadingObjects] = useState(true);
 
   // Pagination uchun state’lar
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const itemsPerPage = 6; // Har bir sahifada 6 ta obyekt
+  const itemsPerPage = 8; // Har bir sahifada 8 ta obyekt
 
   // Modal uchun state’lar
   const [pendingModalOpen, setPendingModalOpen] = useState(false);
   const [overdueModalOpen, setOverdueModalOpen] = useState(false);
   const [remainingModalOpen, setRemainingModalOpen] = useState(false);
+  const [imageModalOpen, setImageModalOpen] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [modalPayments, setModalPayments] = useState<Payment[]>([]);
   const [modalLoading, setModalLoading] = useState(false);
 
   // Access token olish
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const token = localStorage.getItem("access_token");
-      setAccessToken(token);
-    }
-  }, []);
-
-  // API so‘rovlar uchun umumiy header
-  const getAuthHeaders = useCallback(() => ({
-    "Accept": "application/json",
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${accessToken}`,
-  }), [accessToken]);
-
-  // Statistika ma'lumotlarini olish (sana oralig‘i bilan)
-  useEffect(() => {
-    if (accessToken === null) return;
-
-    if (!accessToken) {
-      toast({
-        title: "Xatolik",
-        description: "Tizimga kirish talab qilinadi",
-        variant: "destructive",
-      });
+    const token = localStorage.getItem("access_token");
+    if (!token) {
       router.push("/login");
       return;
     }
+    setAccessToken(token);
+  }, [router]);
+
+  // API so‘rovlar uchun umumiy header
+  const getAuthHeaders = useCallback(
+    () => ({
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    }),
+    [accessToken]
+  );
+
+  // Statistika ma'lumotlarini olish
+  useEffect(() => {
+    if (!accessToken) return;
 
     const fetchStats = async () => {
+      setLoading(true);
       try {
         let url = "http://api.ahlan.uz/payments/statistics/";
         if (dateRange.from && dateRange.to) {
           url += `?created_at__gte=${dateRange.from.toISOString().split("T")[0]}&created_at__lte=${dateRange.to.toISOString().split("T")[0]}`;
         }
 
-        const response = await fetch(url, {
-          method: "GET",
-          headers: getAuthHeaders(),
-        });
-
+        const response = await fetch(url, { method: "GET", headers: getAuthHeaders() });
         if (!response.ok) {
           if (response.status === 401) {
-            throw new Error("Sessiya tugagan, qayta kirish kerak");
+            localStorage.removeItem("access_token");
+            router.push("/login");
+            return;
           }
           throw new Error("Statistikani olishda xatolik");
         }
@@ -158,13 +161,9 @@ export default function DashboardPage() {
           paymentsDueToday: data.payments_due_today || 0,
           paymentsPaidToday: data.payments_paid_today || 0,
         });
-        setLoading(false);
       } catch (error: any) {
-        toast({
-          title: "Xatolik",
-          description: error.message || "Statistikani olishda xatolik yuz berdi",
-          variant: "destructive",
-        });
+        toast({ title: "Xatolik", description: error.message, variant: "destructive" });
+      } finally {
         setLoading(false);
       }
     };
@@ -174,19 +173,15 @@ export default function DashboardPage() {
 
   // Obyektlar ro‘yxatini olish (pagination bilan)
   useEffect(() => {
-    if (accessToken === null) return;
-
-    if (!accessToken) {
-      router.push("/login");
-      return;
-    }
+    if (!accessToken) return;
 
     const fetchObjects = async () => {
       setLoadingObjects(true);
       try {
-        const queryParams = new URLSearchParams();
-        queryParams.append("page", currentPage.toString());
-        queryParams.append("page_size", itemsPerPage.toString());
+        const queryParams = new URLSearchParams({
+          page: currentPage.toString(),
+          page_size: itemsPerPage.toString(),
+        });
 
         const response = await fetch(`http://api.ahlan.uz/objects/?${queryParams.toString()}`, {
           method: "GET",
@@ -195,27 +190,41 @@ export default function DashboardPage() {
 
         if (!response.ok) {
           if (response.status === 401) {
-            throw new Error("Sessiya tugagan, qayta kirish kerak");
+            localStorage.removeItem("access_token");
+            router.push("/login");
+            return;
           }
           throw new Error("Obyektlarni olishda xatolik");
         }
 
         const data = await response.json();
-        const objectsList = data.results || data || [];
+        const objectsList = data.results || [];
         setObjects(objectsList);
-        setTotalPages(Math.ceil(data.count / itemsPerPage));
-        setLoadingObjects(false);
+        setTotalPages(data.count ? Math.ceil(data.count / itemsPerPage) : 1);
       } catch (error: any) {
-        toast({
-          title: "Xatolik",
-          description: error.message || "Obyektlarni olishda xatolik yuz berdi",
-          variant: "destructive",
-        });
+        toast({ title: "Xatolik", description: error.message, variant: "destructive" });
         setObjects([
-          { id: 1, name: "Ahlan Residence", address: "Toshkent", description: "Test", total_apartments: 48, floors: 12 },
-          { id: 2, name: "Ahlan Tower", address: "Toshkent", description: "Test", total_apartments: 36, floors: 9 },
+          {
+            id: 1,
+            name: "SmartHOUSE",
+            address: "Toshkent shaxar",
+            description: "Test",
+            total_apartments: 48,
+            floors: 12,
+            image_url: "https://via.placeholder.com/300",
+          },
+          {
+            id: 2,
+            name: "AhlanTEST",
+            address: "Fargona",
+            description: "Test",
+            total_apartments: 36,
+            floors: 9,
+            image_url: "https://via.placeholder.com/300",
+          },
         ]);
         setTotalPages(1);
+      } finally {
         setLoadingObjects(false);
       }
     };
@@ -223,14 +232,9 @@ export default function DashboardPage() {
     fetchObjects();
   }, [accessToken, router, currentPage, getAuthHeaders]);
 
-  // So'nggi to'lovlarni olish (sana oralig‘i bilan)
+  // So'nggi to'lovlarni olish
   useEffect(() => {
-    if (accessToken === null) return;
-
-    if (!accessToken) {
-      router.push("/login");
-      return;
-    }
+    if (!accessToken) return;
 
     const fetchRecentPayments = async () => {
       try {
@@ -239,27 +243,20 @@ export default function DashboardPage() {
           url += `&created_at__gte=${dateRange.from.toISOString().split("T")[0]}&created_at__lte=${dateRange.to.toISOString().split("T")[0]}`;
         }
 
-        const response = await fetch(url, {
-          method: "GET",
-          headers: getAuthHeaders(),
-        });
-
+        const response = await fetch(url, { method: "GET", headers: getAuthHeaders() });
         if (!response.ok) {
           if (response.status === 401) {
-            throw new Error("Sessiya tugagan, qayta kirish kerak");
+            localStorage.removeItem("access_token");
+            router.push("/login");
+            return;
           }
           throw new Error("To'lovlarni olishda xatolik");
         }
 
         const data = await response.json();
-        const paymentsList = data.results || [];
-        setRecentPayments(paymentsList);
+        setRecentPayments(data.results || []);
       } catch (error: any) {
-        toast({
-          title: "Xatolik",
-          description: error.message || "To'lovlarni olishda xatolik yuz berdi",
-          variant: "destructive",
-        });
+        toast({ title: "Xatolik", description: error.message, variant: "destructive" });
         setRecentPayments([]);
       }
     };
@@ -267,14 +264,9 @@ export default function DashboardPage() {
     fetchRecentPayments();
   }, [accessToken, router, dateRange, getAuthHeaders]);
 
-  // Sotuvlar dinamikasi uchun ma'lumotlarni olish (Payments endpointidan)
+  // Sotuvlar dinamikasi uchun ma'lumotlarni olish
   useEffect(() => {
-    if (accessToken === null) return;
-
-    if (!accessToken) {
-      router.push("/login");
-      return;
-    }
+    if (!accessToken) return;
 
     const fetchSalesData = async () => {
       try {
@@ -283,41 +275,28 @@ export default function DashboardPage() {
           url += `?created_at__gte=${dateRange.from.toISOString().split("T")[0]}&created_at__lte=${dateRange.to.toISOString().split("T")[0]}`;
         }
 
-        const response = await fetch(url, {
-          method: "GET",
-          headers: getAuthHeaders(),
-        });
-
-        if (!response.ok) {
-          throw new Error("Sotuvlar dinamikasini olishda xatolik");
-        }
+        const response = await fetch(url, { method: "GET", headers: getAuthHeaders() });
+        if (!response.ok) throw new Error("Sotuvlar dinamikasini olishda xatolik");
 
         const data = await response.json();
         const payments = data.results || [];
 
-        // Oylik sotuvlarni hisoblash
-        const monthlySales = payments.reduce((acc: any, payment: Payment) => {
+        const monthlySales = payments.reduce((acc: Record<string, number>, payment: Payment) => {
+          if (!payment.created_at || !payment.total_amount) return acc;
           const date = new Date(payment.created_at);
+          if (isNaN(date.getTime())) return acc;
           const monthYear = date.toLocaleString("default", { month: "short", year: "numeric" });
           acc[monthYear] = (acc[monthYear] || 0) + parseFloat(payment.total_amount);
           return acc;
         }, {});
 
-        // Diagramma uchun ma'lumotlarni tayyorlash
         const chartData = Object.entries(monthlySales)
-          .map(([name, total]) => ({
-            name,
-            total,
-          }))
-          .sort((a, b) => new Date(a.name).getTime() - new Date(b.name).getTime()); // Oylarni tartiblash
+          .map(([name, total]) => ({ name, total }))
+          .sort((a, b) => new Date(a.name).getTime() - new Date(b.name).getTime());
 
         setSalesData(chartData);
       } catch (error: any) {
-        toast({
-          title: "Xatolik",
-          description: error.message || "Sotuvlar dinamikasini olishda xatolik yuz berdi",
-          variant: "destructive",
-        });
+        toast({ title: "Xatolik", description: error.message, variant: "destructive" });
         setSalesData([
           { name: "Jan 2025", total: 40000000 },
           { name: "Feb 2025", total: 50000000 },
@@ -347,19 +326,12 @@ export default function DashboardPage() {
           url += `&status=pending&due_date__lt=${today}`;
         }
 
-        const response = await fetch(url, {
-          method: "GET",
-          headers: getAuthHeaders(),
-        });
-
-        if (!response.ok) {
-          throw new Error(`${type} to‘lovlarni olishda xatolik`);
-        }
+        const response = await fetch(url, { method: "GET", headers: getAuthHeaders() });
+        if (!response.ok) throw new Error(`${type} to‘lovlarni olishda xatolik`);
 
         const data = await response.json();
         let payments = data.results || [];
 
-        // "To‘lov qilinishi kerak" uchun filtr
         if (type === "remaining") {
           const allPaymentsResponse = await fetch("http://api.ahlan.uz/payments/?page_size=1000", {
             method: "GET",
@@ -372,11 +344,7 @@ export default function DashboardPage() {
 
         setModalPayments(payments);
       } catch (error: any) {
-        toast({
-          title: "Xatolik",
-          description: error.message || "To‘lovlarni olishda xatolik yuz berdi",
-          variant: "destructive",
-        });
+        toast({ title: "Xatolik", description: error.message, variant: "destructive" });
         setModalPayments([]);
       } finally {
         setModalLoading(false);
@@ -401,8 +369,13 @@ export default function DashboardPage() {
     fetchModalPayments("remaining");
   };
 
+  const handleOpenImageModal = (imageUrl: string) => {
+    setSelectedImage(imageUrl);
+    setImageModalOpen(true);
+  };
+
   // Sana oralig‘ini o‘zgartirish
-  const handleDateRangeChange = (range: any) => {
+  const handleDateRangeChange = (range: { from: Date | null; to: Date | null }) => {
     setDateRange(range);
   };
 
@@ -436,8 +409,8 @@ export default function DashboardPage() {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto mb-4"></div>
-          <p>Yuklanmoqda...</p>
+          <Loader2 className="h-12 w-12 animate-spin mx-auto mb-4" />
+          <p>Ma'lumotlar yuklanmoqda...</p>
         </div>
       </div>
     );
@@ -462,7 +435,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <Tabs defaultValue="overview" className="space-y-4">
+        <Tabs defaultValue="properties" className="space-y-4">
           <TabsList>
             <TabsTrigger value="overview">Umumiy ko'rinish</TabsTrigger>
             <TabsTrigger value="properties">Obyektlar</TabsTrigger>
@@ -559,7 +532,7 @@ export default function DashboardPage() {
           </TabsContent>
 
           <TabsContent value="properties" className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Jami obyektlar</CardTitle>
@@ -609,19 +582,36 @@ export default function DashboardPage() {
                   </div>
                 ) : (
                   <>
-                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    <div className="grid gap-4 md:grid-cols-4">
                       {objects.map((object) => (
-                        <Card key={object.id}>
+                        <Card key={object.id} className="flex flex-col">
+                          <div className="relative w-full h-48">
+                            <Image
+                              src={object.image_url || "https://via.placeholder.com/300"}
+                              alt={object.name}
+                              layout="fill"
+                              objectFit="cover"
+                              className="rounded-t-lg"
+                            />
+                          </div>
                           <CardHeader>
                             <CardTitle>{object.name}</CardTitle>
                             <CardDescription>{object.address}</CardDescription>
                           </CardHeader>
-                          <CardContent>
+                          <CardContent className="flex-1">
                             <p>{object.description}</p>
                             <p>Jami xonadonlar: {object.total_apartments}</p>
                             <p>Qavatlar soni: {object.floors}</p>
                           </CardContent>
-                          <div className="p-4 pt-0">
+                          <div className="p-4 pt-0 flex gap-2">
+                            <Button
+                              className="w-full"
+                              variant="outline"
+                              onClick={() => handleOpenImageModal(object.image_url || "https://via.placeholder.com/300")}
+                            >
+                              <Eye className="h-4 w-4 mr-2" />
+                              Rasmni ko'rish
+                            </Button>
                             <Button
                               className="w-full"
                               variant="outline"
@@ -937,6 +927,31 @@ export default function DashboardPage() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setRemainingModalOpen(false)} disabled={modalLoading}>
+                Yopish
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Rasmni ko'rish uchun modal */}
+        <Dialog open={imageModalOpen} onOpenChange={setImageModalOpen}>
+          <DialogContent className="sm:max-w-[800px]">
+            <DialogHeader>
+              <DialogTitle>Obyekt rasmi</DialogTitle>
+            </DialogHeader>
+            {selectedImage && (
+              <div className="relative w-full h-[400px]">
+                <Image
+                  src={selectedImage}
+                  alt="Obyekt rasmi"
+                  layout="fill"
+                  objectFit="contain"
+                  className="rounded-lg"
+                />
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setImageModalOpen(false)}>
                 Yopish
               </Button>
             </DialogFooter>

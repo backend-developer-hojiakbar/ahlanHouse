@@ -797,4 +797,4 @@ export default function ApartmentsPage() {
       )}
     </div>
   );
-}
+} 

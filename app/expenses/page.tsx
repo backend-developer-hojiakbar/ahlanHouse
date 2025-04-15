@@ -92,7 +92,7 @@ const initialFormData = {
   expense_type: "",
   date: new Date().toISOString().split("T")[0],
   comment: "",
-  status: "Kutilmoqda",
+  status: "Nasiya",
 };
 const initialNewSupplierData = {
   company_name: "",
@@ -367,7 +367,7 @@ export default function ExpensesPage() {
     setIsSubmitting(true);
     try {
       const response = await fetch(`${API_BASE_URL}/expenses/`, {
-        method: "POST", headers: getAuthHeaders(), body: JSON.stringify(expenseData),
+        method: "POST", headers: getAuthHeaders(), body: JSON.stringify({...expenseData, status: expenseData.status === "Nasiya" ? "Kutilmoqda" : expenseData.status}),
       });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -403,7 +403,7 @@ export default function ExpensesPage() {
       setFormData({
         object: data.object?.toString() || "", supplier: data.supplier?.toString() || "",
         amount: data.amount || "0", expense_type: data.expense_type?.toString() || "",
-        date: formattedDate, comment: data.comment || "", status: data.status || "Kutilmoqda",
+        date: formattedDate, comment: data.comment || "", status: data.status === "Kutilmoqda" ? "Nasiya" : data.status,
       });
     } catch (error: any) {
       toast({ title: "Xatolik", description: error.message, variant: "destructive" });
@@ -416,7 +416,7 @@ export default function ExpensesPage() {
     setIsSubmitting(true);
     try {
       const response = await fetch(`${API_BASE_URL}/expenses/${id}/`, {
-        method: "PUT", headers: getAuthHeaders(), body: JSON.stringify(expenseData),
+        method: "PUT", headers: getAuthHeaders(), body: JSON.stringify({...expenseData, status: expenseData.status === "Nasiya" ? "Kutilmoqda" : expenseData.status}),
       });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -630,7 +630,7 @@ export default function ExpensesPage() {
             <TableRow>
               <TableHead className="w-[60px]">#</TableHead>
               <TableHead className="w-[120px]">Sana</TableHead>
-              <TableHead>Obleau</TableHead>
+              <TableHead>Obyekt</TableHead>
               <TableHead>Yetkazib beruvchi</TableHead>
               <TableHead>Tavsif</TableHead>
               <TableHead>Turi</TableHead>
@@ -661,10 +661,9 @@ export default function ExpensesPage() {
                 </TableCell>
                 <TableCell>
                   <Badge
-                    variant={expense.status === 'To‘langan' ? 'success' : 'warning'}
-                    className="whitespace-nowrap"
+                    className={`whitespace-nowrap ${expense.status === 'To‘langan' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}`}
                   >
-                    {expense.status || "Noma'lum"}
+                    {expense.status === 'Kutilmoqda' ? 'Nasiya' : expense.status}
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right font-semibold">
@@ -746,7 +745,7 @@ export default function ExpensesPage() {
                   <div className="space-y-3">
                     <div className="space-y-1"><Label htmlFor="expense_type">Xarajat turi *</Label><div className="flex items-center space-x-2"><Select required value={formData.expense_type} onValueChange={(value) => handleSelectChange("expense_type", value)} name="expense_type"><SelectTrigger id="expense_type" className="flex-1"><SelectValue placeholder="Tanlang..." /></SelectTrigger><SelectContent>{expenseTypes.map((t) => (<SelectItem key={t.id} value={t.id.toString()}>{t.name}</SelectItem>))}</SelectContent></Select><Dialog open={addExpenseTypeOpen} onOpenChange={setAddExpenseTypeOpen}><DialogTrigger asChild><Button type="button" variant="outline" size="icon" title="Yangi xarajat turi qo'shish"><Plus className="h-4 w-4" /></Button></DialogTrigger><DialogContent className="sm:max-w-[425px]"><DialogHeader><DialogTitle>Yangi xarajat turi</DialogTitle></DialogHeader><div className="grid gap-4 py-4"><Label htmlFor="new_expense_type_name">Nomi *</Label><Input id="new_expense_type_name" value={newExpenseTypeName} onChange={(e) => setNewExpenseTypeName(e.target.value)} required /></div><DialogFooter><Button type="button" onClick={createExpenseType} disabled={!newExpenseTypeName.trim() || isExpenseTypeSubmitting}>{isExpenseTypeSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Qo'shish</Button><Button type="button" variant="outline" onClick={() => { setAddExpenseTypeOpen(false); setNewExpenseTypeName(""); }} disabled={isExpenseTypeSubmitting}>Bekor qilish</Button></DialogFooter></DialogContent></Dialog></div></div>
                     <div className="space-y-1"><Label htmlFor="object">Obyekt *</Label><Select required value={formData.object} onValueChange={(value) => handleSelectChange("object", value)} name="object"><SelectTrigger id="object"><SelectValue placeholder="Tanlang..." /></SelectTrigger><SelectContent>{properties.map((p) => (<SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>))}</SelectContent></Select></div>
-                    <div className="space-y-1"><Label htmlFor="status">Status *</Label><Select required value={formData.status} onValueChange={(value) => handleSelectChange("status", value)} name="status"><SelectTrigger id="status"><SelectValue placeholder="Tanlang..." /></SelectTrigger><SelectContent><SelectItem value="To‘langan">To‘langan</SelectItem><SelectItem value="Kutilmoqda">Kutilmoqda</SelectItem></SelectContent></Select></div>
+                    <div className="space-y-1"><Label htmlFor="status">Status *</Label><Select required value={formData.status} onValueChange={(value) => handleSelectChange("status", value)} name="status"><SelectTrigger id="status"><SelectValue placeholder="Tanlang..." /></SelectTrigger><SelectContent><SelectItem value="To‘langan">To‘langan</SelectItem><SelectItem value="Nasiya">Nasiya</SelectItem></SelectContent></Select></div>
                   </div>
                   <div className="space-y-1 sm:col-span-2"><Label htmlFor="comment">Tavsif / Izoh *</Label><Textarea required id="comment" name="comment" value={formData.comment} onChange={handleChange} rows={3} placeholder="Xarajat haqida batafsil..."/></div>
                 </div>
@@ -779,7 +778,7 @@ export default function ExpensesPage() {
                   <div className="space-y-3">
                     <div className="space-y-1"><Label htmlFor="edit-expense_type">Xarajat turi *</Label><div className="flex items-center space-x-2"><Select required value={formData.expense_type} onValueChange={(value) => handleSelectChange("expense_type", value)} name="expense_type"><SelectTrigger id="edit-expense_type" className="flex-1"><SelectValue placeholder="Tanlang..." /></SelectTrigger><SelectContent>{expenseTypes.map((t) => (<SelectItem key={t.id} value={t.id.toString()}>{t.name}</SelectItem>))}</SelectContent></Select><Dialog open={addExpenseTypeOpen} onOpenChange={setAddExpenseTypeOpen}><DialogTrigger asChild><Button type="button" variant="outline" size="icon" title="Yangi xarajat turi qo'shish"><Plus className="h-4 w-4" /></Button></DialogTrigger><DialogContent className="sm:max-w-[425px]"><DialogHeader><DialogTitle>Yangi xarajat turi</DialogTitle></DialogHeader><div className="grid gap-4 py-4"><Label htmlFor="edit_new_expense_type_name">Nomi *</Label><Input id="edit_new_expense_type_name" value={newExpenseTypeName} onChange={(e) => setNewExpenseTypeName(e.target.value)} required /></div><DialogFooter><Button type="button" onClick={createExpenseType} disabled={!newExpenseTypeName.trim() || isExpenseTypeSubmitting}>{isExpenseTypeSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Qo'shish</Button><Button type="button" variant="outline" onClick={() => { setAddExpenseTypeOpen(false); setNewExpenseTypeName(""); }} disabled={isExpenseTypeSubmitting}>Bekor qilish</Button></DialogFooter></DialogContent></Dialog></div></div>
                     <div className="space-y-1"><Label htmlFor="edit-object">Obyekt *</Label><Select required value={formData.object} onValueChange={(value) => handleSelectChange("object", value)} name="object"><SelectTrigger id="edit-object"><SelectValue placeholder="Tanlang..." /></SelectTrigger><SelectContent>{properties.map((p) => (<SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>))}</SelectContent></Select></div>
-                    <div className="space-y-1"><Label htmlFor="edit-status">Status *</Label><Select required value={formData.status} onValueChange={(value) => handleSelectChange("status", value)} name="status"><SelectTrigger id="edit-status"><SelectValue placeholder="Tanlang..." /></SelectTrigger><SelectContent><SelectItem value="To‘langan">To‘langan</SelectItem><SelectItem value="Kutilmoqda">Kutilmoqda</SelectItem></SelectContent></Select></div>
+                    <div className="space-y-1"><Label htmlFor="edit-status">Status *</Label><Select required value={formData.status} onValueChange={(value) => handleSelectChange("status", value)} name="status"><SelectTrigger id="edit-status"><SelectValue placeholder="Tanlang..." /></SelectTrigger><SelectContent><SelectItem value="To‘langan">To‘langan</SelectItem><SelectItem value="Nasiya">Nasiya</SelectItem></SelectContent></Select></div>
                   </div>
                   <div className="space-y-1 sm:col-span-2"><Label htmlFor="edit-comment">Tavsif / Izoh *</Label><Textarea required id="edit-comment" name="comment" value={formData.comment} onChange={handleChange} rows={3} placeholder="Xarajat haqida batafsil..."/></div>
                 </div>
@@ -914,7 +913,7 @@ export default function ExpensesPage() {
             <DialogHeader>
               <DialogTitle>Nasiya Xarajatlar Ro‘yxati</DialogTitle>
               <DialogDescription>
-                Quyida filtrlangan nasiya (kutilmoqda) xarajatlar ro‘yxati keltirilgan.
+                Quyida filtrlangan nasiya xarajatlar ro‘yxati keltirilgan.
               </DialogDescription>
             </DialogHeader>
             <div className="flex-1 overflow-y-auto">
