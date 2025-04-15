@@ -11,7 +11,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 import {
   Bar,
   BarChart,
@@ -75,8 +80,6 @@ interface PaymentsStatisticsData {
   paid_payments?: number;
   pending_payments?: number;
   overdue_payments?: number;
-  total_sales?: number;
-  sold_apartments?: number;
   reserved_apartments?: number;
   free_apartments?: number;
   total_apartments?: number;
@@ -96,7 +99,7 @@ interface StatisticsData extends PaymentsStatisticsData, CalculatedExpenseData {
 export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(false);
-  const [reportType, setReportType] = useState<string>("sales");
+  const [reportType, setReportType] = useState<string>("payments");
   const [apiData, setApiData] = useState<StatisticsData | null>(null);
   const [objects, setObjects] = useState<ObjectType[]>([]);
   const [expenses, setExpenses] = useState<ExpenseType[]>([]);
@@ -212,12 +215,12 @@ export default function ReportsPage() {
         `http://api.ahlan.uz/payments/statistics/?${queryParams.toString()}`,
         { method: "GET", headers }
       );
+      let paymentsData: PaymentsStatisticsData = {};
       if (paymentsResponse.status === 401) {
         localStorage.removeItem("access_token");
         router.push("/login");
         throw new Error("Sessiya muddati tugagan. Iltimos, qayta kiring.");
       }
-      let paymentsData: PaymentsStatisticsData = {};
       if (paymentsResponse.ok) {
         paymentsData = await paymentsResponse.json();
       } else if (paymentsResponse.status === 404) {
@@ -227,8 +230,6 @@ export default function ReportsPage() {
           paid_payments: 0,
           pending_payments: 0,
           overdue_payments: 0,
-          total_sales: 0,
-          sold_apartments: 0,
           reserved_apartments: 0,
           free_apartments: 0,
           total_apartments: 0,
@@ -244,7 +245,7 @@ export default function ReportsPage() {
       // Xarajatlar statistikasi
       let filteredExpenses = expenses;
       if (selectedObject !== "all") {
-        filteredExpenses = filteredExpenses.filter(
+        filteredExpenses = expenses.filter(
           (exp) => exp.object.toString() === selectedObject
         );
       }
@@ -270,6 +271,22 @@ export default function ReportsPage() {
         }
       });
 
+      // Xonadonlar statistikasi
+      let filteredApartments = apartments;
+      if (selectedObject !== "all") {
+        filteredApartments = apartments.filter(
+          (apt) => apt.object.toString() === selectedObject
+        );
+      }
+
+      const total_apartments = filteredApartments.length;
+      const reserved_apartments = filteredApartments.filter((apt) => apt.status === "band").length;
+      const free_apartments = filteredApartments.filter((apt) => apt.status === "bosh").length;
+      const average_price = filteredApartments.length
+        ? filteredApartments.reduce((sum, apt) => sum + Number(apt.price || 0), 0) /
+          filteredApartments.length
+        : 0;
+
       const expenseStats: CalculatedExpenseData = {
         total_expenses,
         paid_expenses,
@@ -281,12 +298,10 @@ export default function ReportsPage() {
       setApiData({
         ...paymentsData,
         ...expenseStats,
-        total_sales: paymentsData.total_sales || 0,
-        sold_apartments: paymentsData.sold_apartments || 0,
-        reserved_apartments: paymentsData.reserved_apartments || 0,
-        free_apartments: paymentsData.free_apartments || 0,
-        total_apartments: paymentsData.total_apartments || 0,
-        average_price: paymentsData.average_price || 0,
+        reserved_apartments,
+        free_apartments,
+        total_apartments,
+        average_price,
         clients: paymentsData.clients || 0,
       });
     } catch (error: any) {
@@ -297,8 +312,6 @@ export default function ReportsPage() {
         paid_payments: 0,
         pending_payments: 0,
         overdue_payments: 0,
-        total_sales: 0,
-        sold_apartments: 0,
         reserved_apartments: 0,
         free_apartments: 0,
         total_apartments: 0,
@@ -312,7 +325,7 @@ export default function ReportsPage() {
     } finally {
       setStatsLoading(false);
     }
-  }, [loading, accessToken, selectedObject, expenses, objects, getAuthHeaders, router]);
+  }, [loading, accessToken, selectedObject, expenses, apartments, objects, getAuthHeaders, router]);
 
   // Statistika yuklash triggeri
   useEffect(() => {
@@ -348,23 +361,6 @@ export default function ReportsPage() {
   };
 
   // Chart ma'lumotlari
-  const salesData = useMemo(
-    () =>
-      apiData
-        ? [
-            {
-              name:
-                selectedObject === "all"
-                  ? "Jami"
-                  : objects.find((o) => o.id.toString() === selectedObject)?.name ||
-                    "Noma'lum",
-              sales: apiData.total_sales || 0,
-            },
-          ]
-        : [],
-    [apiData, selectedObject, objects]
-  );
-
   const paymentsData = useMemo(
     () =>
       apiData
@@ -393,20 +389,21 @@ export default function ReportsPage() {
               name,
               value: Number(value) || 0,
             }))
+            .sort((a, b) => b.value - a.value) // Eng katta xarajatlarni yuqoriga chiqarish
         : [],
     [apiData]
   );
 
   // Xonadonlar statusi bo'yicha ma'lumotlarni hisoblash
-  const apartmentsStatusData = useCallback(() => {
+  const apartmentsStatusData = useMemo(() => {
     let filteredApartments = apartments;
     if (selectedObject !== "all") {
-      filteredApartments = filteredApartments.filter(
+      filteredApartments = apartments.filter(
         (apt) => apt.object.toString() === selectedObject
       );
     }
 
-    // Statusni frontenda moslashtirish
+    // Status moslashtirish
     const statusMap: { [key: string]: string } = {
       "Bo‘sh": "bosh",
       "Band qilingan": "band",
@@ -414,6 +411,7 @@ export default function ReportsPage() {
       "Muddatli": "muddatli",
     };
 
+    // Status bo'yicha filtr
     if (selectedStatus !== "all") {
       const backendStatus = statusMap[selectedStatus];
       filteredApartments = filteredApartments.filter(
@@ -421,6 +419,7 @@ export default function ReportsPage() {
       );
     }
 
+    // Statuslar bo'yicha hisoblash
     const counts = {
       sotilgan: filteredApartments.filter((apt) => apt.status === "sotilgan").length,
       band: filteredApartments.filter((apt) => apt.status === "band").length,
@@ -435,6 +434,7 @@ export default function ReportsPage() {
       { name: "Muddatli", value: counts.muddatli, color: "#f43f5e" },
     ].filter((item) => item.value > 0);
 
+    // Agar status tanlangan bo'lsa, faqat shu statusni qaytarish
     if (selectedStatus !== "all") {
       return data.filter((item) => item.name === selectedStatus);
     }
@@ -447,6 +447,7 @@ export default function ReportsPage() {
   // Filtr handlerlari
   const handleObjectChange = (value: string) => {
     setSelectedObject(value);
+    setSelectedStatus("all");
   };
 
   const handleStatusChange = (value: string) => {
@@ -526,79 +527,10 @@ export default function ReportsPage() {
 
         <Tabs value={reportType} onValueChange={setReportType} className="space-y-4">
           <TabsList>
-            <TabsTrigger value="sales">Sotuvlar</TabsTrigger>
             <TabsTrigger value="payments">To‘lovlar</TabsTrigger>
             <TabsTrigger value="expenses">Xarajatlar</TabsTrigger>
             <TabsTrigger value="apartments">Xonadonlar</TabsTrigger>
           </TabsList>
-
-          <TabsContent value="sales" className="space-y-4">
-            {!statsLoading && !apiData && (
-              <p className="text-muted-foreground">Sotuvlar ma'lumoti topilmadi.</p>
-            )}
-            {apiData && (
-              <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                      <CardTitle className="text-sm font-medium">Jami sotuvlar</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-bold">{formatNumber(apiData.total_sales)}</div>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                      <CardTitle className="text-sm font-medium">Sotilgan xonadonlar</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-bold">{apiData.sold_apartments ?? 0}</div>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                      <CardTitle className="text-sm font-medium">Jami mijozlar</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-bold">{apiData.clients ?? 0}</div>
-                    </CardContent>
-                  </Card>
-                </div>
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Sotuvlar</CardTitle>
-                  </CardHeader>
-                  <CardContent className="pl-2">
-                    <ResponsiveContainer width="100%" height={350}>
-                      <BarChart data={salesData}>
-                        <XAxis
-                          dataKey="name"
-                          stroke="#888888"
-                          fontSize={12}
-                          tickLine={false}
-                          axisLine={false}
-                        />
-                        <YAxis
-                          stroke="#888888"
-                          fontSize={12}
-                          tickLine={false}
-                          axisLine={false}
-                          tickFormatter={(value) => `${(value / 1000000).toFixed(0)}M`}
-                        />
-                        <Tooltip formatter={(value: number) => formatNumber(value)} />
-                        <Bar
-                          dataKey="sales"
-                          name="Sotuvlar"
-                          fill="#3b82f6"
-                          radius={[4, 4, 0, 0]}
-                        />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </CardContent>
-                </Card>
-              </>
-            )}
-          </TabsContent>
 
           <TabsContent value="payments" className="space-y-4">
             {!statsLoading && !apiData && (
@@ -692,104 +624,142 @@ export default function ReportsPage() {
             {!statsLoading && (!apiData || expensesData.length === 0) && (
               <p className="text-muted-foreground">Xarajatlar ma'lumoti topilmadi.</p>
             )}
-            {apiData && expensesData.length > 0 && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Xarajatlar taqsimoti (Obyekt bo‘yicha)</CardTitle>
-                    <CardDescription>Jami: {formatNumber(apiData?.total_expenses)}</CardDescription>
-                  </CardHeader>
-                  <CardContent className="flex justify-center items-center h-[300px] md:h-[350px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={expensesData}
-                          cx="50%"
-                          cy="50%"
-                          labelLine={false}
-                          outerRadius={100}
-                          fill="#8884d8"
-                          dataKey="value"
-                          label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                        >
-                          {expensesData.map((entry, index) => (
-                            <Cell
-                              key={`cell-${index}`}
-                              fill={COLORS[index % COLORS.length]}
-                            />
-                          ))}
-                        </Pie>
-                        <Tooltip formatter={(value: number) => formatNumber(value)} />
-                        <Legend wrapperStyle={{ fontSize: "12px" }} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Xarajatlar ro‘yxati</CardTitle>
-                    <CardDescription>Obyektlar bo‘yicha taqsimot</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4 max-h-[350px] overflow-y-auto pr-2">
-                      {expensesData.map((item, index) => {
-                        const totalExpensesVal = expensesData.reduce(
-                          (sum, i) => sum + (i.value || 0),
-                          0
-                        );
-                        const percentage =
-                          totalExpensesVal > 0 ? (item.value / totalExpensesVal) * 100 : 0;
-                        return (
-                          <div
-                            key={index}
-                            className="flex items-center justify-between text-sm"
+            {apiData && (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">Jami xarajatlar</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">{formatNumber(apiData.total_expenses)}</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">To‘langan</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold text-green-600">
+                        {formatNumber(apiData.paid_expenses)}
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">Kutilayotgan</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold text-yellow-600">
+                        {formatNumber(apiData.pending_expenses)}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Xarajatlar taqsimoti (Obyekt bo‘yicha)</CardTitle>
+                      <CardDescription>
+                        Jami: {formatNumber(apiData.total_expenses)}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex justify-center items-center h-[350px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={expensesData}
+                            cx="50%"
+                            cy="50%"
+                            labelLine={true}
+                            outerRadius={120}
+                            fill="#8884d8"
+                            dataKey="value"
+                            label={({ name, percent }) =>
+                              `${name}: ${(percent * 100).toFixed(1)}%`
+                            }
                           >
-                            <div className="flex items-center">
-                              <div
-                                className="w-3 h-3 rounded-full mr-2 flex-shrink-0"
-                                style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                            {expensesData.map((entry, index) => (
+                              <Cell
+                                key={`cell-${index}`}
+                                fill={COLORS[index % COLORS.length]}
                               />
-                              <span className="truncate" title={item.name}>
-                                {item.name}
-                              </span>
+                            ))}
+                          </Pie>
+                          <Tooltip formatter={(value: number) => formatNumber(value)} />
+                          <Legend
+                            wrapperStyle={{ fontSize: "12px", paddingTop: "10px" }}
+                            layout="vertical"
+                            align="right"
+                            verticalAlign="middle"
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Xarajatlar ro‘yxati</CardTitle>
+                      <CardDescription>Obyektlar bo‘yicha taqsimot</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3 max-h-[350px] overflow-y-auto pr-2">
+                        {expensesData.map((item, index) => {
+                          const totalExpensesVal = apiData?.total_expenses || 0;
+                          const percentage =
+                            totalExpensesVal > 0 ? (item.value / totalExpensesVal) * 100 : 0;
+                          return (
+                            <div
+                              key={index}
+                              className="flex items-center justify-between text-sm border-b pb-2"
+                            >
+                              <div className="flex items-center space-x-2">
+                                <div
+                                  className="w-3 h-3 rounded-full flex-shrink-0"
+                                  style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                                />
+                                <span className="truncate" title={item.name}>
+                                  {item.name}
+                                </span>
+                              </div>
+                              <div className="flex items-center space-x-3 flex-shrink-0">
+                                <span className="font-medium">{formatNumber(item.value)}</span>
+                                <span className="text-muted-foreground w-12 text-right">
+                                  {percentage.toFixed(1)}%
+                                </span>
+                              </div>
                             </div>
-                            <div className="flex items-center space-x-2 flex-shrink-0">
-                              <span className="font-medium">{formatNumber(item.value)}</span>
-                              <span className="text-muted-foreground w-10 text-right">
-                                {percentage.toFixed(0)}%
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
+                          );
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </>
             )}
           </TabsContent>
 
           <TabsContent value="apartments" className="space-y-4">
-            {!statsLoading && apartmentsStatusData().length === 0 && (
+            {!statsLoading && apartmentsStatusData.length === 0 && (
               <p className="text-muted-foreground">
                 Xonadonlar ma'lumoti topilmadi yoki tanlangan filtr bo‘yicha ma'lumot yo‘q.
               </p>
             )}
-            {apartmentsStatusData().length > 0 && (
+            {apartmentsStatusData.length > 0 && (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card>
                   <CardHeader>
                     <CardTitle>Xonadonlar holati</CardTitle>
                     <CardDescription>
                       Jami ({selectedStatus === "all" ? "barcha" : selectedStatus.toLowerCase()}
-                      ): {apartmentsStatusData().reduce((sum, item) => sum + item.value, 0)} ta
+                      ): {apartmentsStatusData.reduce((sum, item) => sum + item.value, 0)} ta
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="flex justify-center items-center h-[300px]">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
-                          data={apartmentsStatusData()}
+                          data={apartmentsStatusData}
                           cx="50%"
                           cy="50%"
                           labelLine={false}
@@ -798,7 +768,7 @@ export default function ReportsPage() {
                           dataKey="value"
                           label={({ name, value }) => `${name}: ${value}`}
                         >
-                          {apartmentsStatusData().map((entry, index) => (
+                          {apartmentsStatusData.map((entry, index) => (
                             <Cell
                               key={`cell-${index}`}
                               fill={entry.color}
@@ -821,7 +791,7 @@ export default function ReportsPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-6">
-                      {apartmentsStatusData().map((item, index) => {
+                      {apartmentsStatusData.map((item, index) => {
                         const totalApartmentsForPercentage = apartments.filter(
                           (apt) =>
                             selectedObject === "all" ||

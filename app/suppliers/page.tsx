@@ -529,14 +529,7 @@ const SuppliersPage = () => {
                             <TableCell className="text-right sticky right-0 bg-background z-[1]">
                               <div className="flex justify-end space-x-1 md:space-x-2">
                                 {/* View Button */}
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  title="Ko'rish"
-                                  onClick={() => router.push(`/suppliers/${supplier.id}`)}
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </Button>
+                               
                                 {/* Edit Button */}
                                 <Button
                                   variant="ghost"
