@@ -80,7 +80,6 @@ export default function DashboardPage() {
   const [modalPayments, setModalPayments] = useState<Payment[]>([]);
   const [modalLoading, setModalLoading] = useState(false);
 
-  //token olish uchun yozilgan kode
   useEffect(() => {
     const token = localStorage.getItem("access_token");
     if (!token) {
@@ -99,7 +98,6 @@ export default function DashboardPage() {
     [accessToken]
   );
 
-  // Statistika ma'lumotlarini olish
   useEffect(() => {
     if (!accessToken) return;
 
@@ -147,7 +145,6 @@ export default function DashboardPage() {
     fetchStats();
   }, [accessToken, router, dateRange, getAuthHeaders]);
 
-  // So'nggi to'lovlarni olish
   useEffect(() => {
     if (!accessToken) return;
 
@@ -179,7 +176,6 @@ export default function DashboardPage() {
     fetchRecentPayments();
   }, [accessToken, router, dateRange, getAuthHeaders]);
 
-  // Sotuvlar dinamikasi uchun ma'lumotlarni olish
   useEffect(() => {
     if (!accessToken) return;
 
