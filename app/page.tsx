@@ -210,8 +210,8 @@ export default function DashboardPage() {
         toast({ title: "Xatolik", description: error.message, variant: "destructive" });
         setSalesData([
           { name: "Jan 2025", total: 40000000 },
-          { name: "Feb 2025", total: 50000000 },
-          { name: "Mar 2025", total: 60000000 },
+          { name: "Feb 2025", total: 50000000 }, 
+          { name: "Mar 2025", total: 60000000 }, 
         ]);
       }
     };
