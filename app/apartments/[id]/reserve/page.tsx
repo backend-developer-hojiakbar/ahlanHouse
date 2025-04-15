@@ -894,8 +894,7 @@ _________________________                   _________________________
         kafil_phone_number:
           formData.kafilPhone || clientDetails.kafil_phone_number || null,
       };
-
-      // Update apartment price if it has changed
+ 
       if (totalAmount !== apartment.price) {
         const priceUpdated = await updateApartmentPrice();
         if (!priceUpdated) {
@@ -954,7 +953,7 @@ _________________________                   _________________________
 
       const paymentResult = await paymentResponse.json();
 
-      // Boshlang'ich to'lovni qayta ishlash
+
       await addPayment(paymentResult.id, initialPayment);
 
       const contractText = generateContractText(
