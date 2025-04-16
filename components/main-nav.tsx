@@ -67,12 +67,12 @@ export function MainNav({ className, ...props }: MainNavProps) {
     //   icon: FileText,
     //   active: pathname === "/invoices" || pathname.startsWith("/invoices/"),
     // },
-    {
-      href: "/reports",
-      label: "Hisobotlar",
-      icon: BarChart3,
-      active: pathname === "/reports" || pathname.startsWith("/reports/"),
-    },
+    // {
+    //   href: "/reports",
+    //   label: "Hisobotlar",
+    //   icon: BarChart3,
+    //   active: pathname === "/reports" || pathname.startsWith("/reports/"),
+    // },
     {
       href: "/settings",
       label: "Sozlamalar",

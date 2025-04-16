@@ -1452,7 +1452,7 @@ _________________________                   _________________________
                             <SelectItem value="naqd">Naqd pul</SelectItem>
                             <SelectItem value="muddatli">Muddatli to‘lov</SelectItem>
                             <SelectItem value="ipoteka">Ipoteka</SelectItem>
-                            <SelectItem value="band">Band qilish</SelectItem>
+                            {/* <SelectItem value="band">Band qilish</SelectItem> */}
                           </SelectContent>
                         </Select>
                       </div>

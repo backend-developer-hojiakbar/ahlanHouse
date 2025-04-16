@@ -83,10 +83,16 @@ interface Payment {
     status: string;
     additional_info?: string | null;
     created_at: string;
-    documents?: Document[];
+    payment_date?: string | null;
     reservation_deadline?: string | null;
     bank_name?: string | null;
-    overdue_amount?: string; // Added to store the total overdue amount
+    documents?: Document[];
+}
+
+interface OverduePayment {
+    month: string;
+    amount: number;
+    due_date: string;
 }
 
 interface Apartment {
@@ -101,6 +107,10 @@ interface Apartment {
     status?: string;
     description?: string;
     secret_code?: string;
+    balance?: string;
+    total_amount?: string; // Jami narx
+    overdue_payments?: OverduePayment[];
+    total_overdue?: number;
 }
 
 interface Client {
@@ -124,7 +134,7 @@ interface ObjectData {
 export default function PaymentsPage() {
     const router = useRouter();
 
-    // Holatlar (states)
+    // Holatlar
     const [payments, setPayments] = useState<Payment[]>([]);
     const [apartments, setApartments] = useState<Apartment[]>([]);
     const [clients, setClients] = useState<Client[]>([]);
@@ -139,33 +149,34 @@ export default function PaymentsPage() {
     const [deletingPaymentId, setDeletingPaymentId] = useState<number | null>(null);
 
     // Form ma'lumotlari
-    const initialFormData = useMemo(() => ({
-        apartment: "",
-        user: "",
-        payment_type: "muddatli", // Default to "muddatli" for this page
-        total_amount: "",
-        initial_payment: "",
-        paid_amount: "",
-        duration_months: "",
-        due_date: "",
-        additional_info: "",
-        created_at: new Date(),
-    }), []);
+    const initialFormData = useMemo(
+        () => ({
+            apartment: "",
+            user: "",
+            payment_type: "muddatli",
+            total_amount: "",
+            initial_payment: "",
+            paid_amount: "",
+            duration_months: "",
+            due_date: "",
+            additional_info: "",
+            created_at: new Date(),
+        }),
+        []
+    );
     const [formData, setFormData] = useState(initialFormData);
 
-    const initialEditFormData = useMemo(() => ({
-        additional_info: "",
-    }), []);
+    const initialEditFormData = useMemo(() => ({ additional_info: "" }), []);
     const [editFormData, setEditFormData] = useState(initialEditFormData);
 
     // Filtrlar
     const [filters, setFilters] = useState({
-        status: "overdue", // Default to overdue to focus on "muddati o'tgan to'lovlar"
-        paymentType: "muddatli", // Focus on installment payments
+        status: "all",
+        paymentType: "all",
         object: "all",
         apartment: "all",
-        dueDate: "all", // Filter for due_date
-        durationMonths: "all", // Filter for duration_months
+        dueDate: "all",
+        durationMonths: "all",
     });
 
     // Utility funksiyalar
@@ -215,59 +226,72 @@ export default function PaymentsPage() {
         const lowerStatus = status?.toLowerCase() || "unknown";
         switch (lowerStatus) {
             case "paid":
-                return <Badge className="bg-green-600 hover:bg-green-700 text-white">To‘langan</Badge>;
+            case "completed":
+                return <Badge className="bg-green-600 hover:bg-green-700 text-white">To'langan</Badge>;
             case "pending":
                 return <Badge className="bg-yellow-500 hover:bg-yellow-600 text-white">Kutilmoqda</Badge>;
             case "overdue":
-                return <Badge className="bg-red-600 hover:bg-red-700 text-white">Muddati o‘tgan</Badge>;
+                return <Badge className="bg-red-600 hover:bg-red-700 text-white">Muddati o'tgan</Badge>;
             default:
-                return <Badge variant="secondary">{status || "Noma'lum"}</Badge>;
+                return <Badge variant="secondary" className="capitalize">{status || "Noma'lum"}</Badge>;
         }
     }, []);
 
     // Ma'lumotlarni olish funksiyalari
-    const fetchApiData = useCallback(async <T,>(
-        url: string,
-        token: string,
-        setData: (data: T[]) => void,
-        entityName: string
-    ): Promise<boolean> => {
-        const headers = { Accept: "application/json", Authorization: `Bearer ${token}` };
-        try {
-            const response = await fetch(url, { headers });
-            if (!response.ok) {
-                console.error(`${entityName} Error:`, response.status, await response.text().catch(() => ''));
-                if (response.status === 401) throw new Error("Unauthorized");
-                toast({
-                    title: "Xatolik",
-                    description: `${entityName} yuklashda muammo (${response.status}).`,
-                    variant: "destructive",
-                });
+    const fetchApiData = useCallback(
+        async <T,>(url: string, token: string, setData: (data: T[]) => void, entityName: string): Promise<boolean> => {
+            const headers = { Accept: "application/json", Authorization: `Bearer ${token}` };
+            try {
+                const response = await fetch(url, { headers });
+                if (!response.ok) {
+                    console.error(`${entityName} Error:`, response.status, await response.text().catch(() => ""));
+                    if (response.status === 401) throw new Error("Unauthorized");
+                    toast({
+                        title: "Xatolik",
+                        description: `${entityName} yuklashda muammo (${response.status}).`,
+                        variant: "destructive",
+                    });
+                    setData([]);
+                    return false;
+                }
+                const data = await response.json();
+                let results = [];
+                if (data.results) {
+                    results = data.results;
+                    let nextUrl = data.next;
+                    while (nextUrl) {
+                        const nextPageResponse = await fetch(nextUrl, { headers });
+                        if (!nextPageResponse.ok) break;
+                        const nextPageData = await nextPageResponse.json();
+                        results = results.concat(nextPageData.results || []);
+                        nextUrl = nextPageData.next;
+                    }
+                } else if (Array.isArray(data)) {
+                    results = data;
+                }
+                setData(results);
+                return true;
+            } catch (error: any) {
+                if (error.message !== "Unauthorized") {
+                    console.error(`${entityName} yuklashda xato:`, error);
+                    toast({
+                        title: "Xatolik",
+                        description: error.message || `${entityName} yuklashda noma'lum xatolik.`,
+                        variant: "destructive",
+                    });
+                }
                 setData([]);
-                return false;
+                throw error;
             }
-            const data = await response.json();
-            setData(data.results || []);
-            return true;
-        } catch (error: any) {
-            if (error.message !== "Unauthorized") {
-                console.error(`${entityName} yuklashda xato:`, error);
-                toast({
-                    title: "Xatolik",
-                    description: error.message || `${entityName} yuklashda noma'lum xatolik.`,
-                    variant: "destructive",
-                });
-            }
-            setData([]);
-            throw error;
-        }
-    }, []);
+        },
+        []
+    );
 
     const fetchPayments = useCallback(
         async (token: string, currentFilters: typeof filters, isInitialLoad: boolean = false): Promise<boolean> => {
+            if (!token) return false;
             if (!isInitialLoad) setPaymentsLoading(true);
             const headers = { Accept: "application/json", Authorization: `Bearer ${token}` };
-            if (!headers.Authorization) return false;
 
             try {
                 let url = `${API_BASE_URL}/payments/?ordering=-created_at&page_size=100`;
@@ -277,7 +301,6 @@ export default function PaymentsPage() {
                 if (currentFilters.apartment !== "all") queryParams.append("apartment", currentFilters.apartment);
                 if (currentFilters.dueDate !== "all") queryParams.append("due_date", currentFilters.dueDate);
                 if (currentFilters.durationMonths !== "all") queryParams.append("duration_months", currentFilters.durationMonths);
-
                 const queryString = queryParams.toString();
                 if (queryString) url += `&${queryString}`;
 
@@ -288,12 +311,7 @@ export default function PaymentsPage() {
                     throw new Error(`To'lovlarni olishda xatolik (${response.status}): ${errorData.detail || response.statusText}`);
                 }
                 const data = await response.json();
-                // Map the overdue amount from overdue_payments
-                const updatedPayments = (data.results || []).map((payment: any) => ({
-                    ...payment,
-                    overdue_amount: payment.overdue_payments?.total_overdue?.toString() || "0",
-                }));
-                setPayments(updatedPayments);
+                setPayments(data.results || []);
                 return true;
             } catch (error: any) {
                 console.error("To'lovlarni olishda xato:", error);
@@ -313,107 +331,194 @@ export default function PaymentsPage() {
         []
     );
 
-    const fetchCoreData = useCallback(async (token: string) => {
-        setLoading(true);
-        let success = true;
-        try {
-            const results = await Promise.allSettled([
-                fetchApiData<Apartment>(`${API_BASE_URL}/apartments/?page_size=1000`, token, setApartments, 'Xonadonlar'),
-                fetchApiData<Client>(`${API_BASE_URL}/users/?page_size=1000`, token, setClients, 'Mijozlar'),
-                fetchApiData<ObjectData>(`${API_BASE_URL}/objects/?page_size=1000`, token, setObjects, 'Obyektlar'),
-            ]);
+    // Xonadonlar uchun balance va overdue ma'lumotlarini olish
+    const fetchApartmentDetails = useCallback(
+        async (token: string, apartments: Apartment[]): Promise<Apartment[]> => {
+            const headers = { Accept: "application/json", Authorization: `Bearer ${token}` };
+            const updatedApartments = [...apartments];
+            for (let i = 0; i < updatedApartments.length; i++) {
+                try {
+                    // Balans va jami narxni olish
+                    const balanceResponse = await fetch(`${API_BASE_URL}/apartments/${updatedApartments[i].id}/get_total_payments/`, {
+                        headers,
+                    });
+                    if (balanceResponse.ok) {
+                        const data = await balanceResponse.json();
+                        if (data && typeof data === 'object') {
+                            updatedApartments[i].balance = String(data.balance || 0);
+                            updatedApartments[i].total_amount = String(data.total_amount || 0);
+                        } else {
+                            updatedApartments[i].balance = "0";
+                            updatedApartments[i].total_amount = updatedApartments[i].price || "0";
+                        }
+                    } else {
+                        updatedApartments[i].balance = "0";
+                        updatedApartments[i].total_amount = updatedApartments[i].price || "0";
+                    }
 
-            results.forEach(result => {
-                if (result.status === 'rejected') {
-                    success = false;
-                    if (result.reason?.message !== 'Unauthorized') {
-                        console.error("Core data fetch error:", result.reason);
+                    // Muddati o'tgan to'lovlarni olish
+                    const overdueResponse = await fetch(`${API_BASE_URL}/apartments/${updatedApartments[i].id}/overdue_payments/`, {
+                        headers,
+                    });
+                    if (overdueResponse.ok) {
+                        const overdueData = await overdueResponse.json();
+                        updatedApartments[i].overdue_payments = overdueData?.overdue_payments || [];
+                        updatedApartments[i].total_overdue = overdueData?.total_overdue || 0;
+                    } else {
+                        updatedApartments[i].overdue_payments = [];
+                        updatedApartments[i].total_overdue = 0;
+                    }
+                } catch (error) {
+                    console.error(`Xonadon ${updatedApartments[i].id} ma'lumotlarini olishda xato:`, error);
+                    updatedApartments[i].balance = "0";
+                    updatedApartments[i].total_amount = updatedApartments[i].price || "0";
+                    updatedApartments[i].overdue_payments = [];
+                    updatedApartments[i].total_overdue = 0;
+                }
+            }
+            return updatedApartments;
+        },
+        []
+    );
+
+    const fetchCoreData = useCallback(
+        async (token: string) => {
+            setLoading(true);
+            let success = true;
+            try {
+                const results = await Promise.allSettled([
+                    fetchApiData<Apartment>(`${API_BASE_URL}/apartments/?page_size=1000`, token, (data) => {
+                        // Balans va overdue ma'lumotlarini olish
+                        fetchApartmentDetails(token, data).then((updatedApartments) => {
+                            setApartments(updatedApartments);
+                        });
+                    }, "Xonadonlar"),
+                    fetchApiData<Client>(`${API_BASE_URL}/users/?user_type=mijoz&page_size=1000`, token, setClients, "Mijozlar"),
+                    fetchApiData<ObjectData>(`${API_BASE_URL}/objects/?page_size=1000`, token, setObjects, "Obyektlar"),
+                ]);
+                results.forEach((result) => {
+                    if (result.status === "rejected") {
+                        success = false;
+                        if (result.reason?.message !== "Unauthorized") {
+                            console.error("Core data fetch error:", result.reason);
+                        }
+                    }
+                });
+                if (success) {
+                    const paymentsFetched = await fetchPayments(token, filters, true);
+                    if (!paymentsFetched) success = false;
+                } else {
+                    setLoading(false);
+                }
+            } catch (error: any) {
+                success = false;
+                if (error.message === "Unauthorized") {
+                    toast({
+                        title: "Sessiya tugadi",
+                        description: "Iltimos, qayta tizimga kiring.",
+                        variant: "destructive",
+                    });
+                    if (typeof window !== "undefined") {
+                        localStorage.removeItem("access_token");
+                        router.push("/login");
                     }
                 }
-            });
-
-            if (success) {
-                const paymentsFetched = await fetchPayments(token, filters, true);
-                if (!paymentsFetched) success = false;
-            } else {
+                setApartments([]);
+                setClients([]);
+                setObjects([]);
+                setPayments([]);
                 setLoading(false);
             }
-        } catch (error: any) {
-            success = false;
-            if (error.message === "Unauthorized") {
-                toast({
-                    title: "Sessiya tugadi",
-                    description: "Iltimos, qayta tizimga kiring.",
-                    variant: "destructive",
-                });
-                localStorage.removeItem("access_token");
-                router.push("/login");
-            }
-            setApartments([]);
-            setClients([]);
-            setObjects([]);
-            setPayments([]);
-            setLoading(false);
-        }
-    }, [router, filters, fetchPayments, fetchApiData]);
+        },
+        [router, filters, fetchPayments, fetchApiData, fetchApartmentDetails]
+    );
 
-    // Filtrlangan to‘lovlar
-    const filteredPayments = useMemo(() => {
-        let result = payments;
-
-        // Apply payment type filter (default to "muddatli")
-        if (filters.paymentType !== "all") {
-            result = result.filter(p => p.payment_type?.toLowerCase() === filters.paymentType);
-        }
-
-        // Apply status filter (default to "overdue")
-        if (filters.status !== "all") {
-            result = result.filter(p => p.status.toLowerCase() === filters.status);
-        }
-
-        // Apply object filter
+    // Filtrlangan xonadonlar
+    const filteredApartments = useMemo(() => {
+        let result = [...apartments];
         if (filters.object !== "all") {
             const objectId = parseInt(filters.object, 10);
-            const objectApartments = apartments.filter(apt => apt.object === objectId).map(apt => apt.id);
-            result = result.filter(p => objectApartments.includes(p.apartment));
+            result = result.filter((apt) => apt.object === objectId);
         }
-
-        // Apply apartment filter
         if (filters.apartment !== "all") {
             const apartmentId = parseInt(filters.apartment, 10);
-            result = result.filter(p => p.apartment === apartmentId);
+            result = result.filter((apt) => apt.id === apartmentId);
         }
+        return result;
+    }, [apartments, filters]);
 
-        // Apply due_date filter (specific to muddatli payments)
-        if (filters.dueDate !== "all") {
+    // Filtrlangan to'lovlar
+    const filteredPayments = useMemo(() => {
+        let result = [...payments];
+        if (filters.paymentType !== "all") {
+            result = result.filter((p) => p.payment_type?.toLowerCase() === filters.paymentType);
+        }
+        if (filters.status !== "all") {
+            result = result.filter((p) => p.status.toLowerCase() === filters.status);
+        }
+        if (filters.object !== "all") {
+            const objectId = parseInt(filters.object, 10);
+            const apartmentIdsInObject = apartments.filter((apt) => apt.object === objectId).map((apt) => apt.id);
+            result = result.filter((p) => apartmentIdsInObject.includes(p.apartment));
+        }
+        if (filters.apartment !== "all") {
+            const apartmentId = parseInt(filters.apartment, 10);
+            result = result.filter((p) => p.apartment === apartmentId);
+        }
+        if (filters.paymentType === "muddatli" && filters.dueDate !== "all") {
             const dueDate = parseInt(filters.dueDate, 10);
-            result = result.filter(p => p.due_date === dueDate);
+            result = result.filter((p) => p.due_date === dueDate);
         }
-
-        // Apply duration_months filter (specific to muddatli payments)
-        if (filters.durationMonths !== "all") {
+        if (filters.paymentType === "muddatli" && filters.durationMonths !== "all") {
             const duration = parseInt(filters.durationMonths, 10);
-            result = result.filter(p => p.duration_months === duration);
+            result = result.filter((p) => p.duration_months === duration);
         }
-
         return result;
     }, [payments, apartments, filters]);
 
     // Statistika
     const statistics = useMemo(() => {
-        let total_paid = 0, total_initial = 0, total_overdue = 0;
-        filteredPayments.forEach(p => {
-            const paidAmount = parseFloat(p.paid_amount) || 0;
-            const initialAmount = parseFloat(p.initial_payment || "0") || 0;
-            const overdueAmount = parseFloat(p.overdue_amount || "0") || 0;
-            switch (p.status?.toLowerCase()) {
-                case "paid": total_paid += paidAmount; break;
-                case "overdue": total_overdue += overdueAmount; break;
-            }
-            total_initial += initialAmount;
+        let total_paid = 0;
+        let total_overdue = 0;
+        let total_remaining = 0;
+
+        // To'langan va qoldiq summalarni hisoblash
+        filteredPayments.forEach((payment) => {
+            const paidAmount = parseFloat(payment.paid_amount || "0") || 0;
+            const totalAmount = parseFloat(payment.total_amount || "0") || 0;
+            const remainingAmount = totalAmount - paidAmount;
+            
+            total_paid += paidAmount;
+            total_remaining += remainingAmount;
         });
-        return { total_payments: filteredPayments.length, total_paid, total_initial, total_overdue };
-    }, [filteredPayments]);
+
+        // Muddati o'tgan to'lovlarni hisoblash
+        const filteredApartmentIds = new Set(filteredPayments.map(p => p.apartment));
+        apartments
+            .filter(apt => filteredApartmentIds.has(apt.id))
+            .forEach((apartment) => {
+                if (apartment.overdue_payments && Array.isArray(apartment.overdue_payments)) {
+                    apartment.overdue_payments.forEach((overdue) => {
+                        if (overdue && typeof overdue === 'object' && 'amount' in overdue) {
+                            total_overdue += parseFloat(overdue.amount?.toString() || "0") || 0;
+                        }
+                    });
+                }
+            });
+
+        return {
+            total_paid,
+            total_overdue,
+            total_remaining
+        };
+    }, [filteredPayments, apartments]);
+
+    // Qoldiqni hisoblash
+    const getPaymentBalance = useCallback((payment: Payment) => {
+        const totalAmount = parseFloat(payment.total_amount || "0");
+        const paidAmount = parseFloat(payment.paid_amount || "0");
+        return (totalAmount - paidAmount).toString();
+    }, []);
 
     // Tartib raqami
     const getRowNumber = (index: number) => index + 1;
@@ -422,16 +527,16 @@ export default function PaymentsPage() {
     const uniqueDueDates = useMemo(() => {
         const dueDates = new Set<number>();
         payments
-            .filter(p => p.payment_type === "muddatli" && p.due_date != null)
-            .forEach(p => dueDates.add(p.due_date!));
+            .filter((p) => p.payment_type === "muddatli" && p.due_date != null)
+            .forEach((p) => dueDates.add(p.due_date!));
         return Array.from(dueDates).sort((a, b) => a - b);
     }, [payments]);
 
     const uniqueDurationMonths = useMemo(() => {
         const durations = new Set<number>();
         payments
-            .filter(p => p.payment_type === "muddatli" && p.duration_months != null)
-            .forEach(p => durations.add(p.duration_months!));
+            .filter((p) => p.payment_type === "muddatli" && p.duration_months != null)
+            .forEach((p) => durations.add(p.duration_months!));
         return Array.from(durations).sort((a, b) => a - b);
     }, [payments]);
 
@@ -446,33 +551,72 @@ export default function PaymentsPage() {
     }, [router]);
 
     useEffect(() => {
-        if (accessToken) fetchCoreData(accessToken);
+        if (accessToken) {
+            fetchCoreData(accessToken);
+        }
     }, [accessToken, fetchCoreData]);
 
     useEffect(() => {
-        if (accessToken && !loading) fetchPayments(accessToken, filters);
+        if (accessToken && !loading) {
+            fetchPayments(accessToken, filters);
+        }
     }, [accessToken, filters, loading, fetchPayments]);
 
     // Handler funksiyalar
     const handleOpenModal = () => setIsModalOpen(true);
-
     const handleCloseModal = useCallback(() => {
         setIsModalOpen(false);
         setFormData(initialFormData);
     }, [initialFormData]);
-
     const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-        setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+        setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
     };
-
     const handleSelectChange = (name: string, value: string) => {
-        setFormData(prev => ({ ...prev, [name]: value }));
+        setFormData((prev) => ({ ...prev, [name]: value }));
     };
-
     const handleDateChange = (date: Date | undefined) => {
-        if (date) setFormData(prev => ({ ...prev, created_at: date }));
+        if (date) setFormData((prev) => ({ ...prev, created_at: date }));
+    };
+    const handleOpenEditModal = (payment: Payment) => {
+        setEditingPayment(payment);
+        let additionalInfo = payment.additional_info || "";
+        try {
+            const parsed = JSON.parse(additionalInfo);
+            additionalInfo = parsed.comments || "";
+        } catch {
+            // JSON emas bo'lsa, xom holda qoldiramiz
+        }
+        setEditFormData({ additional_info: additionalInfo });
+        setIsEditModalOpen(true);
+    };
+    const handleCloseEditModal = useCallback(() => {
+        setIsEditModalOpen(false);
+        setEditingPayment(null);
+        setEditFormData(initialEditFormData);
+    }, [initialEditFormData]);
+    const handleEditFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        setEditFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+    };
+    const handleFilterChange = (value: string, field: keyof typeof filters) => {
+        setFilters((prev) => ({
+            ...prev,
+            [field]: value,
+            ...(field === "object" && value !== prev.object && { apartment: "all" }),
+            ...(field === "paymentType" && value !== "muddatli" && { dueDate: "all", durationMonths: "all" }),
+        }));
+    };
+    const handleClearFilters = () => {
+        setFilters({
+            status: "all",
+            paymentType: "all",
+            object: "all",
+            apartment: "all",
+            dueDate: "all",
+            durationMonths: "all",
+        });
     };
 
+    // Add Payment Handler
     const handleAddPayment = async () => {
         setActionLoading(true);
         const headers = getAuthHeaders();
@@ -480,22 +624,20 @@ export default function PaymentsPage() {
             setActionLoading(false);
             return;
         }
-
-        // Validate required fields
         if (
             !formData.apartment ||
             !formData.user ||
             !formData.total_amount ||
             !formData.initial_payment ||
-            !formData.duration_months ||
-            !formData.due_date ||
             !formData.paid_amount ||
+            (formData.payment_type === "muddatli" && (!formData.duration_months || !formData.due_date)) ||
             parseFloat(formData.paid_amount) < 0 ||
             parseFloat(formData.total_amount) <= 0 ||
             parseFloat(formData.initial_payment) < 0 ||
-            parseInt(formData.duration_months) <= 0 ||
-            parseInt(formData.due_date) < 1 ||
-            parseInt(formData.due_date) > 31
+            (formData.payment_type === "muddatli" &&
+                (parseInt(formData.duration_months || "0") <= 0 ||
+                    parseInt(formData.due_date || "0") < 1 ||
+                    parseInt(formData.due_date || "0") > 31))
         ) {
             toast({
                 title: "Xatolik",
@@ -505,15 +647,13 @@ export default function PaymentsPage() {
             setActionLoading(false);
             return;
         }
-
         const totalAmount = parseFloat(formData.total_amount);
         const initialPayment = parseFloat(formData.initial_payment);
         const paidAmount = parseFloat(formData.paid_amount);
-        const durationMonths = parseInt(formData.duration_months);
+        const durationMonths = parseInt(formData.duration_months || "0");
         const remainingAmount = totalAmount - initialPayment;
-        const monthlyPayment = remainingAmount / durationMonths;
+        const monthlyPayment = durationMonths > 0 ? remainingAmount / durationMonths : 0;
         const status = paidAmount >= initialPayment ? "paid" : "pending";
-
         const paymentData = {
             apartment: parseInt(formData.apartment, 10),
             user: parseInt(formData.user, 10),
@@ -521,34 +661,37 @@ export default function PaymentsPage() {
             total_amount: formData.total_amount,
             initial_payment: formData.initial_payment,
             paid_amount: formData.paid_amount,
-            duration_months: durationMonths,
-            monthly_payment: monthlyPayment.toString(),
-            due_date: parseInt(formData.due_date),
-            additional_info: formData.additional_info.trim() || null,
+            duration_months: formData.payment_type === "muddatli" ? durationMonths : null,
+            monthly_payment: formData.payment_type === "muddatli" ? monthlyPayment.toFixed(2) : null,
+            due_date: formData.payment_type === "muddatli" ? parseInt(formData.due_date) : null,
+            additional_info: formData.additional_info.trim()
+                ? JSON.stringify({ comments: formData.additional_info.trim() })
+                : null,
             created_at: format(formData.created_at, "yyyy-MM-dd"),
             status: status,
         };
-
         try {
             const response = await fetch(`${API_BASE_URL}/payments/`, {
                 method: "POST",
                 headers,
                 body: JSON.stringify(paymentData),
             });
-
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({ detail: "Server javobini o'qishda xato." }));
                 throw new Error(`To'lov qo'shishda xatolik (${response.status}): ${errorData.detail || response.statusText}`);
             }
-
             toast({
                 title: "Muvaffaqiyat!",
                 description: "Yangi to'lov qo'shildi.",
             });
-
-            if (accessToken) await fetchPayments(accessToken, filters);
+            if (accessToken) {
+                await fetchPayments(accessToken, filters);
+                const updatedApartments = await fetchApartmentDetails(accessToken, apartments);
+                setApartments(updatedApartments);
+            }
             handleCloseModal();
         } catch (error: any) {
+            console.error("Add payment error:", error);
             toast({
                 title: "Xatolik",
                 description: error.message || "To'lov qo'shishda xato.",
@@ -559,56 +702,38 @@ export default function PaymentsPage() {
         }
     };
 
-    const handleOpenEditModal = (payment: Payment) => {
-        setEditingPayment(payment);
-        setEditFormData({ additional_info: payment.additional_info || "" });
-        setIsEditModalOpen(true);
-    };
-
-    const handleCloseEditModal = useCallback(() => {
-        setIsEditModalOpen(false);
-        setEditingPayment(null);
-        setEditFormData(initialEditFormData);
-    }, [initialEditFormData]);
-
-    const handleEditFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-        setEditFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
-    };
-
+    // Update Payment Handler
     const handleUpdatePayment = async () => {
         if (!editingPayment) return;
-
         setActionLoading(true);
         const headers = getAuthHeaders();
         if (!headers) {
             setActionLoading(false);
             return;
         }
-
         const updatedData = {
-            additional_info: editFormData.additional_info.trim() || null,
+            additional_info: editFormData.additional_info.trim()
+                ? JSON.stringify({ comments: editFormData.additional_info.trim() })
+                : null,
         };
-
         try {
             const response = await fetch(`${API_BASE_URL}/payments/${editingPayment.id}/`, {
                 method: "PATCH",
                 headers,
                 body: JSON.stringify(updatedData),
             });
-
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({ detail: "Server javobini o'qishda xato." }));
                 throw new Error(`To'lovni yangilashda xatolik (${response.status}): ${errorData.detail || response.statusText}`);
             }
-
             toast({
                 title: "Muvaffaqiyat!",
                 description: `To'lov (ID: ${editingPayment.id}) izohi yangilandi.`,
             });
-
             if (accessToken) await fetchPayments(accessToken, filters);
             handleCloseEditModal();
         } catch (error: any) {
+            console.error("Update payment error:", error);
             toast({
                 title: "Xatolik",
                 description: error.message || "To'lovni yangilashda xato.",
@@ -619,10 +744,10 @@ export default function PaymentsPage() {
         }
     };
 
+    // Delete Payment Handler
     const handleDeletePayment = async (paymentId: number) => {
         if (deletingPaymentId === paymentId) return;
-        if (!window.confirm(`ID ${paymentId} to'lovni o'chirishni tasdiqlaysizmi?`)) return;
-
+        if (!window.confirm(`ID ${paymentId} to'lov yozuvini o'chirishni tasdiqlaysizmi? Bu amalni orqaga qaytarib bo'lmaydi.`)) return;
         setDeletingPaymentId(paymentId);
         setActionLoading(true);
         const headers = getAuthHeaders();
@@ -631,25 +756,26 @@ export default function PaymentsPage() {
             setActionLoading(false);
             return;
         }
-
         try {
             const response = await fetch(`${API_BASE_URL}/payments/${paymentId}/`, {
                 method: "DELETE",
                 headers,
             });
-
             if (!response.ok && response.status !== 204) {
                 const errorData = await response.json().catch(() => ({ detail: "Server javobini o'qishda xato." }));
                 throw new Error(`To'lovni o'chirishda xatolik (${response.status}): ${errorData.detail || response.statusText}`);
             }
-
             toast({
                 title: "Muvaffaqiyat!",
                 description: `To'lov (ID: ${paymentId}) o'chirildi.`,
             });
-
-            setPayments(prev => prev.filter(p => p.id !== paymentId));
+            setPayments((prev) => prev.filter((p) => p.id !== paymentId));
+            if (accessToken) {
+                const updatedApartments = await fetchApartmentDetails(accessToken, apartments);
+                setApartments(updatedApartments);
+            }
         } catch (error: any) {
+            console.error("Delete payment error:", error);
             toast({
                 title: "Xatolik",
                 description: error.message || "To'lovni o'chirishda xato.",
@@ -661,35 +787,17 @@ export default function PaymentsPage() {
         }
     };
 
-    const handleFilterChange = (value: string, field: keyof typeof filters) => {
-        setFilters(prev => ({
-            ...prev,
-            [field]: value,
-            ...(field === 'object' && value !== prev.object && { apartment: "all" }),
-        }));
-    };
-
-    const handleClearFilters = () => {
-        setFilters({
-            status: "overdue",
-            paymentType: "muddatli",
-            object: "all",
-            apartment: "all",
-            dueDate: "all",
-            durationMonths: "all",
-        });
-    };
-
+    // Filtered apartments for the select dropdown
     const filteredApartmentsForSelect = useMemo(() => {
-        if (filters.object === 'all') {
-            return [...apartments].sort((a, b) => (a.room_number || '').localeCompare(b.room_number || ''));
+        if (filters.object === "all") {
+            return [...apartments].sort((a, b) => (a.room_number || "").localeCompare(b.room_number || ""));
         }
         return apartments
-            .filter(apt => apt.object != null && apt.object.toString() === filters.object)
-            .sort((a, b) => (a.room_number || '').localeCompare(b.room_number || ''));
+            .filter((apt) => apt.object != null && apt.object.toString() === filters.object)
+            .sort((a, b) => (a.room_number || "").localeCompare(b.room_number || ""));
     }, [apartments, filters.object]);
 
-    // Render qismi
+    // --- Render qismi ---
     if (loading) {
         return (
             <div className="flex min-h-screen flex-col">
@@ -706,6 +814,9 @@ export default function PaymentsPage() {
                     <Loader2 className="mr-2 h-8 w-8 animate-spin text-muted-foreground" />
                     <p className="text-muted-foreground">Ma'lumotlar yuklanmoqda...</p>
                 </div>
+                <footer className="border-t py-4 px-4 text-center text-sm text-muted-foreground mt-auto">
+                    Barcha huquqlar ximoyalangan | Ushbu Dastur CDCGroup tomonidan yaratilgan | CraDev Company tomonidan qo'llab quvvatlanadi | since 2019
+                </footer>
             </div>
         );
     }
@@ -725,50 +836,41 @@ export default function PaymentsPage() {
 
             {/* Asosiy kontent */}
             <div className="flex-1 space-y-6 p-4 md:p-8 pt-6">
-                {/* Sarlavha va yangi to‘lov qo'shish tugmasi */}
+                {/* Sarlavha va yangi to'lov qo'shish tugmasi */}
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between space-y-2 sm:space-y-0">
-                    <h2 className="text-3xl font-bold tracking-tight">Muddati O'tgan To‘lovlar</h2>
+                    <h2 className="text-3xl font-bold tracking-tight">To'lovlar</h2>
                     <Button onClick={handleOpenModal} disabled={actionLoading}>
-                        <CreditCard className="mr-2 h-4 w-4" /> Yangi To‘lov
+                        <CreditCard className="mr-2 h-4 w-4" /> Yangi To'lov
                     </Button>
                 </div>
 
                 {/* Statistika kartalari */}
-                <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium">Jami To‘lovlar</CardTitle>
+                            <CardTitle className="text-sm font-medium">Jami To'langan</CardTitle>
                         </CardHeader>
                         <CardContent>
-                            <div className="text-2xl font-bold">{statistics.total_payments}</div>
-                            <p className="text-xs text-muted-foreground">Umumiy yozuvlar soni</p>
+                            <div className="text-2xl font-bold text-green-600">{formatCurrency(statistics.total_paid)}</div>
+                            <p className="text-xs text-muted-foreground">Filtr bo'yicha jami to'langan summa</p>
                         </CardContent>
                     </Card>
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium">To‘langan Summa</CardTitle>
+                            <CardTitle className="text-sm font-medium">Jami Qoldiq (mijozlar qarzi)</CardTitle>
                         </CardHeader>
                         <CardContent>
-                            <div className="text-2xl font-bold">{formatCurrency(statistics.total_paid)}</div>
-                            <p className="text-xs text-muted-foreground">Jami to'langan summa</p>
+                            <div className="text-2xl font-bold text-blue-600">{formatCurrency(statistics.total_remaining)}</div>
+                            <p className="text-xs text-muted-foreground">Filtr bo'yicha jami qoldiq summa</p>
                         </CardContent>
                     </Card>
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium">Dastlabki To‘lovlar</CardTitle>
+                            <CardTitle className="text-sm font-medium">Muddati O'tgan</CardTitle>
                         </CardHeader>
                         <CardContent>
-                            <div className="text-2xl font-bold">{formatCurrency(statistics.total_initial)}</div>
-                            <p className="text-xs text-muted-foreground">Jami boshlang‘ich to'lovlar</p>
-                        </CardContent>
-                    </Card>
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium">Muddati O'tgan Summa</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">{formatCurrency(statistics.total_overdue)}</div>
-                            <p className="text-xs text-muted-foreground">Jami muddati o'tgan summa</p>
+                            <div className="text-2xl font-bold text-red-600">{formatCurrency(statistics.total_overdue)}</div>
+                            <p className="text-xs text-muted-foreground">Filtr bo'yicha muddati o'tgan summa</p>
                         </CardContent>
                     </Card>
                 </div>
@@ -776,18 +878,36 @@ export default function PaymentsPage() {
                 {/* Filtrlar paneli */}
                 <div className="flex flex-wrap gap-4 items-center p-4 border rounded-md bg-card">
                     <Select
+                        value={filters.object}
+                        onValueChange={(v) => handleFilterChange(v, "object")}
+                        disabled={paymentsLoading || actionLoading || objects.length === 0}
+                    >
+                        <SelectTrigger className="w-full sm:w-auto flex-grow min-w-[150px]">
+                            <SelectValue placeholder="Obyekt bo'yicha" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Barcha Obyektlar</SelectItem>
+                            {objects.map((obj) => (
+                                <SelectItem key={obj.id} value={obj.id.toString()}>
+                                    {obj.name}
+                                </SelectItem>
+                            ))}
+                            {objects.length === 0 && <p className="p-2 text-sm text-muted-foreground">Obyektlar topilmadi</p>}
+                        </SelectContent>
+                    </Select>
+                    <Select
                         value={filters.status}
                         onValueChange={(v) => handleFilterChange(v, "status")}
                         disabled={paymentsLoading || actionLoading}
                     >
-                        <SelectTrigger className="w-full sm:w-[180px]">
-                            <SelectValue placeholder="Holati bo‘yicha" />
+                        <SelectTrigger className="w-full sm:w-auto flex-grow min-w-[150px]">
+                            <SelectValue placeholder="Holati bo'yicha" />
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">Barcha Holatlar</SelectItem>
-                            <SelectItem value="paid">To‘langan</SelectItem>
+                            <SelectItem value="paid">To'langan</SelectItem>
                             <SelectItem value="pending">Kutilmoqda</SelectItem>
-                            <SelectItem value="overdue">Muddati o‘tgan</SelectItem>
+                            <SelectItem value="overdue">Muddati o'tgan</SelectItem>
                         </SelectContent>
                     </Select>
                     <Select
@@ -795,8 +915,8 @@ export default function PaymentsPage() {
                         onValueChange={(v) => handleFilterChange(v, "paymentType")}
                         disabled={paymentsLoading || actionLoading}
                     >
-                        <SelectTrigger className="w-full sm:w-[180px]">
-                            <SelectValue placeholder="To'lov turi bo‘yicha" />
+                        <SelectTrigger className="w-full sm:w-auto flex-grow min-w-[150px]">
+                            <SelectValue placeholder="To'lov turi bo'yicha" />
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">Barcha Turlar</SelectItem>
@@ -807,111 +927,100 @@ export default function PaymentsPage() {
                         </SelectContent>
                     </Select>
                     <Select
-                        value={filters.object}
-                        onValueChange={(v) => handleFilterChange(v, "object")}
-                        disabled={paymentsLoading || actionLoading || objects.length === 0}
-                    >
-                        <SelectTrigger className="w-full sm:w-[180px]">
-                            <SelectValue placeholder="Obyekt bo‘yicha" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">Barcha Obyektlar</SelectItem>
-                            {objects.map((obj) => (
-                                <SelectItem key={obj.id} value={obj.id.toString()}>
-                                    {obj.name}
-                                </SelectItem>
-                            ))}
-                            {objects.length === 0 && (
-                                <p className="p-2 text-sm text-muted-foreground">Obyektlar topilmadi</p>
-                            )}
-                        </SelectContent>
-                    </Select>
-                    <Select
                         value={filters.apartment}
                         onValueChange={(v) => handleFilterChange(v, "apartment")}
-                        disabled={paymentsLoading || actionLoading || (filteredApartmentsForSelect.length === 0 && filters.object !== 'all')}
+                        disabled={
+                            paymentsLoading ||
+                            actionLoading ||
+                            (filteredApartmentsForSelect.length === 0 && filters.object !== "all")
+                        }
                     >
-                        <SelectTrigger className="w-full sm:w-[220px]">
-                            <SelectValue placeholder="Xonadon bo‘yicha" />
+                        <SelectTrigger className="w-full sm:w-auto flex-grow min-w-[180px]">
+                            <SelectValue placeholder="Xonadon bo'yicha" />
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">Barcha Xonadonlar</SelectItem>
                             {filteredApartmentsForSelect.map((apt) => (
                                 <SelectItem key={apt.id} value={apt.id.toString()}>
-                                    {apt.room_number} {filters.object === 'all' ? `(${apt.object_name || 'N/A'})` : ''}
+                                    {apt.room_number} {filters.object === "all" ? `(${apt.object_name || "N/A"})` : ""}
                                 </SelectItem>
                             ))}
-                            {filteredApartmentsForSelect.length === 0 && filters.object !== 'all' && (
+                            {filteredApartmentsForSelect.length === 0 && filters.object !== "all" && (
                                 <p className="p-2 text-sm text-muted-foreground">Tanlangan obyektda xonadon yo'q</p>
                             )}
-                            {apartments.length > 0 && filteredApartmentsForSelect.length === 0 && filters.object === 'all' && (
-                                <p className="p-2 text-sm text-muted-foreground">Xonadonlar topilmadi</p>
+                            {apartments.length === 0 && filters.object === "all" && (
+                                <p className="p-2 text-sm text-muted-foreground">Xonadonlar yuklanmagan</p>
                             )}
                         </SelectContent>
                     </Select>
-                    <Select
-                        value={filters.dueDate}
-                        onValueChange={(v) => handleFilterChange(v, "dueDate")}
-                        disabled={paymentsLoading || actionLoading || filters.paymentType !== "muddatli" || uniqueDueDates.length === 0}
-                    >
-                        <SelectTrigger className="w-full sm:w-[180px]">
-                            <SelectValue placeholder="To'lov sanasi bo‘yicha" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">Barcha Sanalar</SelectItem>
-                            {uniqueDueDates.map((due) => (
-                                <SelectItem key={due} value={due.toString()}>
-                                    Har oyning {due}-kuni
-                                </SelectItem>
-                            ))}
-                            {uniqueDueDates.length === 0 && (
-                                <p className="p-2 text-sm text-muted-foreground">To'lov sanasi topilmadi</p>
-                            )}
-                        </SelectContent>
-                    </Select>
-                    <Select
-                        value={filters.durationMonths}
-                        onValueChange={(v) => handleFilterChange(v, "durationMonths")}
-                        disabled={paymentsLoading || actionLoading || filters.paymentType !== "muddatli" || uniqueDurationMonths.length === 0}
-                    >
-                        <SelectTrigger className="w-full sm:w-[180px]">
-                            <SelectValue placeholder="Muddat bo‘yicha" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">Barcha Muddatlar</SelectItem>
-                            {uniqueDurationMonths.map((duration) => (
-                                <SelectItem key={duration} value={duration.toString()}>
-                                    {duration} oy
-                                </SelectItem>
-                            ))}
-                            {uniqueDurationMonths.length === 0 && (
-                                <p className="p-2 text-sm text-muted-foreground">Muddatlar topilmadi</p>
-                            )}
-                        </SelectContent>
-                    </Select>
+                    {filters.paymentType === "muddatli" && (
+                        <>
+                            <Select
+                                value={filters.dueDate}
+                                onValueChange={(v) => handleFilterChange(v, "dueDate")}
+                                disabled={paymentsLoading || actionLoading || uniqueDueDates.length === 0}
+                            >
+                                <SelectTrigger className="w-full sm:w-auto flex-grow min-w-[180px]">
+                                    <SelectValue placeholder="To'lov sanasi bo'yicha" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">Barcha Sanalar</SelectItem>
+                                    {uniqueDueDates.map((due) => (
+                                        <SelectItem key={due} value={due.toString()}>
+                                            Har oyning {due}-kuni
+                                        </SelectItem>
+                                    ))}
+                                    {uniqueDueDates.length === 0 && (
+                                        <p className="p-2 text-sm text-muted-foreground">To'lov sanasi topilmadi</p>
+                                    )}
+                                </SelectContent>
+                            </Select>
+                            <Select
+                                value={filters.durationMonths}
+                                onValueChange={(v) => handleFilterChange(v, "durationMonths")}
+                                disabled={paymentsLoading || actionLoading || uniqueDurationMonths.length === 0}
+                            >
+                                <SelectTrigger className="w-full sm:w-auto flex-grow min-w-[150px]">
+                                    <SelectValue placeholder="Muddat bo'yicha" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">Barcha Muddatlar</SelectItem>
+                                    {uniqueDurationMonths.map((duration) => (
+                                        <SelectItem key={duration} value={duration.toString()}>
+                                            {duration} oy
+                                        </SelectItem>
+                                    ))}
+                                    {uniqueDurationMonths.length === 0 && (
+                                        <p className="p-2 text-sm text-muted-foreground">Muddatlar topilmadi</p>
+                                    )}
+                                </SelectContent>
+                            </Select>
+                        </>
+                    )}
                     <Button
                         variant="outline"
                         onClick={handleClearFilters}
                         disabled={
                             paymentsLoading ||
                             actionLoading ||
-                            (filters.status === 'overdue' &&
-                            filters.paymentType === 'muddatli' &&
-                            filters.object === 'all' &&
-                            filters.apartment === 'all' &&
-                            filters.dueDate === 'all' &&
-                            filters.durationMonths === 'all')
+                            (filters.status === "all" &&
+                                filters.paymentType === "all" &&
+                                filters.object === "all" &&
+                                filters.apartment === "all" &&
+                                filters.dueDate === "all" &&
+                                filters.durationMonths === "all")
                         }
+                        className="flex-shrink-0"
                     >
                         Tozalash
                     </Button>
                 </div>
 
-                {/* To‘lovlar jadvali */}
+                {/* To'lovlar jadvali */}
                 <Card>
                     <CardHeader>
-                        <CardTitle>Muddati O'tgan To‘lovlar Ro‘yxati</CardTitle>
-                        <CardDescription>Mavjud muddatli to‘lovlar (muddati o'tgan).</CardDescription>
+                        <CardTitle>To'lovlar Ro'yxati</CardTitle>
+                        <CardDescription>Mavjud to'lov yozuvlari.</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <div className="overflow-x-auto">
@@ -922,16 +1031,16 @@ export default function PaymentsPage() {
                                         <TableHead>Obyekt</TableHead>
                                         <TableHead>Xonadon</TableHead>
                                         <TableHead>Mijoz</TableHead>
+                                        <TableHead>Turi</TableHead>
                                         <TableHead className="text-right">Umumiy Summa</TableHead>
-                                        <TableHead className="text-right">To'langan Summa</TableHead>
-                                        <TableHead className="text-right">Muddati o'tgan Summa</TableHead>
-                                        <TableHead className="text-right">Oylik To'lov</TableHead>
-                                        <TableHead className="text-right">To'lov Sanasi</TableHead>
-                                        <TableHead className="text-right">Muddat (oy)</TableHead>
+                                        {/* <TableHead className="text-right">To'langan Summa</TableHead> */}
+                                        {/* <TableHead className="text-right">Qoldiq</TableHead> */}
+                                        {/* <TableHead className="text-right">Oylik To'lov</TableHead> */}
+                                        {/* <TableHead className="text-right">To'lov Sanasi</TableHead> */}
+                                        {/* <TableHead className="text-right">Muddat (oy)</TableHead> */}
                                         <TableHead>Sana</TableHead>
-                                        <TableHead>Holati</TableHead>
-                                        {/* <TableHead>Izoh</TableHead> */}
-                                        <TableHead className="text-right">Amallar</TableHead>
+                                        {/* <TableHead>Holati</TableHead> */}
+                                        {/* <TableHead className="text-right">Amallar</TableHead> */}
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -939,39 +1048,49 @@ export default function PaymentsPage() {
                                         <TableRow>
                                             <TableCell colSpan={14} className="h-24 text-center">
                                                 <div className="flex justify-center items-center">
-                                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                    Yuklanmoqda...
+                                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Yuklanmoqda...
                                                 </div>
                                             </TableCell>
                                         </TableRow>
                                     ) : filteredPayments.length === 0 ? (
                                         <TableRow>
                                             <TableCell colSpan={14} className="h-24 text-center">
-                                                Muddati o'tgan to‘lovlar topilmadi.
+                                                Tanlangan filtrlar bo'yicha to'lovlar topilmadi.
                                             </TableCell>
                                         </TableRow>
                                     ) : (
                                         filteredPayments.map((payment, index) => {
-                                            const apartment = apartments.find(apt => apt.id === payment.apartment);
+                                            const apartment = apartments.find((apt) => apt.id === payment.apartment);
                                             return (
-                                                <TableRow key={payment.id} className={cn(deletingPaymentId === payment.id && "opacity-50")}>
+                                                <TableRow
+                                                    key={payment.id}
+                                                    className={cn("hover:bg-muted/50", deletingPaymentId === payment.id && "opacity-50")}
+                                                >
                                                     <TableCell className="font-medium">{getRowNumber(index)}</TableCell>
-                                                    <TableCell>{apartment?.object_name || '-'}</TableCell>
-                                                    <TableCell>{payment.apartment_info || `ID: ${payment.apartment}`}</TableCell>
+                                                    <TableCell>{apartment?.object_name || "-"}</TableCell>
+                                                    <TableCell>{payment.apartment_info || apartment?.room_number || `ID: ${payment.apartment}`}</TableCell>
                                                     <TableCell>{payment.user_fio || `ID: ${payment.user}`}</TableCell>
+                                                    <TableCell className="capitalize">{payment.payment_type || "-"}</TableCell>
                                                     <TableCell className="text-right">{formatCurrency(payment.total_amount)}</TableCell>
-                                                    <TableCell className="text-right">{formatCurrency(payment.paid_amount)}</TableCell>
-                                                    <TableCell className="text-right">{formatCurrency(payment.overdue_amount)}</TableCell>
-                                                    <TableCell className="text-right">{formatCurrency(payment.monthly_payment)}</TableCell>
-                                                    <TableCell className="text-right">{payment.due_date ? `Har oyning ${payment.due_date}-kuni` : "-"}</TableCell>
-                                                    <TableCell className="text-right">{payment.duration_months ? `${payment.duration_months} oy` : "-"}</TableCell>
-                                                    <TableCell>{formatDate(payment.created_at)}</TableCell>
-                                                    <TableCell>{getStatusBadge(payment.status)}</TableCell>
-                                                    {/* <TableCell className="max-w-[200px] truncate" title={payment.additional_info || ''}>
-                                                        {payment.additional_info || "-"}
+                                                    {/* <TableCell className="text-right">{formatCurrency(payment.paid_amount)}</TableCell> */}
+                                                    {/* <TableCell className="text-right font-semibold text-red-600">
+                                                        {formatCurrency(getPaymentBalance(payment))}
                                                     </TableCell> */}
+                                                    {/* <TableCell className="text-right">
+                                                        {payment.payment_type === "muddatli" ? formatCurrency(payment.monthly_payment) : "-"}
+                                                    </TableCell> */}
+                                                    {/* <TableCell className="text-right">
+                                                        {payment.payment_type === "muddatli" && payment.due_date ? `Har oy ${payment.due_date}` : "-"}
+                                                    </TableCell> */}
+                                                    {/* <TableCell className="text-right">
+                                                        {payment.payment_type === "muddatli" && payment.duration_months
+                                                            ? `${payment.duration_months} oy`
+                                                            : "-"}
+                                                    </TableCell> */}
+                                                    <TableCell>{formatDate(payment.created_at)}</TableCell>
+                                                    {/* <TableCell>{getStatusBadge(payment.status)}</TableCell> */}
                                                     <TableCell className="text-right">
-                                                        <div className="flex justify-end space-x-1">
+                                                        {/* <div className="flex justify-end space-x-1">
                                                             <Button
                                                                 variant="ghost"
                                                                 size="icon"
@@ -988,7 +1107,7 @@ export default function PaymentsPage() {
                                                                 className="text-red-600 hover:text-red-700 hover:bg-red-100 h-8 w-8"
                                                                 onClick={() => handleDeletePayment(payment.id)}
                                                                 disabled={actionLoading || deletingPaymentId === payment.id}
-                                                                title="O‘chirish"
+                                                                title="O'chirish"
                                                             >
                                                                 {deletingPaymentId === payment.id ? (
                                                                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -996,7 +1115,7 @@ export default function PaymentsPage() {
                                                                     <Trash className="h-4 w-4" />
                                                                 )}
                                                             </Button>
-                                                        </div>
+                                                        </div> */}
                                                     </TableCell>
                                                 </TableRow>
                                             );
@@ -1009,14 +1128,16 @@ export default function PaymentsPage() {
                 </Card>
             </div>
 
-            {/* Yangi to‘lov qo'shish modal oynasi */}
+            {/* Yangi to'lov qo'shish modal oynasi */}
             <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
                 <DialogContent className="sm:max-w-[480px]">
                     <DialogHeader>
-                        <DialogTitle>Yangi To‘lov Qo‘shish</DialogTitle>
-                        <DialogDescription>(*) majburiy maydonlar. Muddatli to'lov uchun to'liq ma'lumot kiriting.</DialogDescription>
+                        <DialogTitle>Yangi To'lov Qo'shish</DialogTitle>
+                        <DialogDescription>
+                            (*) majburiy maydonlar. Muddatli to'lov uchun to'liq ma'lumot kiriting.
+                        </DialogDescription>
                     </DialogHeader>
-                    <div className="grid gap-4 py-4">
+                    <div className="grid gap-4 py-4 max-h-[70vh] overflow-y-auto px-2">
                         <div className="grid grid-cols-4 items-center gap-4">
                             <Label htmlFor="apartment" className="text-right">
                                 Xonadon <span className="text-red-500">*</span>
@@ -1031,10 +1152,10 @@ export default function PaymentsPage() {
                                 </SelectTrigger>
                                 <SelectContent>
                                     {apartments
-                                        .sort((a, b) => (a.room_number || '').localeCompare(b.room_number || ''))
+                                        .sort((a, b) => (a.room_number || "").localeCompare(b.room_number || ""))
                                         .map((apt) => (
                                             <SelectItem key={apt.id} value={apt.id.toString()}>
-                                                {apt.room_number} ({apt.object_name || 'N/A'})
+                                                {apt.room_number} ({apt.object_name || "N/A"})
                                             </SelectItem>
                                         ))}
                                     {apartments.length === 0 && (
@@ -1057,10 +1178,10 @@ export default function PaymentsPage() {
                                 </SelectTrigger>
                                 <SelectContent>
                                     {clients
-                                        .sort((a, b) => (a.fio || '').localeCompare(b.fio || ''))
+                                        .sort((a, b) => (a.fio || "").localeCompare(b.fio || ""))
                                         .map((client) => (
                                             <SelectItem key={client.id} value={client.id.toString()}>
-                                                {client.fio}
+                                                {client.fio} {client.phone_number ? `(${client.phone_number})` : ""}
                                             </SelectItem>
                                         ))}
                                     {clients.length === 0 && (
@@ -1099,8 +1220,7 @@ export default function PaymentsPage() {
                                 value={formData.total_amount}
                                 onChange={handleFormChange}
                                 className="col-span-3"
-                                placeholder="100000000"
-                                min="0"
+                                placeholder="Umumiy summatni kiriting..."
                             />
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">
@@ -1114,8 +1234,7 @@ export default function PaymentsPage() {
                                 value={formData.initial_payment}
                                 onChange={handleFormChange}
                                 className="col-span-3"
-                                placeholder="30000000"
-                                min="0"
+                                placeholder="Boshlang'ich to'lov summasi..."
                             />
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">
@@ -1129,50 +1248,49 @@ export default function PaymentsPage() {
                                 value={formData.paid_amount}
                                 onChange={handleFormChange}
                                 className="col-span-3"
-                                placeholder="30000000"
-                                min="0"
+                                placeholder="To'langan summatni kiriting..."
                             />
                         </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="duration_months" className="text-right">
-                                Muddat (oy) <span className="text-red-500">*</span>
-                            </Label>
-                            <Input
-                                id="duration_months"
-                                name="duration_months"
-                                type="number"
-                                value={formData.duration_months}
-                                onChange={handleFormChange}
-                                className="col-span-3"
-                                placeholder="12"
-                                min="1"
-                            />
-                        </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="due_date" className="text-right">
-                                To'lov Sanasi <span className="text-red-500">*</span>
-                            </Label>
-                            <Input
-                                id="due_date"
-                                name="due_date"
-                                type="number"
-                                value={formData.due_date}
-                                onChange={handleFormChange}
-                                className="col-span-3"
-                                placeholder="15"
-                                min="1"
-                                max="31"
-                            />
-                        </div>
+                        {formData.payment_type === "muddatli" && (
+                            <>
+                                <div className="grid grid-cols-4 items-center gap-4">
+                                    <Label htmlFor="duration_months" className="text-right">
+                                        Muddat (oy) <span className="text-red-500">*</span>
+                                    </Label>
+                                    <Input
+                                        id="duration_months"
+                                        name="duration_months"
+                                        type="number"
+                                        value={formData.duration_months}
+                                        onChange={handleFormChange}
+                                        className="col-span-3"
+                                        placeholder="To'lov muddatini oylar bo'yicha kiriting..."
+                                    />
+                                </div>
+                                <div className="grid grid-cols-4 items-center gap-4">
+                                    <Label htmlFor="due_date" className="text-right">
+                                        To'lov Sanasi <span className="text-red-500">*</span>
+                                    </Label>
+                                    <Input
+                                        id="due_date"
+                                        name="due_date"
+                                        type="number"
+                                        value={formData.due_date}
+                                        onChange={handleFormChange}
+                                        className="col-span-3"
+                                        placeholder="Har oyning nechinchi kuni (1-31)..."
+                                    />
+                                </div>
+                            </>
+                        )}
                         <div className="grid grid-cols-4 items-center gap-4">
                             <Label htmlFor="created_at" className="text-right">
-                                Sana <span className="text-red-500">*</span>
+                                Sana
                             </Label>
                             <Popover>
                                 <PopoverTrigger asChild>
                                     <Button
-                                        id="created_at"
-                                        variant="outline"
+                                        variant={"outline"}
                                         className={cn(
                                             "col-span-3 justify-start text-left font-normal",
                                             !formData.created_at && "text-muted-foreground"
@@ -1182,7 +1300,7 @@ export default function PaymentsPage() {
                                         {formData.created_at ? (
                                             format(formData.created_at, "PPP", { locale: uz })
                                         ) : (
-                                            <span>Sanani tanlang</span>
+                                            <span>Sanani tanlang...</span>
                                         )}
                                     </Button>
                                 </PopoverTrigger>
@@ -1198,153 +1316,77 @@ export default function PaymentsPage() {
                             </Popover>
                         </div>
                         <div className="grid grid-cols-4 items-start gap-4">
-                            <Label htmlFor="additional_info" className="text-right pt-2">Izoh</Label>
+                            <Label htmlFor="additional_info" className="text-right">
+                                Izoh
+                            </Label>
                             <Textarea
                                 id="additional_info"
                                 name="additional_info"
                                 value={formData.additional_info}
                                 onChange={handleFormChange}
-                                className="col-span-3 min-h-[80px]"
-                                placeholder="Qo‘shimcha ma’lumot..."
+                                className="col-span-3"
+                                placeholder="Qo'shimcha ma'lumotlar..."
                             />
                         </div>
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={handleCloseModal} disabled={actionLoading}>
-                            Bekor qilish
+                            Bekor Qilish
                         </Button>
-                        <Button
-                            onClick={handleAddPayment}
-                            disabled={
-                                actionLoading ||
-                                !formData.apartment ||
-                                !formData.user ||
-                                !formData.total_amount ||
-                                !formData.initial_payment ||
-                                !formData.paid_amount ||
-                                !formData.duration_months ||
-                                !formData.due_date ||
-                                parseFloat(formData.paid_amount) < 0 ||
-                                parseFloat(formData.total_amount) <= 0 ||
-                                parseFloat(formData.initial_payment) < 0 ||
-                                parseInt(formData.duration_months) <= 0 ||
-                                parseInt(formData.due_date) < 1 ||
-                                parseInt(formData.due_date) > 31
-                            }
-                        >
-                            {actionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            Saqlash
+                        <Button onClick={handleAddPayment} disabled={actionLoading}>
+                            {actionLoading ? (
+                                <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Yuklanmoqda...
+                                </>
+                            ) : (
+                                "Saqlash"
+                            )}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
 
-            {/* To‘lov izohini tahrirlash modal oynasi */}
+            {/* To'lovni tahrirlash modal oynasi */}
             <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
                 <DialogContent className="sm:max-w-[480px]">
                     <DialogHeader>
-                        <DialogTitle>To‘lov Izohini Tahrirlash (ID: {editingPayment?.id})</DialogTitle>
-                        <DialogDescription>Faqat izohni o'zgartirish mumkin.</DialogDescription>
+                        <DialogTitle>To'lov Izohini Tahrirlash</DialogTitle>
+                        <DialogDescription>ID: {editingPayment?.id}</DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label className="text-right">Xonadon</Label>
-                            <Input
-                                value={editingPayment?.apartment_info || `ID: ${editingPayment?.apartment}`}
-                                className="col-span-3"
-                                disabled
-                            />
-                        </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label className="text-right">Mijoz</Label>
-                            <Input
-                                value={editingPayment?.user_fio || `ID: ${editingPayment?.user}`}
-                                className="col-span-3"
-                                disabled
-                            />
-                        </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label className="text-right">Umumiy Summa</Label>
-                            <Input
-                                value={editingPayment ? formatCurrency(editingPayment.total_amount) : "0.00"}
-                                className="col-span-3"
-                                disabled
-                            />
-                        </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label className="text-right">To‘langan Summa</Label>
-                            <Input
-                                value={editingPayment ? formatCurrency(editingPayment.paid_amount) : "0.00"}
-                                className="col-span-3"
-                                disabled
-                            />
-                        </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label className="text-right">Muddati o‘tgan Summa</Label>
-                            <Input
-                                value={editingPayment ? formatCurrency(editingPayment.overdue_amount) : "0.00"}
-                                className="col-span-3"
-                                disabled
-                            />
-                        </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label className="text-right">Oylik To'lov</Label>
-                            <Input
-                                value={editingPayment ? formatCurrency(editingPayment.monthly_payment) : "0.00"}
-                                className="col-span-3"
-                                disabled
-                            />
-                        </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label className="text-right">To'lov Sanasi</Label>
-                            <Input
-                                value={editingPayment?.due_date ? `Har oyning ${editingPayment.due_date}-kuni` : "-"}
-                                className="col-span-3"
-                                disabled
-                            />
-                        </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label className="text-right">Muddat</Label>
-                            <Input
-                                value={editingPayment?.duration_months ? `${editingPayment.duration_months} oy` : "-"}
-                                className="col-span-3"
-                                disabled
-                            />
-                        </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label className="text-right">Sana</Label>
-                            <Input
-                                value={editingPayment ? formatDate(editingPayment.created_at) : "-"}
-                                className="col-span-3"
-                                disabled
-                            />
-                        </div>
                         <div className="grid grid-cols-4 items-start gap-4">
-                            <Label htmlFor="edit-additional_info" className="text-right pt-2">Izoh</Label>
+                            <Label htmlFor="additional_info" className="text-right">
+                                Izoh
+                            </Label>
                             <Textarea
-                                id="edit-additional_info"
+                                id="additional_info"
                                 name="additional_info"
                                 value={editFormData.additional_info}
                                 onChange={handleEditFormChange}
-                                className="col-span-3 min-h-[80px]"
-                                placeholder="Qo‘shimcha ma’lumot..."
+                                className="col-span-3"
+                                placeholder="Izohni kiriting..."
                             />
                         </div>
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={handleCloseEditModal} disabled={actionLoading}>
-                            Bekor qilish
+                            Bekor Qilish
                         </Button>
                         <Button onClick={handleUpdatePayment} disabled={actionLoading}>
-                            {actionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            Saqlash
+                            {actionLoading ? (
+                                <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Yuklanmoqda...
+                                </>
+                            ) : (
+                                "Saqlash"
+                            )}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
 
             {/* Footer */}
-            <footer className="border-t py-4 px-4 text-center text-sm text-muted-foreground">
+            <footer className="border-t py-4 px-4 text-center text-sm text-muted-foreground mt-auto">
                 Barcha huquqlar ximoyalangan | Ushbu Dastur CDCGroup tomonidan yaratilgan | CraDev Company tomonidan qo'llab quvvatlanadi | since 2019
             </footer>
         </div>
