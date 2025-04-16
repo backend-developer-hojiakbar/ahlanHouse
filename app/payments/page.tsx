@@ -52,8 +52,10 @@ import { uz } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 
+// API bazaviy URL
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://api.ahlan.uz";
 
+// Interfeyslar
 interface Document {
     id: number;
     payment: number;
@@ -84,6 +86,7 @@ interface Payment {
     documents?: Document[];
     reservation_deadline?: string | null;
     bank_name?: string | null;
+    overdue_amount?: string; // Added to store the total overdue amount
 }
 
 interface Apartment {
@@ -120,6 +123,8 @@ interface ObjectData {
 
 export default function PaymentsPage() {
     const router = useRouter();
+
+    // Holatlar (states)
     const [payments, setPayments] = useState<Payment[]>([]);
     const [apartments, setApartments] = useState<Apartment[]>([]);
     const [clients, setClients] = useState<Client[]>([]);
@@ -133,62 +138,111 @@ export default function PaymentsPage() {
     const [accessToken, setAccessToken] = useState<string | null>(null);
     const [deletingPaymentId, setDeletingPaymentId] = useState<number | null>(null);
 
+    // Form ma'lumotlari
     const initialFormData = useMemo(() => ({
-        apartment: "", user: "", paid_amount: "", additional_info: "", created_at: new Date(),
+        apartment: "",
+        user: "",
+        payment_type: "muddatli", // Default to "muddatli" for this page
+        total_amount: "",
+        initial_payment: "",
+        paid_amount: "",
+        duration_months: "",
+        due_date: "",
+        additional_info: "",
+        created_at: new Date(),
     }), []);
     const [formData, setFormData] = useState(initialFormData);
 
-    const initialEditFormData = useMemo(() => ({ additional_info: "" }), []);
+    const initialEditFormData = useMemo(() => ({
+        additional_info: "",
+    }), []);
     const [editFormData, setEditFormData] = useState(initialEditFormData);
 
+    // Filtrlar
     const [filters, setFilters] = useState({
-        status: "all", object: "all", apartment: "all",
+        status: "overdue", // Default to overdue to focus on "muddati o'tgan to'lovlar"
+        paymentType: "muddatli", // Focus on installment payments
+        object: "all",
+        apartment: "all",
+        dueDate: "all", // Filter for due_date
+        durationMonths: "all", // Filter for duration_months
     });
 
     // Utility funksiyalar
     const getAuthHeaders = useCallback(() => {
         if (!accessToken) {
-            toast({ title: "Xatolik", description: "Avtorizatsiya tokeni topilmadi. Iltimos, qayta tizimga kiring.", variant: "destructive" });
-            if (typeof window !== "undefined") { localStorage.removeItem("access_token"); router.push("/login"); }
+            toast({
+                title: "Xatolik",
+                description: "Avtorizatsiya tokeni topilmadi. Iltimos, qayta tizimga kiring.",
+                variant: "destructive",
+            });
+            if (typeof window !== "undefined") {
+                localStorage.removeItem("access_token");
+                router.push("/login");
+            }
             return null;
         }
-        return { Accept: "application/json", "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` };
+        return {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+        };
     }, [accessToken, router]);
 
     const formatCurrency = useCallback((amount: string | number | undefined | null) => {
         const num = Number(amount);
-        if (isNaN(num)) return "$ 0.00";
-        return num.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        if (isNaN(num)) return "0.00";
+        return `${num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }, []);
 
     const formatDate = useCallback((dateString: string | undefined | null) => {
         if (!dateString) return "-";
         try {
             const date = parseISO(dateString);
-            if (!isValid(date)) { const datePart = dateString.split("T")[0]; return datePart || "-"; }
+            if (!isValid(date)) {
+                const datePart = dateString.split("T")[0];
+                return datePart || "-";
+            }
             return format(date, "dd.MM.yyyy", { locale: uz });
-        } catch (error) { console.error("Sana formatlashda xato:", error); const datePart = dateString.split("T")[0]; return datePart || "-"; }
+        } catch (error) {
+            console.error("Sana formatlashda xato:", error);
+            const datePart = dateString.split("T")[0];
+            return datePart || "-";
+        }
     }, []);
 
     const getStatusBadge = useCallback((status: string | undefined | null) => {
         const lowerStatus = status?.toLowerCase() || "unknown";
         switch (lowerStatus) {
-            case "paid": return <Badge className="bg-green-600 hover:bg-green-700 text-white">To‘langan</Badge>;
-            case "pending": return <Badge className="bg-yellow-500 hover:bg-yellow-600 text-white">Kutilmoqda</Badge>;
-            case "overdue": return <Badge className="bg-red-600 hover:bg-red-700 text-white">Muddati o‘tgan</Badge>;
-            default: return <Badge variant="secondary">{status || "Noma'lum"}</Badge>;
+            case "paid":
+                return <Badge className="bg-green-600 hover:bg-green-700 text-white">To‘langan</Badge>;
+            case "pending":
+                return <Badge className="bg-yellow-500 hover:bg-yellow-600 text-white">Kutilmoqda</Badge>;
+            case "overdue":
+                return <Badge className="bg-red-600 hover:bg-red-700 text-white">Muddati o‘tgan</Badge>;
+            default:
+                return <Badge variant="secondary">{status || "Noma'lum"}</Badge>;
         }
     }, []);
 
-    // Ma'lumotlarni olish
-    const fetchApiData = useCallback(async <T,>(url: string, token: string, setData: (data: T[]) => void, entityName: string): Promise<boolean> => {
+    // Ma'lumotlarni olish funksiyalari
+    const fetchApiData = useCallback(async <T,>(
+        url: string,
+        token: string,
+        setData: (data: T[]) => void,
+        entityName: string
+    ): Promise<boolean> => {
         const headers = { Accept: "application/json", Authorization: `Bearer ${token}` };
         try {
             const response = await fetch(url, { headers });
             if (!response.ok) {
                 console.error(`${entityName} Error:`, response.status, await response.text().catch(() => ''));
                 if (response.status === 401) throw new Error("Unauthorized");
-                toast({ title: "Xatolik", description: `${entityName} yuklashda muammo (${response.status}).`, variant: "destructive" });
+                toast({
+                    title: "Xatolik",
+                    description: `${entityName} yuklashda muammo (${response.status}).`,
+                    variant: "destructive",
+                });
                 setData([]);
                 return false;
             }
@@ -198,7 +252,11 @@ export default function PaymentsPage() {
         } catch (error: any) {
             if (error.message !== "Unauthorized") {
                 console.error(`${entityName} yuklashda xato:`, error);
-                toast({ title: "Xatolik", description: error.message || `${entityName} yuklashda noma'lum xatolik.`, variant: "destructive" });
+                toast({
+                    title: "Xatolik",
+                    description: error.message || `${entityName} yuklashda noma'lum xatolik.`,
+                    variant: "destructive",
+                });
             }
             setData([]);
             throw error;
@@ -215,7 +273,10 @@ export default function PaymentsPage() {
                 let url = `${API_BASE_URL}/payments/?ordering=-created_at&page_size=100`;
                 const queryParams = new URLSearchParams();
                 if (currentFilters.status !== "all") queryParams.append("status", currentFilters.status);
+                if (currentFilters.paymentType !== "all") queryParams.append("payment_type", currentFilters.paymentType);
                 if (currentFilters.apartment !== "all") queryParams.append("apartment", currentFilters.apartment);
+                if (currentFilters.dueDate !== "all") queryParams.append("due_date", currentFilters.dueDate);
+                if (currentFilters.durationMonths !== "all") queryParams.append("duration_months", currentFilters.durationMonths);
 
                 const queryString = queryParams.toString();
                 if (queryString) url += `&${queryString}`;
@@ -227,12 +288,21 @@ export default function PaymentsPage() {
                     throw new Error(`To'lovlarni olishda xatolik (${response.status}): ${errorData.detail || response.statusText}`);
                 }
                 const data = await response.json();
-                setPayments(data.results || []);
+                // Map the overdue amount from overdue_payments
+                const updatedPayments = (data.results || []).map((payment: any) => ({
+                    ...payment,
+                    overdue_amount: payment.overdue_payments?.total_overdue?.toString() || "0",
+                }));
+                setPayments(updatedPayments);
                 return true;
             } catch (error: any) {
                 console.error("To'lovlarni olishda xato:", error);
                 if (error.message === "Unauthorized") throw error;
-                toast({ title: "Xatolik", description: error.message || "To'lovlarni yuklashda muammo.", variant: "destructive" });
+                toast({
+                    title: "Xatolik",
+                    description: error.message || "To'lovlarni yuklashda muammo.",
+                    variant: "destructive",
+                });
                 setPayments([]);
                 return false;
             } finally {
@@ -271,35 +341,59 @@ export default function PaymentsPage() {
         } catch (error: any) {
             success = false;
             if (error.message === "Unauthorized") {
-                toast({ title: "Sessiya tugadi", description: "Iltimos, qayta tizimga kiring.", variant: "destructive" });
+                toast({
+                    title: "Sessiya tugadi",
+                    description: "Iltimos, qayta tizimga kiring.",
+                    variant: "destructive",
+                });
                 localStorage.removeItem("access_token");
                 router.push("/login");
             }
-            setApartments([]); setClients([]); setObjects([]); setPayments([]);
+            setApartments([]);
+            setClients([]);
+            setObjects([]);
+            setPayments([]);
             setLoading(false);
         }
     }, [router, filters, fetchPayments, fetchApiData]);
 
-    // Frontendda filtrlangan to‘lovlar
+    // Filtrlangan to‘lovlar
     const filteredPayments = useMemo(() => {
         let result = payments;
 
-        // Status bo‘yicha filtr
+        // Apply payment type filter (default to "muddatli")
+        if (filters.paymentType !== "all") {
+            result = result.filter(p => p.payment_type?.toLowerCase() === filters.paymentType);
+        }
+
+        // Apply status filter (default to "overdue")
         if (filters.status !== "all") {
             result = result.filter(p => p.status.toLowerCase() === filters.status);
         }
 
-        // Obyekt bo‘yicha filtr
+        // Apply object filter
         if (filters.object !== "all") {
             const objectId = parseInt(filters.object, 10);
             const objectApartments = apartments.filter(apt => apt.object === objectId).map(apt => apt.id);
             result = result.filter(p => objectApartments.includes(p.apartment));
         }
 
-        // Xonadon bo‘yicha filtr
+        // Apply apartment filter
         if (filters.apartment !== "all") {
             const apartmentId = parseInt(filters.apartment, 10);
             result = result.filter(p => p.apartment === apartmentId);
+        }
+
+        // Apply due_date filter (specific to muddatli payments)
+        if (filters.dueDate !== "all") {
+            const dueDate = parseInt(filters.dueDate, 10);
+            result = result.filter(p => p.due_date === dueDate);
+        }
+
+        // Apply duration_months filter (specific to muddatli payments)
+        if (filters.durationMonths !== "all") {
+            const duration = parseInt(filters.durationMonths, 10);
+            result = result.filter(p => p.duration_months === duration);
         }
 
         return result;
@@ -307,25 +401,48 @@ export default function PaymentsPage() {
 
     // Statistika
     const statistics = useMemo(() => {
-        let total_paid = 0, total_pending = 0, total_overdue = 0;
+        let total_paid = 0, total_initial = 0, total_overdue = 0;
         filteredPayments.forEach(p => {
-            const amount = parseFloat(p.paid_amount) || 0;
+            const paidAmount = parseFloat(p.paid_amount) || 0;
+            const initialAmount = parseFloat(p.initial_payment || "0") || 0;
+            const overdueAmount = parseFloat(p.overdue_amount || "0") || 0;
             switch (p.status?.toLowerCase()) {
-                case "paid": total_paid += amount; break;
-                case "pending": total_pending += amount; break;
-                case "overdue": total_overdue += amount; break;
+                case "paid": total_paid += paidAmount; break;
+                case "overdue": total_overdue += overdueAmount; break;
             }
+            total_initial += initialAmount;
         });
-        return { total_payments: filteredPayments.length, total_paid, total_pending, total_overdue };
+        return { total_payments: filteredPayments.length, total_paid, total_initial, total_overdue };
     }, [filteredPayments]);
 
     // Tartib raqami
     const getRowNumber = (index: number) => index + 1;
 
+    // Unique due_date and duration_months for filters
+    const uniqueDueDates = useMemo(() => {
+        const dueDates = new Set<number>();
+        payments
+            .filter(p => p.payment_type === "muddatli" && p.due_date != null)
+            .forEach(p => dueDates.add(p.due_date!));
+        return Array.from(dueDates).sort((a, b) => a - b);
+    }, [payments]);
+
+    const uniqueDurationMonths = useMemo(() => {
+        const durations = new Set<number>();
+        payments
+            .filter(p => p.payment_type === "muddatli" && p.duration_months != null)
+            .forEach(p => durations.add(p.duration_months!));
+        return Array.from(durations).sort((a, b) => a - b);
+    }, [payments]);
+
     // useEffect Hooks
     useEffect(() => {
         const token = localStorage.getItem("access_token");
-        if (!token) router.push("/login"); else setAccessToken(token);
+        if (!token) {
+            router.push("/login");
+        } else {
+            setAccessToken(token);
+        }
     }, [router]);
 
     useEffect(() => {
@@ -334,84 +451,234 @@ export default function PaymentsPage() {
 
     useEffect(() => {
         if (accessToken && !loading) fetchPayments(accessToken, filters);
-    }, [accessToken, filters.status, filters.apartment, loading, fetchPayments]);
+    }, [accessToken, filters, loading, fetchPayments]);
 
     // Handler funksiyalar
     const handleOpenModal = () => setIsModalOpen(true);
-    const handleCloseModal = useCallback(() => { setIsModalOpen(false); setFormData(initialFormData); }, [initialFormData]);
-    const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
-    const handleSelectChange = (name: string, value: string) => setFormData(prev => ({ ...prev, [name]: value }));
-    const handleDateChange = (date: Date | undefined) => { if (date) setFormData(prev => ({ ...prev, created_at: date })); };
+
+    const handleCloseModal = useCallback(() => {
+        setIsModalOpen(false);
+        setFormData(initialFormData);
+    }, [initialFormData]);
+
+    const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    };
+
+    const handleSelectChange = (name: string, value: string) => {
+        setFormData(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleDateChange = (date: Date | undefined) => {
+        if (date) setFormData(prev => ({ ...prev, created_at: date }));
+    };
 
     const handleAddPayment = async () => {
         setActionLoading(true);
-        const headers = getAuthHeaders(); if (!headers) { setActionLoading(false); return; }
-        if (!formData.apartment || !formData.user || !formData.paid_amount || parseFloat(formData.paid_amount) <= 0) {
-            toast({ title: "Xatolik", description: "Majburiy (*) maydonlarni to'ldiring va summa musbat bo'lsin.", variant: "destructive" });
-            setActionLoading(false); return;
+        const headers = getAuthHeaders();
+        if (!headers) {
+            setActionLoading(false);
+            return;
         }
+
+        // Validate required fields
+        if (
+            !formData.apartment ||
+            !formData.user ||
+            !formData.total_amount ||
+            !formData.initial_payment ||
+            !formData.duration_months ||
+            !formData.due_date ||
+            !formData.paid_amount ||
+            parseFloat(formData.paid_amount) < 0 ||
+            parseFloat(formData.total_amount) <= 0 ||
+            parseFloat(formData.initial_payment) < 0 ||
+            parseInt(formData.duration_months) <= 0 ||
+            parseInt(formData.due_date) < 1 ||
+            parseInt(formData.due_date) > 31
+        ) {
+            toast({
+                title: "Xatolik",
+                description: "Majburiy maydonlarni to'ldiring va to'g'ri qiymatlar kiriting.",
+                variant: "destructive",
+            });
+            setActionLoading(false);
+            return;
+        }
+
+        const totalAmount = parseFloat(formData.total_amount);
+        const initialPayment = parseFloat(formData.initial_payment);
+        const paidAmount = parseFloat(formData.paid_amount);
+        const durationMonths = parseInt(formData.duration_months);
+        const remainingAmount = totalAmount - initialPayment;
+        const monthlyPayment = remainingAmount / durationMonths;
+        const status = paidAmount >= initialPayment ? "paid" : "pending";
+
         const paymentData = {
-            apartment: parseInt(formData.apartment, 10), user: parseInt(formData.user, 10),
-            paid_amount: formData.paid_amount, payment_type: "naqd",
+            apartment: parseInt(formData.apartment, 10),
+            user: parseInt(formData.user, 10),
+            payment_type: formData.payment_type,
+            total_amount: formData.total_amount,
+            initial_payment: formData.initial_payment,
+            paid_amount: formData.paid_amount,
+            duration_months: durationMonths,
+            monthly_payment: monthlyPayment.toString(),
+            due_date: parseInt(formData.due_date),
             additional_info: formData.additional_info.trim() || null,
-            created_at: format(formData.created_at, "yyyy-MM-dd'T'HH:mm:ss"),
-            status: "paid",
+            created_at: format(formData.created_at, "yyyy-MM-dd"),
+            status: status,
         };
+
         try {
-            const response = await fetch(`${API_BASE_URL}/payments/`, { method: "POST", headers, body: JSON.stringify(paymentData) });
+            const response = await fetch(`${API_BASE_URL}/payments/`, {
+                method: "POST",
+                headers,
+                body: JSON.stringify(paymentData),
+            });
+
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({ detail: "Server javobini o'qishda xato." }));
                 throw new Error(`To'lov qo'shishda xatolik (${response.status}): ${errorData.detail || response.statusText}`);
             }
-            toast({ title: "Muvaffaqiyat!", description: "Yangi to'lov qo'shildi." });
+
+            toast({
+                title: "Muvaffaqiyat!",
+                description: "Yangi to'lov qo'shildi.",
+            });
+
             if (accessToken) await fetchPayments(accessToken, filters);
             handleCloseModal();
-        } catch (error: any) { toast({ title: "Xatolik", description: error.message || "To'lov qo'shishda xato.", variant: "destructive" });
-        } finally { setActionLoading(false); }
+        } catch (error: any) {
+            toast({
+                title: "Xatolik",
+                description: error.message || "To'lov qo'shishda xato.",
+                variant: "destructive",
+            });
+        } finally {
+            setActionLoading(false);
+        }
     };
 
-    const handleOpenEditModal = (payment: Payment) => { setEditingPayment(payment); setEditFormData({ additional_info: payment.additional_info || "" }); setIsEditModalOpen(true); };
-    const handleCloseEditModal = useCallback(() => { setIsEditModalOpen(false); setEditingPayment(null); setEditFormData(initialEditFormData); }, [initialEditFormData]);
-    const handleEditFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setEditFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    const handleOpenEditModal = (payment: Payment) => {
+        setEditingPayment(payment);
+        setEditFormData({ additional_info: payment.additional_info || "" });
+        setIsEditModalOpen(true);
+    };
+
+    const handleCloseEditModal = useCallback(() => {
+        setIsEditModalOpen(false);
+        setEditingPayment(null);
+        setEditFormData(initialEditFormData);
+    }, [initialEditFormData]);
+
+    const handleEditFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        setEditFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    };
 
     const handleUpdatePayment = async () => {
         if (!editingPayment) return;
+
         setActionLoading(true);
-        const headers = getAuthHeaders(); if (!headers) { setActionLoading(false); return; }
-        const updatedData = { additional_info: editFormData.additional_info.trim() || null };
+        const headers = getAuthHeaders();
+        if (!headers) {
+            setActionLoading(false);
+            return;
+        }
+
+        const updatedData = {
+            additional_info: editFormData.additional_info.trim() || null,
+        };
+
         try {
-            const response = await fetch(`${API_BASE_URL}/payments/${editingPayment.id}/`, { method: "PATCH", headers, body: JSON.stringify(updatedData) });
+            const response = await fetch(`${API_BASE_URL}/payments/${editingPayment.id}/`, {
+                method: "PATCH",
+                headers,
+                body: JSON.stringify(updatedData),
+            });
+
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({ detail: "Server javobini o'qishda xato." }));
                 throw new Error(`To'lovni yangilashda xatolik (${response.status}): ${errorData.detail || response.statusText}`);
             }
-            toast({ title: "Muvaffaqiyat!", description: `To'lov (ID: ${editingPayment.id}) izohi yangilandi.` });
+
+            toast({
+                title: "Muvaffaqiyat!",
+                description: `To'lov (ID: ${editingPayment.id}) izohi yangilandi.`,
+            });
+
             if (accessToken) await fetchPayments(accessToken, filters);
             handleCloseEditModal();
-        } catch (error: any) { toast({ title: "Xatolik", description: error.message || "To'lovni yangilashda xato.", variant: "destructive" });
-        } finally { setActionLoading(false); }
+        } catch (error: any) {
+            toast({
+                title: "Xatolik",
+                description: error.message || "To'lovni yangilashda xato.",
+                variant: "destructive",
+            });
+        } finally {
+            setActionLoading(false);
+        }
     };
 
     const handleDeletePayment = async (paymentId: number) => {
         if (deletingPaymentId === paymentId) return;
         if (!window.confirm(`ID ${paymentId} to'lovni o'chirishni tasdiqlaysizmi?`)) return;
-        setDeletingPaymentId(paymentId); setActionLoading(true); const headers = getAuthHeaders(); if (!headers) { setDeletingPaymentId(null); setActionLoading(false); return; }
+
+        setDeletingPaymentId(paymentId);
+        setActionLoading(true);
+        const headers = getAuthHeaders();
+        if (!headers) {
+            setDeletingPaymentId(null);
+            setActionLoading(false);
+            return;
+        }
+
         try {
-            const response = await fetch(`${API_BASE_URL}/payments/${paymentId}/`, { method: "DELETE", headers });
+            const response = await fetch(`${API_BASE_URL}/payments/${paymentId}/`, {
+                method: "DELETE",
+                headers,
+            });
+
             if (!response.ok && response.status !== 204) {
                 const errorData = await response.json().catch(() => ({ detail: "Server javobini o'qishda xato." }));
                 throw new Error(`To'lovni o'chirishda xatolik (${response.status}): ${errorData.detail || response.statusText}`);
             }
-            toast({ title: "Muvaffaqiyat!", description: `To'lov (ID: ${paymentId}) o'chirildi.` });
+
+            toast({
+                title: "Muvaffaqiyat!",
+                description: `To'lov (ID: ${paymentId}) o'chirildi.`,
+            });
+
             setPayments(prev => prev.filter(p => p.id !== paymentId));
-        } catch (error: any) { toast({ title: "Xatolik", description: error.message || "To'lovni o'chirishda xato.", variant: "destructive" });
-        } finally { setDeletingPaymentId(null); setActionLoading(false); }
+        } catch (error: any) {
+            toast({
+                title: "Xatolik",
+                description: error.message || "To'lovni o'chirishda xato.",
+                variant: "destructive",
+            });
+        } finally {
+            setDeletingPaymentId(null);
+            setActionLoading(false);
+        }
     };
 
     const handleFilterChange = (value: string, field: keyof typeof filters) => {
-        setFilters(prev => ({ ...prev, [field]: value, ...(field === 'object' && value !== prev.object && { apartment: "all" }) }));
+        setFilters(prev => ({
+            ...prev,
+            [field]: value,
+            ...(field === 'object' && value !== prev.object && { apartment: "all" }),
+        }));
     };
-    const handleClearFilters = () => setFilters({ status: "all", object: "all", apartment: "all" });
+
+    const handleClearFilters = () => {
+        setFilters({
+            status: "overdue",
+            paymentType: "muddatli",
+            object: "all",
+            apartment: "all",
+            dueDate: "all",
+            durationMonths: "all",
+        });
+    };
 
     const filteredApartmentsForSelect = useMemo(() => {
         if (filters.object === 'all') {
@@ -422,45 +689,151 @@ export default function PaymentsPage() {
             .sort((a, b) => (a.room_number || '').localeCompare(b.room_number || ''));
     }, [apartments, filters.object]);
 
-    // Render
+    // Render qismi
     if (loading) {
         return (
             <div className="flex min-h-screen flex-col">
-                <div className="border-b sticky top-0 bg-background z-10"><div className="flex h-16 items-center px-4"><MainNav className="mx-6" /><div className="ml-auto flex items-center space-x-4"><Search /><UserNav /></div></div></div>
-                <div className="flex flex-1 items-center justify-center"><Loader2 className="mr-2 h-8 w-8 animate-spin text-muted-foreground" /><p className="text-muted-foreground">Ma'lumotlar yuklanmoqda...</p></div>
+                <div className="border-b sticky top-0 bg-background z-10">
+                    <div className="flex h-16 items-center px-4">
+                        <MainNav className="mx-6" />
+                        <div className="ml-auto flex items-center space-x-4">
+                            <Search />
+                            <UserNav />
+                        </div>
+                    </div>
+                </div>
+                <div className="flex flex-1 items-center justify-center">
+                    <Loader2 className="mr-2 h-8 w-8 animate-spin text-muted-foreground" />
+                    <p className="text-muted-foreground">Ma'lumotlar yuklanmoqda...</p>
+                </div>
             </div>
         );
     }
 
     return (
         <div className="flex min-h-screen flex-col">
-            <div className="border-b sticky top-0 bg-background z-10"><div className="flex h-16 items-center px-4"><MainNav className="mx-6" /><div className="ml-auto flex items-center space-x-4"><Search /><UserNav /></div></div></div>
+            {/* Header */}
+            <div className="border-b sticky top-0 bg-background z-10">
+                <div className="flex h-16 items-center px-4">
+                    <MainNav className="mx-6" />
+                    <div className="ml-auto flex items-center space-x-4">
+                        <Search />
+                        <UserNav />
+                    </div>
+                </div>
+            </div>
+
+            {/* Asosiy kontent */}
             <div className="flex-1 space-y-6 p-4 md:p-8 pt-6">
+                {/* Sarlavha va yangi to‘lov qo'shish tugmasi */}
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between space-y-2 sm:space-y-0">
-                    <h2 className="text-3xl font-bold tracking-tight">To‘lovlar</h2>
-                    <Button onClick={handleOpenModal} disabled={actionLoading}><CreditCard className="mr-2 h-4 w-4" /> Yangi To‘lov</Button>
+                    <h2 className="text-3xl font-bold tracking-tight">Muddati O'tgan To‘lovlar</h2>
+                    <Button onClick={handleOpenModal} disabled={actionLoading}>
+                        <CreditCard className="mr-2 h-4 w-4" /> Yangi To‘lov
+                    </Button>
                 </div>
+
+                {/* Statistika kartalari */}
                 <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-                    <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Jami To‘lovlar</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{statistics.total_payments}</div><p className="text-xs text-muted-foreground">Umumiy yozuvlar soni</p></CardContent></Card>
-                    <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">To‘langan Summa</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{formatCurrency(statistics.total_paid)}</div><p className="text-xs text-muted-foreground">Jami to'langan summa</p></CardContent></Card>
-                    <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Kutilayotgan Summa</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{formatCurrency(statistics.total_pending)}</div><p className="text-xs text-muted-foreground">Jami kutilayotgan summa</p></CardContent></Card>
-                    <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Muddati O'tgan Summa</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{formatCurrency(statistics.total_overdue)}</div><p className="text-xs text-muted-foreground">Jami muddati o'tgan summa</p></CardContent></Card>
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">Jami To‘lovlar</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold">{statistics.total_payments}</div>
+                            <p className="text-xs text-muted-foreground">Umumiy yozuvlar soni</p>
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">To‘langan Summa</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold">{formatCurrency(statistics.total_paid)}</div>
+                            <p className="text-xs text-muted-foreground">Jami to'langan summa</p>
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">Dastlabki To‘lovlar</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold">{formatCurrency(statistics.total_initial)}</div>
+                            <p className="text-xs text-muted-foreground">Jami boshlang‘ich to'lovlar</p>
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">Muddati O'tgan Summa</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold">{formatCurrency(statistics.total_overdue)}</div>
+                            <p className="text-xs text-muted-foreground">Jami muddati o'tgan summa</p>
+                        </CardContent>
+                    </Card>
                 </div>
+
+                {/* Filtrlar paneli */}
                 <div className="flex flex-wrap gap-4 items-center p-4 border rounded-md bg-card">
-                    <Select value={filters.status} onValueChange={(v) => handleFilterChange(v, "status")} disabled={paymentsLoading || actionLoading}>
-                        <SelectTrigger className="w-full sm:w-[180px]"><SelectValue placeholder="Holati bo‘yicha" /></SelectTrigger>
-                        <SelectContent><SelectItem value="all">Barcha Holatlar</SelectItem><SelectItem value="paid">To‘langan</SelectItem><SelectItem value="pending">Kutilmoqda</SelectItem><SelectItem value="overdue">Muddati o‘tgan</SelectItem></SelectContent>
-                    </Select>
-                    <Select value={filters.object} onValueChange={(v) => handleFilterChange(v, "object")} disabled={paymentsLoading || actionLoading || objects.length === 0}>
-                        <SelectTrigger className="w-full sm:w-[180px]"><SelectValue placeholder="Obyekt bo‘yicha" /></SelectTrigger>
+                    <Select
+                        value={filters.status}
+                        onValueChange={(v) => handleFilterChange(v, "status")}
+                        disabled={paymentsLoading || actionLoading}
+                    >
+                        <SelectTrigger className="w-full sm:w-[180px]">
+                            <SelectValue placeholder="Holati bo‘yicha" />
+                        </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="all">Barcha Obyektlar</SelectItem>
-                            {objects.map((obj) => (<SelectItem key={obj.id} value={obj.id.toString()}>{obj.name}</SelectItem>))}
-                            {objects.length === 0 && <p className="p-2 text-sm text-muted-foreground">Obyektlar topilmadi</p>}
+                            <SelectItem value="all">Barcha Holatlar</SelectItem>
+                            <SelectItem value="paid">To‘langan</SelectItem>
+                            <SelectItem value="pending">Kutilmoqda</SelectItem>
+                            <SelectItem value="overdue">Muddati o‘tgan</SelectItem>
                         </SelectContent>
                     </Select>
-                    <Select value={filters.apartment} onValueChange={(v) => handleFilterChange(v, "apartment")} disabled={paymentsLoading || actionLoading || (filteredApartmentsForSelect.length === 0 && filters.object !== 'all')}>
-                        <SelectTrigger className="w-full sm:w-[220px]"><SelectValue placeholder="Xonadon bo‘yicha" /></SelectTrigger>
+                    <Select
+                        value={filters.paymentType}
+                        onValueChange={(v) => handleFilterChange(v, "paymentType")}
+                        disabled={paymentsLoading || actionLoading}
+                    >
+                        <SelectTrigger className="w-full sm:w-[180px]">
+                            <SelectValue placeholder="To'lov turi bo‘yicha" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Barcha Turlar</SelectItem>
+                            <SelectItem value="muddatli">Muddatli</SelectItem>
+                            <SelectItem value="naqd">Naqd</SelectItem>
+                            <SelectItem value="ipoteka">Ipoteka</SelectItem>
+                            <SelectItem value="band">Band</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    <Select
+                        value={filters.object}
+                        onValueChange={(v) => handleFilterChange(v, "object")}
+                        disabled={paymentsLoading || actionLoading || objects.length === 0}
+                    >
+                        <SelectTrigger className="w-full sm:w-[180px]">
+                            <SelectValue placeholder="Obyekt bo‘yicha" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Barcha Obyektlar</SelectItem>
+                            {objects.map((obj) => (
+                                <SelectItem key={obj.id} value={obj.id.toString()}>
+                                    {obj.name}
+                                </SelectItem>
+                            ))}
+                            {objects.length === 0 && (
+                                <p className="p-2 text-sm text-muted-foreground">Obyektlar topilmadi</p>
+                            )}
+                        </SelectContent>
+                    </Select>
+                    <Select
+                        value={filters.apartment}
+                        onValueChange={(v) => handleFilterChange(v, "apartment")}
+                        disabled={paymentsLoading || actionLoading || (filteredApartmentsForSelect.length === 0 && filters.object !== 'all')}
+                    >
+                        <SelectTrigger className="w-full sm:w-[220px]">
+                            <SelectValue placeholder="Xonadon bo‘yicha" />
+                        </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">Barcha Xonadonlar</SelectItem>
                             {filteredApartmentsForSelect.map((apt) => (
@@ -468,54 +841,166 @@ export default function PaymentsPage() {
                                     {apt.room_number} {filters.object === 'all' ? `(${apt.object_name || 'N/A'})` : ''}
                                 </SelectItem>
                             ))}
-                            {filteredApartmentsForSelect.length === 0 && filters.object !== 'all' && (<p className="p-2 text-sm text-muted-foreground">Tanlangan obyektda xonadon yo'q</p>)}
-                            {apartments.length > 0 && filteredApartmentsForSelect.length === 0 && filters.object === 'all' && (<p className="p-2 text-sm text-muted-foreground">Xonadonlar topilmadi</p> )}
+                            {filteredApartmentsForSelect.length === 0 && filters.object !== 'all' && (
+                                <p className="p-2 text-sm text-muted-foreground">Tanlangan obyektda xonadon yo'q</p>
+                            )}
+                            {apartments.length > 0 && filteredApartmentsForSelect.length === 0 && filters.object === 'all' && (
+                                <p className="p-2 text-sm text-muted-foreground">Xonadonlar topilmadi</p>
+                            )}
                         </SelectContent>
                     </Select>
-                    <Button variant="outline" onClick={handleClearFilters} disabled={paymentsLoading || actionLoading || (filters.status === 'all' && filters.object === 'all' && filters.apartment === 'all')}> Tozalash </Button>
+                    <Select
+                        value={filters.dueDate}
+                        onValueChange={(v) => handleFilterChange(v, "dueDate")}
+                        disabled={paymentsLoading || actionLoading || filters.paymentType !== "muddatli" || uniqueDueDates.length === 0}
+                    >
+                        <SelectTrigger className="w-full sm:w-[180px]">
+                            <SelectValue placeholder="To'lov sanasi bo‘yicha" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Barcha Sanalar</SelectItem>
+                            {uniqueDueDates.map((due) => (
+                                <SelectItem key={due} value={due.toString()}>
+                                    Har oyning {due}-kuni
+                                </SelectItem>
+                            ))}
+                            {uniqueDueDates.length === 0 && (
+                                <p className="p-2 text-sm text-muted-foreground">To'lov sanasi topilmadi</p>
+                            )}
+                        </SelectContent>
+                    </Select>
+                    <Select
+                        value={filters.durationMonths}
+                        onValueChange={(v) => handleFilterChange(v, "durationMonths")}
+                        disabled={paymentsLoading || actionLoading || filters.paymentType !== "muddatli" || uniqueDurationMonths.length === 0}
+                    >
+                        <SelectTrigger className="w-full sm:w-[180px]">
+                            <SelectValue placeholder="Muddat bo‘yicha" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Barcha Muddatlar</SelectItem>
+                            {uniqueDurationMonths.map((duration) => (
+                                <SelectItem key={duration} value={duration.toString()}>
+                                    {duration} oy
+                                </SelectItem>
+                            ))}
+                            {uniqueDurationMonths.length === 0 && (
+                                <p className="p-2 text-sm text-muted-foreground">Muddatlar topilmadi</p>
+                            )}
+                        </SelectContent>
+                    </Select>
+                    <Button
+                        variant="outline"
+                        onClick={handleClearFilters}
+                        disabled={
+                            paymentsLoading ||
+                            actionLoading ||
+                            (filters.status === 'overdue' &&
+                            filters.paymentType === 'muddatli' &&
+                            filters.object === 'all' &&
+                            filters.apartment === 'all' &&
+                            filters.dueDate === 'all' &&
+                            filters.durationMonths === 'all')
+                        }
+                    >
+                        Tozalash
+                    </Button>
                 </div>
+
+                {/* To‘lovlar jadvali */}
                 <Card>
-                    <CardHeader><CardTitle>To‘lovlar Ro‘yxati</CardTitle><CardDescription>Mavjud to‘lovlar.</CardDescription></CardHeader>
+                    <CardHeader>
+                        <CardTitle>Muddati O'tgan To‘lovlar Ro‘yxati</CardTitle>
+                        <CardDescription>Mavjud muddatli to‘lovlar (muddati o'tgan).</CardDescription>
+                    </CardHeader>
                     <CardContent>
                         <div className="overflow-x-auto">
                             <Table>
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead className="w-[50px]">#</TableHead>
+                                        <TableHead>Obyekt</TableHead>
                                         <TableHead>Xonadon</TableHead>
                                         <TableHead>Mijoz</TableHead>
+                                        <TableHead className="text-right">Umumiy Summa</TableHead>
                                         <TableHead className="text-right">To'langan Summa</TableHead>
+                                        <TableHead className="text-right">Muddati o'tgan Summa</TableHead>
+                                        <TableHead className="text-right">Oylik To'lov</TableHead>
+                                        <TableHead className="text-right">To'lov Sanasi</TableHead>
+                                        <TableHead className="text-right">Muddat (oy)</TableHead>
                                         <TableHead>Sana</TableHead>
                                         <TableHead>Holati</TableHead>
-                                        <TableHead>Izoh</TableHead>
+                                        {/* <TableHead>Izoh</TableHead> */}
                                         <TableHead className="text-right">Amallar</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {paymentsLoading ? (
-                                        <TableRow><TableCell colSpan={8} className="h-24 text-center"><div className="flex justify-center items-center"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Yuklanmoqda...</div></TableCell></TableRow>
+                                        <TableRow>
+                                            <TableCell colSpan={14} className="h-24 text-center">
+                                                <div className="flex justify-center items-center">
+                                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                    Yuklanmoqda...
+                                                </div>
+                                            </TableCell>
+                                        </TableRow>
                                     ) : filteredPayments.length === 0 ? (
-                                        <TableRow><TableCell colSpan={8} className="h-24 text-center">To‘lovlar topilmadi.</TableCell></TableRow>
+                                        <TableRow>
+                                            <TableCell colSpan={14} className="h-24 text-center">
+                                                Muddati o'tgan to‘lovlar topilmadi.
+                                            </TableCell>
+                                        </TableRow>
                                     ) : (
-                                        filteredPayments.map((payment, index) => (
-                                            <TableRow key={payment.id} className={cn(deletingPaymentId === payment.id && "opacity-50")}>
-                                                <TableCell className="font-medium">{getRowNumber(index)}</TableCell>
-                                                <TableCell>{payment.apartment_info || `ID: ${payment.apartment}`}</TableCell>
-                                                <TableCell>{payment.user_fio || `ID: ${payment.user}`}</TableCell>
-                                                <TableCell className="text-right">{formatCurrency(payment.paid_amount)}</TableCell>
-                                                <TableCell>{formatDate(payment.created_at)}</TableCell>
-                                                <TableCell>{getStatusBadge(payment.status)}</TableCell>
-                                                <TableCell className="max-w-[200px] truncate" title={payment.additional_info || ''}>{payment.additional_info || "-"}</TableCell>
-                                                <TableCell className="text-right">
-                                                    <div className="flex justify-end space-x-1">
-                                                        <Button variant="ghost" size="icon" onClick={() => handleOpenEditModal(payment)} disabled={actionLoading} title="Izohni tahrirlash" className="h-8 w-8"><Edit className="h-4 w-4" /></Button>
-                                                        <Button variant="ghost" size="icon" className="text-red-600 hover:text-red-700 hover:bg-red-100 h-8 w-8" onClick={() => handleDeletePayment(payment.id)} disabled={actionLoading || deletingPaymentId === payment.id} title="O‘chirish">
-                                                            {deletingPaymentId === payment.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash className="h-4 w-4" />}
-                                                        </Button>
-                                                    </div>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))
+                                        filteredPayments.map((payment, index) => {
+                                            const apartment = apartments.find(apt => apt.id === payment.apartment);
+                                            return (
+                                                <TableRow key={payment.id} className={cn(deletingPaymentId === payment.id && "opacity-50")}>
+                                                    <TableCell className="font-medium">{getRowNumber(index)}</TableCell>
+                                                    <TableCell>{apartment?.object_name || '-'}</TableCell>
+                                                    <TableCell>{payment.apartment_info || `ID: ${payment.apartment}`}</TableCell>
+                                                    <TableCell>{payment.user_fio || `ID: ${payment.user}`}</TableCell>
+                                                    <TableCell className="text-right">{formatCurrency(payment.total_amount)}</TableCell>
+                                                    <TableCell className="text-right">{formatCurrency(payment.paid_amount)}</TableCell>
+                                                    <TableCell className="text-right">{formatCurrency(payment.overdue_amount)}</TableCell>
+                                                    <TableCell className="text-right">{formatCurrency(payment.monthly_payment)}</TableCell>
+                                                    <TableCell className="text-right">{payment.due_date ? `Har oyning ${payment.due_date}-kuni` : "-"}</TableCell>
+                                                    <TableCell className="text-right">{payment.duration_months ? `${payment.duration_months} oy` : "-"}</TableCell>
+                                                    <TableCell>{formatDate(payment.created_at)}</TableCell>
+                                                    <TableCell>{getStatusBadge(payment.status)}</TableCell>
+                                                    {/* <TableCell className="max-w-[200px] truncate" title={payment.additional_info || ''}>
+                                                        {payment.additional_info || "-"}
+                                                    </TableCell> */}
+                                                    <TableCell className="text-right">
+                                                        <div className="flex justify-end space-x-1">
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                onClick={() => handleOpenEditModal(payment)}
+                                                                disabled={actionLoading}
+                                                                title="Izohni tahrirlash"
+                                                                className="h-8 w-8"
+                                                            >
+                                                                <Edit className="h-4 w-4" />
+                                                            </Button>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="text-red-600 hover:text-red-700 hover:bg-red-100 h-8 w-8"
+                                                                onClick={() => handleDeletePayment(payment.id)}
+                                                                disabled={actionLoading || deletingPaymentId === payment.id}
+                                                                title="O‘chirish"
+                                                            >
+                                                                {deletingPaymentId === payment.id ? (
+                                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                                ) : (
+                                                                    <Trash className="h-4 w-4" />
+                                                                )}
+                                                            </Button>
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        })
                                     )}
                                 </TableBody>
                             </Table>
@@ -523,99 +1008,345 @@ export default function PaymentsPage() {
                     </CardContent>
                 </Card>
             </div>
+
+            {/* Yangi to‘lov qo'shish modal oynasi */}
             <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
                 <DialogContent className="sm:max-w-[480px]">
-                    <DialogHeader><DialogTitle>Yangi To‘lov Qo‘shish</DialogTitle><DialogDescription>(*) majburiy maydonlar.</DialogDescription></DialogHeader>
+                    <DialogHeader>
+                        <DialogTitle>Yangi To‘lov Qo‘shish</DialogTitle>
+                        <DialogDescription>(*) majburiy maydonlar. Muddatli to'lov uchun to'liq ma'lumot kiriting.</DialogDescription>
+                    </DialogHeader>
                     <div className="grid gap-4 py-4">
                         <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="apartment" className="text-right">Xonadon <span className="text-red-500">*</span></Label>
-                            <Select value={formData.apartment} onValueChange={(v) => handleSelectChange("apartment", v)} disabled={apartments.length === 0}>
-                                <SelectTrigger id="apartment" className="col-span-3"><SelectValue placeholder="Xonadonni tanlang..." /></SelectTrigger>
+                            <Label htmlFor="apartment" className="text-right">
+                                Xonadon <span className="text-red-500">*</span>
+                            </Label>
+                            <Select
+                                value={formData.apartment}
+                                onValueChange={(v) => handleSelectChange("apartment", v)}
+                                disabled={apartments.length === 0}
+                            >
+                                <SelectTrigger id="apartment" className="col-span-3">
+                                    <SelectValue placeholder="Xonadonni tanlang..." />
+                                </SelectTrigger>
                                 <SelectContent>
-                                    {apartments.sort((a, b) => (a.room_number || '').localeCompare(b.room_number || '')).map((apt) => (
-                                        <SelectItem key={apt.id} value={apt.id.toString()}>
-                                            {apt.room_number} ({apt.object_name || 'N/A'})
-                                        </SelectItem>
-                                    ))}
-                                    {apartments.length === 0 && <p className="p-2 text-sm text-muted-foreground">Xonadonlar topilmadi</p>}
+                                    {apartments
+                                        .sort((a, b) => (a.room_number || '').localeCompare(b.room_number || ''))
+                                        .map((apt) => (
+                                            <SelectItem key={apt.id} value={apt.id.toString()}>
+                                                {apt.room_number} ({apt.object_name || 'N/A'})
+                                            </SelectItem>
+                                        ))}
+                                    {apartments.length === 0 && (
+                                        <p className="p-2 text-sm text-muted-foreground">Xonadonlar topilmadi</p>
+                                    )}
                                 </SelectContent>
                             </Select>
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="user" className="text-right">Mijoz <span className="text-red-500">*</span></Label>
-                            <Select value={formData.user} onValueChange={(v) => handleSelectChange("user", v)} disabled={clients.length === 0}>
-                                <SelectTrigger id="user" className="col-span-3"><SelectValue placeholder="Mijozni tanlang..." /></SelectTrigger>
+                            <Label htmlFor="user" className="text-right">
+                                Mijoz <span className="text-red-500">*</span>
+                            </Label>
+                            <Select
+                                value={formData.user}
+                                onValueChange={(v) => handleSelectChange("user", v)}
+                                disabled={clients.length === 0}
+                            >
+                                <SelectTrigger id="user" className="col-span-3">
+                                    <SelectValue placeholder="Mijozni tanlang..." />
+                                </SelectTrigger>
                                 <SelectContent>
-                                    {clients.sort((a, b) => (a.fio || '').localeCompare(b.fio || '')).map((client) => (
-                                        <SelectItem key={client.id} value={client.id.toString()}>{client.fio}</SelectItem>
-                                    ))}
-                                    {clients.length === 0 && <p className="p-2 text-sm text-muted-foreground">Mijozlar topilmadi</p>}
+                                    {clients
+                                        .sort((a, b) => (a.fio || '').localeCompare(b.fio || ''))
+                                        .map((client) => (
+                                            <SelectItem key={client.id} value={client.id.toString()}>
+                                                {client.fio}
+                                            </SelectItem>
+                                        ))}
+                                    {clients.length === 0 && (
+                                        <p className="p-2 text-sm text-muted-foreground">Mijozlar topilmadi</p>
+                                    )}
                                 </SelectContent>
                             </Select>
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="paid_amount" className="text-right">Summa ($) <span className="text-red-500">*</span></Label>
-                            <Input id="paid_amount" name="paid_amount" type="number" value={formData.paid_amount} onChange={handleFormChange} className="col-span-3" placeholder="500.00" min="0.01" step="0.01" />
+                            <Label htmlFor="payment_type" className="text-right">
+                                To'lov Turi <span className="text-red-500">*</span>
+                            </Label>
+                            <Select
+                                value={formData.payment_type}
+                                onValueChange={(v) => handleSelectChange("payment_type", v)}
+                            >
+                                <SelectTrigger id="payment_type" className="col-span-3">
+                                    <SelectValue placeholder="To'lov turini tanlang..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="muddatli">Muddatli</SelectItem>
+                                    <SelectItem value="naqd">Naqd</SelectItem>
+                                    <SelectItem value="ipoteka">Ipoteka</SelectItem>
+                                    <SelectItem value="band">Band</SelectItem>
+                                </SelectContent>
+                            </Select>
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="created_at" className="text-right">Sana <span className="text-red-500">*</span></Label>
+                            <Label htmlFor="total_amount" className="text-right">
+                                Umumiy Summa <span className="text-red-500">*</span>
+                            </Label>
+                            <Input
+                                id="total_amount"
+                                name="total_amount"
+                                type="number"
+                                value={formData.total_amount}
+                                onChange={handleFormChange}
+                                className="col-span-3"
+                                placeholder="100000000"
+                                min="0"
+                            />
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="initial_payment" className="text-right">
+                                Boshlang'ich To'lov <span className="text-red-500">*</span>
+                            </Label>
+                            <Input
+                                id="initial_payment"
+                                name="initial_payment"
+                                type="number"
+                                value={formData.initial_payment}
+                                onChange={handleFormChange}
+                                className="col-span-3"
+                                placeholder="30000000"
+                                min="0"
+                            />
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="paid_amount" className="text-right">
+                                To'langan Summa <span className="text-red-500">*</span>
+                            </Label>
+                            <Input
+                                id="paid_amount"
+                                name="paid_amount"
+                                type="number"
+                                value={formData.paid_amount}
+                                onChange={handleFormChange}
+                                className="col-span-3"
+                                placeholder="30000000"
+                                min="0"
+                            />
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="duration_months" className="text-right">
+                                Muddat (oy) <span className="text-red-500">*</span>
+                            </Label>
+                            <Input
+                                id="duration_months"
+                                name="duration_months"
+                                type="number"
+                                value={formData.duration_months}
+                                onChange={handleFormChange}
+                                className="col-span-3"
+                                placeholder="12"
+                                min="1"
+                            />
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="due_date" className="text-right">
+                                To'lov Sanasi <span className="text-red-500">*</span>
+                            </Label>
+                            <Input
+                                id="due_date"
+                                name="due_date"
+                                type="number"
+                                value={formData.due_date}
+                                onChange={handleFormChange}
+                                className="col-span-3"
+                                placeholder="15"
+                                min="1"
+                                max="31"
+                            />
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="created_at" className="text-right">
+                                Sana <span className="text-red-500">*</span>
+                            </Label>
                             <Popover>
                                 <PopoverTrigger asChild>
-                                    <Button id="created_at" variant="outline" className={cn("col-span-3 justify-start text-left font-normal", !formData.created_at && "text-muted-foreground")}>
-                                        <CalendarIcon className="mr-2 h-4 w-4" />{formData.created_at ? format(formData.created_at, "PPP", { locale: uz }) : <span>Sanani tanlang</span>}
+                                    <Button
+                                        id="created_at"
+                                        variant="outline"
+                                        className={cn(
+                                            "col-span-3 justify-start text-left font-normal",
+                                            !formData.created_at && "text-muted-foreground"
+                                        )}
+                                    >
+                                        <CalendarIcon className="mr-2 h-4 w-4" />
+                                        {formData.created_at ? (
+                                            format(formData.created_at, "PPP", { locale: uz })
+                                        ) : (
+                                            <span>Sanani tanlang</span>
+                                        )}
                                     </Button>
                                 </PopoverTrigger>
                                 <PopoverContent className="w-auto p-0" align="start">
-                                    <Calendar mode="single" selected={formData.created_at} onSelect={handleDateChange} initialFocus locale={uz} disabled={(date) => date > new Date() || date < new Date("2000-01-01")} />
+                                    <Calendar
+                                        mode="single"
+                                        selected={formData.created_at}
+                                        onSelect={handleDateChange}
+                                        initialFocus
+                                        locale={uz}
+                                    />
                                 </PopoverContent>
                             </Popover>
                         </div>
                         <div className="grid grid-cols-4 items-start gap-4">
                             <Label htmlFor="additional_info" className="text-right pt-2">Izoh</Label>
-                            <Textarea id="additional_info" name="additional_info" value={formData.additional_info} onChange={handleFormChange} className="col-span-3 min-h-[80px]" placeholder="Qo‘shimcha ma’lumot..." />
+                            <Textarea
+                                id="additional_info"
+                                name="additional_info"
+                                value={formData.additional_info}
+                                onChange={handleFormChange}
+                                className="col-span-3 min-h-[80px]"
+                                placeholder="Qo‘shimcha ma’lumot..."
+                            />
                         </div>
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" onClick={handleCloseModal} disabled={actionLoading}>Bekor qilish</Button>
-                        <Button onClick={handleAddPayment} disabled={actionLoading || !formData.apartment || !formData.user || !formData.paid_amount || parseFloat(formData.paid_amount) <= 0}>
-                            {actionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Saqlash
+                        <Button variant="outline" onClick={handleCloseModal} disabled={actionLoading}>
+                            Bekor qilish
+                        </Button>
+                        <Button
+                            onClick={handleAddPayment}
+                            disabled={
+                                actionLoading ||
+                                !formData.apartment ||
+                                !formData.user ||
+                                !formData.total_amount ||
+                                !formData.initial_payment ||
+                                !formData.paid_amount ||
+                                !formData.duration_months ||
+                                !formData.due_date ||
+                                parseFloat(formData.paid_amount) < 0 ||
+                                parseFloat(formData.total_amount) <= 0 ||
+                                parseFloat(formData.initial_payment) < 0 ||
+                                parseInt(formData.duration_months) <= 0 ||
+                                parseInt(formData.due_date) < 1 ||
+                                parseInt(formData.due_date) > 31
+                            }
+                        >
+                            {actionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            Saqlash
                         </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* To‘lov izohini tahrirlash modal oynasi */}
             <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
                 <DialogContent className="sm:max-w-[480px]">
-                    <DialogHeader><DialogTitle>To‘lov Izohini Tahrirlash (ID: {editingPayment?.id})</DialogTitle><DialogDescription>Faqat izohni o'zgartirish mumkin.</DialogDescription></DialogHeader>
+                    <DialogHeader>
+                        <DialogTitle>To‘lov Izohini Tahrirlash (ID: {editingPayment?.id})</DialogTitle>
+                        <DialogDescription>Faqat izohni o'zgartirish mumkin.</DialogDescription>
+                    </DialogHeader>
                     <div className="grid gap-4 py-4">
                         <div className="grid grid-cols-4 items-center gap-4">
                             <Label className="text-right">Xonadon</Label>
-                            <Input value={editingPayment?.apartment_info || `ID: ${editingPayment?.apartment}`} className="col-span-3" disabled />
+                            <Input
+                                value={editingPayment?.apartment_info || `ID: ${editingPayment?.apartment}`}
+                                className="col-span-3"
+                                disabled
+                            />
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">
                             <Label className="text-right">Mijoz</Label>
-                            <Input value={editingPayment?.user_fio || `ID: ${editingPayment?.user}`} className="col-span-3" disabled />
+                            <Input
+                                value={editingPayment?.user_fio || `ID: ${editingPayment?.user}`}
+                                className="col-span-3"
+                                disabled
+                            />
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">
-                            <Label className="text-right">Summa ($)</Label>
-                            <Input value={editingPayment ? formatCurrency(editingPayment.paid_amount) : ""} className="col-span-3" disabled />
+                            <Label className="text-right">Umumiy Summa</Label>
+                            <Input
+                                value={editingPayment ? formatCurrency(editingPayment.total_amount) : "0.00"}
+                                className="col-span-3"
+                                disabled
+                            />
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label className="text-right">To‘langan Summa</Label>
+                            <Input
+                                value={editingPayment ? formatCurrency(editingPayment.paid_amount) : "0.00"}
+                                className="col-span-3"
+                                disabled
+                            />
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label className="text-right">Muddati o‘tgan Summa</Label>
+                            <Input
+                                value={editingPayment ? formatCurrency(editingPayment.overdue_amount) : "0.00"}
+                                className="col-span-3"
+                                disabled
+                            />
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label className="text-right">Oylik To'lov</Label>
+                            <Input
+                                value={editingPayment ? formatCurrency(editingPayment.monthly_payment) : "0.00"}
+                                className="col-span-3"
+                                disabled
+                            />
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label className="text-right">To'lov Sanasi</Label>
+                            <Input
+                                value={editingPayment?.due_date ? `Har oyning ${editingPayment.due_date}-kuni` : "-"}
+                                className="col-span-3"
+                                disabled
+                            />
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label className="text-right">Muddat</Label>
+                            <Input
+                                value={editingPayment?.duration_months ? `${editingPayment.duration_months} oy` : "-"}
+                                className="col-span-3"
+                                disabled
+                            />
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">
                             <Label className="text-right">Sana</Label>
-                            <Input value={editingPayment ? formatDate(editingPayment.created_at) : "-"} className="col-span-3" disabled />
+                            <Input
+                                value={editingPayment ? formatDate(editingPayment.created_at) : "-"}
+                                className="col-span-3"
+                                disabled
+                            />
                         </div>
                         <div className="grid grid-cols-4 items-start gap-4">
                             <Label htmlFor="edit-additional_info" className="text-right pt-2">Izoh</Label>
-                            <Textarea id="edit-additional_info" name="additional_info" value={editFormData.additional_info} onChange={handleEditFormChange} className="col-span-3 min-h-[80px]" placeholder="Qo‘shimcha ma’lumot..." />
+                            <Textarea
+                                id="edit-additional_info"
+                                name="additional_info"
+                                value={editFormData.additional_info}
+                                onChange={handleEditFormChange}
+                                className="col-span-3 min-h-[80px]"
+                                placeholder="Qo‘shimcha ma’lumot..."
+                            />
                         </div>
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" onClick={handleCloseEditModal} disabled={actionLoading}>Bekor qilish</Button>
+                        <Button variant="outline" onClick={handleCloseEditModal} disabled={actionLoading}>
+                            Bekor qilish
+                        </Button>
                         <Button onClick={handleUpdatePayment} disabled={actionLoading}>
-                            {actionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Saqlash
+                            {actionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            Saqlash
                         </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* Footer */}
+            <footer className="border-t py-4 px-4 text-center text-sm text-muted-foreground">
+                Barcha huquqlar ximoyalangan | Ushbu Dastur CDCGroup tomonidan yaratilgan | CraDev Company tomonidan qo'llab quvvatlanadi | since 2019
+            </footer>
         </div>
     );
 }

@@ -30,12 +30,21 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Toaster, toast as hotToast } from "react-hot-toast";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 // Xonadon interfeysi
 interface Apartment {
   id: number;
   room_number: string;
   object_name: string;
+  object_id: number; // Obyekt ID sini saqlash uchun
+  rooms?: string;
 }
 
 // Mijoz interfeysi
@@ -51,12 +60,21 @@ interface Client {
   kafil_phone_number: string | null;
 }
 
+// Obyekt interfeysi
+interface ObjectData {
+  id: number;
+  name: string;
+}
+
 export default function ClientsPage() {
   const router = useRouter();
   const [clients, setClients] = useState<Client[]>([]);
+  const [objects, setObjects] = useState<ObjectData[]>([]); // Obyektlar ro'yxati
   const [loading, setLoading] = useState(true);
-  const [isMounted, setIsMounted] = useState(false); // Added to track client-side mounting
+  const [objectsLoading, setObjectsLoading] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [objectFilter, setObjectFilter] = useState("all"); // Obyekt filtri
   const [open, setOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [apartmentsOpen, setApartmentsOpen] = useState(false);
@@ -101,7 +119,7 @@ export default function ClientsPage() {
 
   // Initialize accessToken on client-side only
   useEffect(() => {
-    if (!isMounted) return; // Skip on server-side
+    if (!isMounted) return;
     const token = localStorage.getItem("access_token");
     setAccessToken(token);
   }, [isMounted]);
@@ -111,6 +129,42 @@ export default function ClientsPage() {
     "Content-Type": "application/json",
     Authorization: `Bearer ${accessToken}`,
   });
+
+  // Obyektlarni olish
+  const fetchObjects = async () => {
+    if (!accessToken) return;
+
+    setObjectsLoading(true);
+    let allObjects: ObjectData[] = [];
+    let nextUrl: string | null = "http://api.ahlan.uz/objects/?limit=100";
+
+    try {
+      while (nextUrl) {
+        const response = await fetch(nextUrl, {
+          method: "GET",
+          headers: getAuthHeaders(),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Obyektlarni olishda xatolik: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        allObjects = [...allObjects, ...(data.results || [])];
+        nextUrl = data.next;
+      }
+      setObjects(allObjects);
+    } catch (error: any) {
+      toast({
+        title: "Xatolik",
+        description: error.message || "Obyektlarni olishda xatolik yuz berdi",
+        variant: "destructive",
+      });
+      setObjects([]);
+    } finally {
+      setObjectsLoading(false);
+    }
+  };
 
   // Mijozning xonadonlarini olish
   const fetchClientApartments = async (clientId: number): Promise<Apartment[]> => {
@@ -167,10 +221,17 @@ export default function ClientsPage() {
               return null;
             }
             const apartmentData = await apartmentResponse.json();
+            // apartment_info dan xonalar sonini olish
+            const roomsInfo = allPayments.find((p) => p.apartment === apartmentId)?.apartment_info || "";
+            const roomsMatch = roomsInfo.match(/(\d+)\s*xonali/);
+            const rooms = roomsMatch ? roomsMatch[1] : "Noma'lum";
+
             return {
               id: apartmentId,
               room_number: apartmentData.room_number || "N/A",
               object_name: apartmentData.object_name || "Noma'lum obyekt",
+              object_id: apartmentData.object || 0, // Obyekt ID sini saqlash
+              rooms: rooms,
             };
           } catch (error) {
             console.error(`Xonadon ${apartmentId} uchun fetch xatosi:`, error);
@@ -450,7 +511,7 @@ export default function ClientsPage() {
     }
   };
 
-  // Komponent yuklanganda va token o'zgarganda mijozlarni olish
+  // Komponent yuklanganda va token o'zgarganda ma'lumotlarni olish
   useEffect(() => {
     if (!isMounted || accessToken === null) return;
     if (!accessToken) {
@@ -462,6 +523,7 @@ export default function ClientsPage() {
       router.push("/login");
       return;
     }
+    fetchObjects();
     fetchClients();
   }, [accessToken, router, isMounted]);
 
@@ -536,13 +598,20 @@ export default function ClientsPage() {
     await fetchClientApartments(client.id);
   };
 
-  // Mijozlarni qidiruv bo'yicha filtrlaymiz
+  // Mijozlarni qidiruv va obyekt bo'yicha filtrlaymiz
   const filteredClients = clients.filter((client) => {
     const searchTermLower = searchTerm.toLowerCase();
     const nameMatch = client.name.toLowerCase().includes(searchTermLower);
     const phoneMatch = client.phone.includes(searchTerm);
 
-    return searchTerm === "" || nameMatch || phoneMatch;
+    const matchesSearch = searchTerm === "" || nameMatch || phoneMatch;
+
+    // Obyekt bo'yicha filtr
+    const matchesObject =
+      objectFilter === "all" ||
+      client.apartments.some((apt) => apt.object_id.toString() === objectFilter);
+
+    return matchesSearch && matchesObject;
   });
 
   // Pagination hisob-kitoblari
@@ -565,10 +634,11 @@ export default function ClientsPage() {
     }
   };
 
-  const handlePageChange = (page: number) => {
-    if (page >= 1 && page <= totalPages) {
-      setCurrentPage(page);
-    }
+  // Filtrni tozalash
+  const handleClearFilters = () => {
+    setSearchTerm("");
+    setObjectFilter("all");
+    setCurrentPage(1);
   };
 
   // Render loading state until the component is mounted
@@ -580,7 +650,6 @@ export default function ClientsPage() {
     );
   }
 
-  // --- JSX Rendering ---
   return (
     <div className="flex min-h-screen flex-col">
       <Toaster />
@@ -600,7 +669,6 @@ export default function ClientsPage() {
         {/* Page Title and Add Button */}
         <div className="flex items-center justify-between space-y-2">
           <h2 className="text-3xl font-bold tracking-tight">Mijozlar</h2>
-          {/* Yangi mijoz qo'shish dialogi */}
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button>
@@ -720,7 +788,7 @@ export default function ClientsPage() {
         <Card>
           <CardContent className="p-6">
             <div className="space-y-4">
-              {/* Filters - Faqat qidiruv qoldi */}
+              {/* Filters - Qidiruv va Obyekt filtri */}
               <div className="flex flex-col md:flex-row md:items-center gap-4">
                 <Input
                   placeholder="Mijozlarni qidirish (FIO yoki telefon)..."
@@ -731,6 +799,36 @@ export default function ClientsPage() {
                   }}
                   className="max-w-sm"
                 />
+                <Select
+                  value={objectFilter}
+                  onValueChange={(value) => {
+                    setObjectFilter(value);
+                    setCurrentPage(1);
+                  }}
+                  disabled={objectsLoading || objects.length === 0}
+                >
+                  <SelectTrigger className="w-full sm:w-[180px]">
+                    <SelectValue placeholder="Obyekt bo‘yicha" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Barcha Obyektlar</SelectItem>
+                    {objects.map((obj) => (
+                      <SelectItem key={obj.id} value={obj.id.toString()}>
+                        {obj.name}
+                      </SelectItem>
+                    ))}
+                    {objects.length === 0 && (
+                      <p className="p-2 text-sm text-muted-foreground">Obyektlar topilmadi</p>
+                    )}
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="outline"
+                  onClick={handleClearFilters}
+                  disabled={searchTerm === "" && objectFilter === "all"}
+                >
+                  Filtrlarni tozalash
+                </Button>
               </div>
 
               {/* Loading State or Table */}
@@ -757,8 +855,8 @@ export default function ClientsPage() {
                         {currentClients.length === 0 ? (
                           <TableRow>
                             <TableCell colSpan={6} className="h-24 text-center">
-                              {searchTerm
-                                ? `"${searchTerm}" bo'yicha mijozlar topilmadi.`
+                              {searchTerm || objectFilter !== "all"
+                                ? "Tanlangan filtrlar bo'yicha mijozlar topilmadi."
                                 : "Mijozlar mavjud emas."}
                             </TableCell>
                           </TableRow>
@@ -881,6 +979,7 @@ export default function ClientsPage() {
                       <TableHead className="w-[50px]">No</TableHead>
                       <TableHead>Xonadon raqami</TableHead>
                       <TableHead>Obyekt nomi</TableHead>
+                      <TableHead>Xonalar soni</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -889,6 +988,7 @@ export default function ClientsPage() {
                         <TableCell>{index + 1}</TableCell>
                         <TableCell>{apartment.room_number}</TableCell>
                         <TableCell>{apartment.object_name}</TableCell>
+                        <TableCell>{apartment.rooms}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -900,7 +1000,7 @@ export default function ClientsPage() {
                 Yopish
               </Button>
             </DialogFooter>
-            </DialogContent>
+          </DialogContent>
         </Dialog>
 
         {/* Edit Client Dialog */}
@@ -1012,8 +1112,6 @@ export default function ClientsPage() {
           </DialogContent>
         </Dialog>
       </div>
-      {/* End Main Content */}
     </div>
-    // End Main Container
   );
 }

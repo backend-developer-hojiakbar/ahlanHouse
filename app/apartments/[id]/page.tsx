@@ -51,6 +51,7 @@ import { uz } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { jsPDF } from "jspdf";
 
+// API Base URL
 const API_BASE_URL = "http://api.ahlan.uz";
 
 // --- Helper Components ---
@@ -100,6 +101,8 @@ export default function ApartmentDetailPage() {
   const params = useParams();
   const router = useRouter();
   const [apartment, setApartment] = useState(null);
+  const [overduePayments, setOverduePayments] = useState(null);
+  const [overdueReport, setOverdueReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
@@ -134,6 +137,14 @@ export default function ApartmentDetailPage() {
   const [isUpdatingPayment, setIsUpdatingPayment] = useState(false);
   const [deletingPaymentId, setDeletingPaymentId] = useState<number | null>(null);
 
+  const [isOverduePaymentModalOpen, setIsOverduePaymentModalOpen] = useState(false);
+  const [overduePaymentForm, setOverduePaymentForm] = useState({
+    amount: "",
+    payment_date: new Date(),
+    payment_id: null,
+  });
+  const [overduePaymentLoading, setOverduePaymentLoading] = useState(false);
+
   const [totalPaid, setTotalPaid] = useState(0);
   const [remainingAmount, setRemainingAmount] = useState(0);
 
@@ -156,8 +167,8 @@ export default function ApartmentDetailPage() {
   const formatCurrency = useCallback((amount: string | number) => {
     const num = Number(amount);
     if (amount === null || amount === undefined || amount === "" || isNaN(num))
-      return "0 so'm";
-    return num.toLocaleString("uz-UZ", {
+      return "0 $";
+    return num.toLocaleString("us-USUZ", {
       style: "currency",
       currency: "USD",
       minimumFractionDigits: 2,
@@ -222,10 +233,20 @@ export default function ApartmentDetailPage() {
             `${API_BASE_URL}/payments/?apartment=${apartmentId}&ordering=-created_at&page_size=100`,
             { method: "GET", headers }
           ).catch((e) => e),
+          fetch(`${API_BASE_URL}/apartments/${apartmentId}/overdue_payments/`, {
+            method: "GET",
+            headers,
+          }).catch((e) => e),
+          fetch(`${API_BASE_URL}/apartments/overdue_payments_report/?apartment_id=${apartmentId}`, {
+            method: "GET",
+            headers,
+          }).catch((e) => e),
         ]);
 
         const apartmentResponse = responses[0];
         const paymentsResponse = responses[1];
+        const overduePaymentsResponse = responses[2];
+        const overdueReportResponse = responses[3];
 
         if (
           !(apartmentResponse instanceof Response) ||
@@ -259,6 +280,26 @@ export default function ApartmentDetailPage() {
           console.warn(
             "To'lovlarni olishda ogohlantirish:",
             paymentsResponse?.status
+          );
+        }
+
+        let overduePaymentsData = null;
+        if (overduePaymentsResponse instanceof Response && overduePaymentsResponse.ok) {
+          overduePaymentsData = await overduePaymentsResponse.json();
+        } else {
+          console.warn(
+            "Muddati o'tgan to'lovlarni olishda ogohlantirish:",
+            overduePaymentsResponse?.status
+          );
+        }
+
+        let overdueReportData = null;
+        if (overdueReportResponse instanceof Response && overdueReportResponse.ok) {
+          overdueReportData = await overdueReportResponse.json();
+        } else {
+          console.warn(
+            "Muddati o'tgan hisobotni olishda ogohlantirish:",
+            overdueReportResponse?.status
           );
         }
 
@@ -335,6 +376,8 @@ export default function ApartmentDetailPage() {
         };
 
         setApartment(completeApartmentData);
+        setOverduePayments(overduePaymentsData);
+        setOverdueReport(overdueReportData);
         recalculateTotals(completeApartmentData);
 
         setEditForm({
@@ -447,7 +490,7 @@ export default function ApartmentDetailPage() {
       apartment: params.id,
       user: clientId,
       paid_amount: paymentAmount.toString(),
-      payment_type: "naqd", // Faqat Naqd pul
+      payment_type: "naqd",
       additional_info: paymentForm.description,
       created_at: format(selectedDate, "yyyy-MM-dd"),
       total_amount: apartment.price,
@@ -496,6 +539,115 @@ export default function ApartmentDetailPage() {
       });
     } finally {
       setPaymentLoading(false);
+    }
+  };
+
+  // --- Event Handlers (Pay Overdue Payment) ---
+  const handleOpenOverduePaymentModal = (payment: any, paymentId: number) => {
+    setOverduePaymentForm({
+      amount: payment.amount.toString(),
+      payment_date: parseISO(payment.due_date) || new Date(),
+      payment_id: paymentId,
+    });
+    setIsOverduePaymentModalOpen(true);
+  };
+
+  const handleCloseOverduePaymentModal = () => {
+    setIsOverduePaymentModalOpen(false);
+    setOverduePaymentForm({
+      amount: "",
+      payment_date: new Date(),
+      payment_id: null,
+    });
+  };
+
+  const handleOverduePaymentChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
+    const { name, value } = e.target;
+    setOverduePaymentForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleOverduePaymentDateChange = (date: Date | undefined) => {
+    if (date) {
+      setOverduePaymentForm((prev) => ({ ...prev, payment_date: date }));
+    }
+  };
+
+  const handlePayOverduePayment = async () => {
+    setOverduePaymentLoading(true);
+    const headers = getAuthHeaders();
+    if (!headers || !overduePaymentForm.payment_id || !overduePaymentForm.payment_date) {
+      toast({
+        title: "Xatolik",
+        description: "To'lov ID, sana yoki avtorizatsiya tokeni topilmadi.",
+        variant: "destructive",
+      });
+      setOverduePaymentLoading(false);
+      return;
+    }
+
+    const paymentAmount = Number(overduePaymentForm.amount);
+    if (isNaN(paymentAmount) || paymentAmount <= 0) {
+      toast({
+        title: "Xatolik",
+        description: "Summa musbat son bo‘lishi kerak.",
+        variant: "destructive",
+      });
+      setOverduePaymentLoading(false);
+      return;
+    }
+
+    const paymentData = {
+      amount: paymentAmount,
+      payment_date: format(overduePaymentForm.payment_date, "yyyy-MM-dd"),
+    };
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/payments/${overduePaymentForm.payment_id}/process_payment/`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(paymentData),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({
+          error: "Server javobini o‘qib bo‘lmadi",
+        }));
+        throw new Error(
+          `To‘lov qayta ishlashda xatolik (${response.status}): ${
+            errorData.error || JSON.stringify(errorData)
+          }`
+        );
+      }
+
+      const result = await response.json();
+      toast({
+        title: "Muvaffaqiyat",
+        description: result.message || "To‘lov muvaffaqiyatli qayta ishlandi",
+      });
+
+      if (accessToken) {
+        await fetchApartmentDetails(accessToken);
+      }
+
+      generateReceiptPDF({
+        amount: paymentAmount.toFixed(2),
+        description: `Muddati o‘tgan to‘lov uchun (ID: ${overduePaymentForm.payment_id})`,
+        date: format(overduePaymentForm.payment_date, "yyyy-MM-dd"),
+      });
+      handleCloseOverduePaymentModal();
+    } catch (error) {
+      toast({
+        title: "Xatolik",
+        description: error.message || "To‘lov qayta ishlashda noma'lum xatolik.",
+        variant: "destructive",
+      });
+    } finally {
+      setOverduePaymentLoading(false);
     }
   };
 
@@ -653,7 +805,7 @@ export default function ApartmentDetailPage() {
     }
 
     const updatedData = {
-      payment_type: "naqd", // Faqat Naqd pul
+      payment_type: "naqd",
       additional_info: editPaymentForm.description,
     };
 
@@ -802,7 +954,7 @@ export default function ApartmentDetailPage() {
       "To'lov Sanasi",
       paymentData.date ? formatDate(paymentData.date) : "-"
     );
-    drawRow("To'lov Usuli", "Naqd pul"); // Faqat Naqd pul
+    drawRow("To'lov Usuli", "Naqd pul");
 
     if (paymentData.description) {
       yPosition += lineHeight * 0.5;
@@ -1323,6 +1475,15 @@ export default function ApartmentDetailPage() {
                         value={getPaymentStatusBadge(mainPayment.status)}
                         alignRight
                       />
+                      {overduePayments && overduePayments.total_overdue > 0 && (
+                        <InfoItem
+                          label="Muddati o‘tgan:"
+                          value={formatCurrency(overduePayments.total_overdue)}
+                          alignRight
+                          boldValue
+                          className="text-red-600 dark:text-red-500"
+                        />
+                      )}
                     </div>
                   ) : apartment.status !== "bosh" ? (
                     <p className="text-xs text-muted-foreground italic border-t pt-3 dark:border-gray-700">
@@ -1388,11 +1549,12 @@ export default function ApartmentDetailPage() {
         {/* Tabs Section */}
         {payments.length > 0 && (
           <Tabs defaultValue="payments_history" className="mt-6">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="payments_history">
                 To‘lovlar Tarixi
               </TabsTrigger>
               <TabsTrigger value="documents">Hujjatlar</TabsTrigger>
+              <TabsTrigger value="overdue_report">Hisobot</TabsTrigger>
             </TabsList>
 
             {/* To‘lovlar Tarixi */}
@@ -1463,6 +1625,40 @@ export default function ApartmentDetailPage() {
                     </div>
                   )}
 
+                  {overduePayments && overduePayments.overdue_payments?.length > 0 && (
+                    <div className="border-b pb-4 mb-4 dark:border-gray-700">
+                      <h4 className="text-sm font-semibold mb-2">
+                        Muddati O‘tgan To‘lovlar
+                      </h4>
+                      <div className="space-y-3">
+                        {overduePayments.overdue_payments.map((op: any, index: number) => (
+                          <div
+                            key={index}
+                            className="flex items-center justify-between p-3 border rounded-lg dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                          >
+                            <div className="flex-1">
+                              <div className="font-medium">
+                                {formatCurrency(op.amount)}
+                              </div>
+                              <div className="text-sm text-muted-foreground">
+                                Oy: {op.month} | Muddati: {formatDate(op.due_date)}
+                              </div>
+                            </div>
+                            <Button
+                              size="sm"
+                              onClick={() => handleOpenOverduePaymentModal(op, mainPayment.id)}
+                            >
+                              To‘lash
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-3 text-sm font-semibold text-red-600 dark:text-red-500">
+                        Jami muddati o‘tgan: {formatCurrency(overduePayments.total_overdue)}
+                      </div>
+                    </div>
+                  )}
+
                   {payments.length > 0 ? (
                     <div>
                       <h4 className="text-sm font-semibold mb-2">
@@ -1489,7 +1685,7 @@ export default function ApartmentDetailPage() {
                                 </div>
                               </div>
                               <div className="text-sm text-muted-foreground">
-                                To‘lov usuli: Naqd pul
+                                To‘lov usuli: {getMainPaymentTypeLabel(payment.payment_type)}
                               </div>
                               {payment.additional_info && (
                                 <div className="text-sm text-muted-foreground mt-1">
@@ -1554,7 +1750,7 @@ export default function ApartmentDetailPage() {
                             <FileText className="h-5 w-5 text-muted-foreground" />
                             <div>
                               <div className="text-sm font-medium">
-                                {doc.file_name || `Hujjat #${doc.id}`}
+                                {doc.document_type || `Hujjat #${doc.id}`}
                               </div>
                               <div className="text-xs text-muted-foreground">
                                 Yuklangan: {formatDate(doc.created_at)}
@@ -1564,7 +1760,7 @@ export default function ApartmentDetailPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => window.open(doc.file, "_blank")}
+                            onClick={() => window.open(`${API_BASE_URL}${doc.docx_file || doc.pdf_file || doc.image}`, "_blank")}
                           >
                             <Download className="h-4 w-4 mr-2" /> Yuklash
                           </Button>
@@ -1574,6 +1770,64 @@ export default function ApartmentDetailPage() {
                   ) : (
                     <p className="text-sm text-muted-foreground">
                       Hujjatlar mavjud emas.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Hisobot */}
+            <TabsContent value="overdue_report">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Muddati O‘tgan To‘lovlar Hisoboti</CardTitle>
+                  <CardDescription>
+                    Ushbu xonadon bo‘yicha muddati o‘tgan to‘lovlar hisoboti.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {overdueReport && overdueReport.report?.length > 0 ? (
+                    <div className="space-y-4">
+                      {overdueReport.report.map((report: any, index: number) => (
+                        <div key={index} className="border-b pb-4 dark:border-gray-700">
+                          <h4 className="text-sm font-semibold mb-2">
+                            {report.apartment} ({report.object})
+                          </h4>
+                          <div className="space-y-3">
+                            {report.overdue_payments.map((op: any, opIndex: number) => (
+                              <div
+                                key={opIndex}
+                                className="flex items-center justify-between p-3 border rounded-lg dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                              >
+                                <div className="flex-1">
+                                  <div className="font-medium">
+                                    {formatCurrency(op.amount)}
+                                  </div>
+                                  <div className="text-sm text-muted-foreground">
+                                    Oy: {op.month} | Muddati: {formatDate(op.due_date)}
+                                  </div>
+                                </div>
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleOpenOverduePaymentModal(op, mainPayment.id)}
+                                >
+                                  To‘lash
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="mt-3 text-sm font-semibold text-red-600 dark:text-red-500">
+                            Jami muddati o‘tgan: {formatCurrency(report.total_overdue)}
+                          </div>
+                        </div>
+                      ))}
+                      <div className="text-sm font-semibold text-red-600 dark:text-red-500">
+                        Umumiy muddati o‘tgan: {formatCurrency(overdueReport.total_overdue_all)}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Muddati o‘tgan to‘lovlar mavjud emas.
                     </p>
                   )}
                 </CardContent>
@@ -1688,6 +1942,97 @@ export default function ApartmentDetailPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Pay Overdue Payment Modal */}
+      <Dialog
+        open={isOverduePaymentModalOpen}
+        onOpenChange={setIsOverduePaymentModalOpen}
+      >
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Muddati O‘tgan To‘lovni To‘lash</DialogTitle>
+            <DialogDescription>
+              Muddati o‘tgan to‘lovni yopish uchun ma’lumotlarni to‘ldiring.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="amount" className="text-right">
+                Summa *
+              </Label>
+              <Input
+                id="amount"
+                name="amount"
+                type="number"
+                value={overduePaymentForm.amount}
+                onChange={handleOverduePaymentChange}
+                className="col-span-3"
+                placeholder="Masalan: 3000"
+                min="0"
+                step="0.01"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="payment_date" className="text-right">
+                To‘lov Sanasi *
+              </Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className={cn(
+                      "col-span-3 justify-start text-left font-normal",
+                      !overduePaymentForm.payment_date && "text-muted-foreground"
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {overduePaymentForm.payment_date ? (
+                      format(overduePaymentForm.payment_date, "PPP", { locale: uz })
+                    ) : (
+                      <span>Sanani tanlang</span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  className="w-auto p-0"
+                  align="start"
+                >
+                  <Calendar
+                    mode="single"
+                    selected={overduePaymentForm.payment_date}
+                    onSelect={handleOverduePaymentDateChange}
+                    initialFocus
+                    locale={uz}
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={handleCloseOverduePaymentModal}
+              disabled={overduePaymentLoading}
+            >
+              Bekor qilish
+            </Button>
+            <Button
+              onClick={handlePayOverduePayment}
+              disabled={
+                overduePaymentLoading ||
+                !overduePaymentForm.amount ||
+                !overduePaymentForm.payment_date ||
+                parseFloat(overduePaymentForm.amount) <= 0
+              }
+            >
+              {overduePaymentLoading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              {overduePaymentLoading ? "Saqlanmoqda..." : "To‘lash va Kvitansiya"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Edit Apartment Modal */}
       <Dialog
         open={isEditModalOpen}
@@ -1738,7 +2083,7 @@ export default function ApartmentDetailPage() {
               step="0.01"
             />
             <EditInput
-              label="Narx (so'm) *"
+              label="Narx ($) *"
               id="price"
               name="price"
               type="number"
@@ -1780,122 +2125,6 @@ export default function ApartmentDetailPage() {
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : null}
               {editLoading ? "Saqlanmoqda..." : "Saqlash"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Payment Modal */}
-      <Dialog
-        open={isEditPaymentModalOpen}
-        onOpenChange={setIsEditPaymentModalOpen}
-      >
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>To‘lovni Tahrirlash</DialogTitle>
-            <DialogDescription>
-              To‘lov ma’lumotlarini yangilash uchun quyidagi maydonlarni
-              to‘ldiring.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label
-                htmlFor="edit-amount"
-                className="text-right"
-              >
-                Summa *
-              </Label>
-              <Input
-                id="edit-amount"
-                name="amount"
-                type="number"
-                value={editPaymentForm.amount}
-                onChange={handleEditPaymentChange}
-                className="col-span-3"
-                placeholder="Masalan: 1000000"
-                min="0"
-                step="0.01"
-                disabled
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label
-                htmlFor="edit-date"
-                className="text-right"
-              >
-                Sana *
-              </Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className={cn(
-                      "col-span-3 justify-start text-left font-normal",
-                      !editPaymentForm.date && "text-muted-foreground"
-                    )}
-                    disabled
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {editPaymentForm.date ? (
-                      format(editPaymentForm.date, "PPP", { locale: uz })
-                    ) : (
-                      <span>Sanani tanlang</span>
-                    )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent
-                  className="w-auto p-0"
-                  align="start"
-                >
-                  <Calendar
-                    mode="single"
-                    selected={editPaymentForm.date}
-                    onSelect={handleEditPaymentDateChange}
-                    initialFocus
-                    locale={uz}
-                  />
-                </PopoverContent>
-              </Popover>
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label
-                htmlFor="edit-description"
-                className="text-right"
-              >
-                Izoh
-              </Label>
-              <Textarea
-                id="edit-description"
-                name="description"
-                value={editPaymentForm.description}
-                onChange={handleEditPaymentChange}
-                className="col-span-3"
-                placeholder="To‘lov haqida qo‘shimcha ma’lumot (ixtiyoriy)"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={handleCloseEditPaymentModal}
-              disabled={isUpdatingPayment}
-            >
-              Bekor qilish
-            </Button>
-            <Button
-              onClick={handleUpdatePayment}
-              disabled={
-                isUpdatingPayment ||
-                !editPaymentForm.amount ||
-                !editPaymentForm.date ||
-                parseFloat(editPaymentForm.amount) <= 0
-              }
-            >
-              {isUpdatingPayment ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : null}
-              {isUpdatingPayment ? "Saqlanmoqda..." : "Saqlash"}
             </Button>
           </DialogFooter>
         </DialogContent>

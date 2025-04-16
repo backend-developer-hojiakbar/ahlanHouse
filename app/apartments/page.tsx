@@ -485,19 +485,19 @@ export default function ApartmentsPage() {
           <CardContent className="p-4 md:p-6">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div className="space-y-1.5">
-                <Label htmlFor="status">Holati</Label>
+                <Label htmlFor="property">Obyekt</Label>
                 <Select
-                  value={filters.status || "all"}
-                  onValueChange={(value) => handleFilterChange("status", value)}
+                  value={filters.property || "all"}
+                  onValueChange={(value) => handleFilterChange("property", value)}
                 >
-                  <SelectTrigger id="status">
-                    <SelectValue placeholder="Barcha holatlar" />
+                  <SelectTrigger id="property">
+                    <SelectValue placeholder="Barcha obyektlar" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Barcha holatlar</SelectItem>
-                    {ALL_STATUSES.map((status) => (
-                      <SelectItem key={status.value} value={status.value}>
-                        {status.label}
+                    <SelectItem value="all">Barcha obyektlar</SelectItem>
+                    {properties.map((property) => (
+                      <SelectItem key={property.id} value={property.id.toString()}>
+                        {property.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -545,19 +545,19 @@ export default function ApartmentsPage() {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="property">Obyekt</Label>
+                <Label htmlFor="status">Holati</Label>
                 <Select
-                  value={filters.property || "all"}
-                  onValueChange={(value) => handleFilterChange("property", value)}
+                  value={filters.status || "all"}
+                  onValueChange={(value) => handleFilterChange("status", value)}
                 >
-                  <SelectTrigger id="property">
-                    <SelectValue placeholder="Barcha obyektlar" />
+                  <SelectTrigger id="status">
+                    <SelectValue placeholder="Barcha holatlar" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Barcha obyektlar</SelectItem>
-                    {properties.map((property) => (
-                      <SelectItem key={property.id} value={property.id.toString()}>
-                        {property.name}
+                    <SelectItem value="all">Barcha holatlar</SelectItem>
+                    {ALL_STATUSES.map((status) => (
+                      <SelectItem key={status.value} value={status.value}>
+                        {status.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
