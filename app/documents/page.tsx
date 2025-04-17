@@ -741,6 +741,9 @@ export default function DocumentsPage() {
           </DialogContent>
         </Dialog>
       </main>
+      <footer className="border-t py-4 px-4 text-center text-sm text-muted-foreground mt-auto">
+                Version 1.0 | Barcha huquqlar ximoyalangan | Ushbu Dastur CDCGroup tomonidan yaratilgan | CraDev Company tomonidan qo'llab quvvatlanadi | since 2019
+      </footer>
     </div>
   );
 }

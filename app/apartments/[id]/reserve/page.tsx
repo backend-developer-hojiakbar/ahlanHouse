@@ -49,7 +49,7 @@ export default function ReserveApartmentPage() {
   const [submitting, setSubmitting] = useState(false);
   const [isAddingClient, setIsAddingClient] = useState(false);
   const [clients, setClients] = useState<any[]>([]);
-  const [paymentType, setPaymentType] = useState("band");
+  const [paymentType, setPaymentType] = useState("naqd"); // Default "Naqd pul"
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [showKafil, setShowKafil] = useState(false);
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
@@ -346,7 +346,6 @@ export default function ReserveApartmentPage() {
     return monthlyPayment;
   };
 
-
   const calculateRemainingPercentage = () => {
     if (!apartment || !formData.initialPayment) return 0;
     const initialPayment = Number(formData.initialPayment) || 0;
@@ -382,14 +381,12 @@ export default function ReserveApartmentPage() {
         return "   - Oylik to'lovni hisoblashda xato.";
     }
 
-
     const schedule: string[] = [];
     // Use the *provided* payment date as the starting point for the schedule calculation,
     // otherwise default to today if not provided (though it should be required).
     const firstPaymentCalcDate = paymentDate ? new Date(paymentDate) : new Date();
     // The schedule starts from the *month following* the initial payment date.
     firstPaymentCalcDate.setMonth(firstPaymentCalcDate.getMonth() + 1);
-
 
     for (let i = 1; i <= totalMonths; i++) {
       // Calculate the date for *this* specific payment installment
@@ -422,7 +419,6 @@ export default function ReserveApartmentPage() {
 
     return schedule.join("\n");
   };
-
 
   const generateContractText = (paymentId: number, client: any) => {
     const currentDate = new Date().toLocaleDateString("uz-UZ", { // Use uz-UZ locale
@@ -620,7 +616,6 @@ _________________________                   _________________________
     `.trim();
   };
 
-
   const generateContractWordBlob = async (paymentId: number, client: any) => {
     const contractText = generateContractText(paymentId, client);
     const lines = contractText.split("\n");
@@ -637,7 +632,6 @@ _________________________                   _________________________
       const isSignerLabel = trimmedLine === '(имзо)';
       // Basic heuristic for party labels (Бажарувчи/Буюртмачи)
       const isPartyLabel = trimmedLine === 'Бажарувчи:' || trimmedLine === 'Буюртмачи:';
-
 
       let paragraphChildren: TextRun[] = [];
       let paragraphProps: any = { // Use 'any' for flexibility or define a specific type
@@ -677,7 +671,6 @@ _________________________                   _________________________
            }
        }
 
-
         // Apply specific alignments and styles
        if (isCenteredTitle) {
            paragraphProps.alignment = AlignmentType.CENTER;
@@ -697,13 +690,11 @@ _________________________                   _________________________
            paragraphProps.spacing = { after: 50 }; // Reduce space for empty lines if needed
        }
 
-
       return new Paragraph({
         children: paragraphChildren,
         ...paragraphProps, // Spread the calculated properties
       });
     };
-
 
      const doc = new Document({
        creator: "Ahlan House System",
@@ -826,7 +817,6 @@ _________________________                   _________________________
       });
     }
   };
-
 
   const updateApartmentPrice = async () => {
     if (!accessToken || !params.id || !apartment) return false; // Added !apartment check
@@ -956,7 +946,6 @@ _________________________                   _________________________
         return;
      }
 
-
     if (paymentType === "muddatli") {
       if (!formData.totalMonths || Number(formData.totalMonths) <= 0) {
         toast({ title: "Xatolik", description: "Muddatli to'lov uchun to'lov muddati (oy) kiritilmagan yoki xato.", variant: "destructive" });
@@ -986,7 +975,6 @@ _________________________                   _________________________
        }
     }
     // --- End Form Validation ---
-
 
     setSubmitting(true);
     try {
@@ -1018,7 +1006,6 @@ _________________________                   _________________________
         // though updateApartmentPrice should set it. Re-fetch might be safer.
         // await fetchData(); // Option: Re-fetch all data after price update
       }
-
 
       let calculatedMonthlyPayment = 0;
       if (paymentType === "muddatli") {
@@ -1070,7 +1057,6 @@ _________________________                   _________________________
        });
        // --- End Prepare Payment Payload ---
 
-
       // --- API Call: Create Payment Record ---
       const paymentResponse = await fetch(`${API_BASE_URL}/payments/`, {
         method: "POST",
@@ -1089,14 +1075,12 @@ _________________________                   _________________________
       const paymentResult = await paymentResponse.json();
       // --- End API Call: Create Payment Record ---
 
-
       // --- API Call: Process Initial Payment ---
       // Process payment only if it's not just a 'band' without initial payment concept in API
       if (initialPayment > 0 && paymentType !== 'band') { // Adjust condition based on 'band' logic
           await addPayment(paymentResult.id, initialPayment);
       }
       // --- End API Call: Process Initial Payment ---
-
 
       // --- Generate Contract & Show Modal ---
       const contractText = generateContractText(
@@ -1111,7 +1095,6 @@ _________________________                   _________________________
       setIsReceiptModalOpen(true); // Show modal after successful operations
       // --- End Generate Contract & Show Modal ---
 
-
       toast({
         title: "Muvaffaqiyat!",
         description: `Xonadon №${apartment.room_number} muvaffaqiyatli ${
@@ -1122,10 +1105,10 @@ _________________________                   _________________________
         }. To'lov ID: ${paymentResult.id}`,
       });
 
-      // Optional: Redirect after a short delay or keep user on page
-      // setTimeout(() => router.push(`/apartments/${params.id}`), 2000);
-       // Or refresh data on the current page
-       fetchData(); // Refresh apartment status, etc.
+      // Redirect to the apartment's detail page after a short delay
+      setTimeout(() => {
+        router.push(`/apartments/${params.id}`);
+      }, 2000);
 
     } catch (error) {
         console.error("Form submission error:", error);
@@ -1139,7 +1122,6 @@ _________________________                   _________________________
       setSubmitting(false);
     }
   };
-
 
   // --- Loading State ---
   if (loading) {
@@ -1422,24 +1404,24 @@ _________________________                   _________________________
 
                   {/* Payment Details Section */}
                   <div className="space-y-4 border-t pt-6">
-                    <h3 className="text-lg font-semibold">To'lov shartlari</h3>
+                    {/* <h3 className="text-lg font-semibold"> */}
+
+                    <h3 className="text-lg font-semibold">To'lov ma'lumotlari</h3>
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                      {/* Payment Type Select */}
+                      {/* Payment Type */}
                       <div className="space-y-2">
                         <Label htmlFor="paymentType">To'lov turi</Label>
                         <Select
                           value={paymentType}
                           onValueChange={(value) => {
                             setPaymentType(value);
-                            // Reset fields based on type change
+                            // Reset related fields when payment type changes
                             setFormData((prev) => ({
                               ...prev,
+                              initialPayment: "",
                               totalMonths: "",
-                              // Reset totalAmount to current apartment price on type change? Maybe not.
-                              // totalAmount: apartment?.price?.toString() || prev.totalAmount,
-                              due_date: value === "muddatli" ? "15" : "", // Default due date for installment
-                              initialPayment: "", // Reset initial payment on type change
-                              bank_name: "", // Reset bank name
+                              due_date: paymentType === "muddatli" ? prev.due_date : "",
+                              bank_name: "",
                             }));
                             setBandDate(null);
                             setPaymentDate(null);
@@ -1450,437 +1432,286 @@ _________________________                   _________________________
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="naqd">Naqd pul</SelectItem>
-                            <SelectItem value="muddatli">Muddatli to‘lov</SelectItem>
-                            <SelectItem value="ipoteka">Ipoteka</SelectItem>
-                            {/* <SelectItem value="band">Band qilish</SelectItem> */}
+                            <SelectItem value="band">Band qilish</SelectItem>
+                            <SelectItem value="muddatli">Muddatli to'lov</SelectItem>
+                            <SelectItem value="ipoteka">Ipoteka & Subsidya</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
-                       {/* Total Amount Input */}
+
+                      {/* Total Amount */}
                       <div className="space-y-2">
-                        <Label htmlFor="totalAmount">
-                          Umumiy narx ($){" "}
-                          <span className="text-red-500">*</span>
-                        </Label>
+                        <Label htmlFor="totalAmount">Umumiy narx ($)</Label>
                         <Input
-                          id="totalAmount" name="totalAmount" type="number"
-                          min="0" step="any" // Allow decimals if needed
+                          id="totalAmount"
+                          name="totalAmount"
+                          type="number"
+                          placeholder="Umumiy narxni kiriting"
                           value={formData.totalAmount}
                           onChange={handleChange}
+                          min="0"
                           required
-                          disabled={submitting}
                         />
-                        <p className="text-xs text-muted-foreground">
-                          Joriy narx: {formatNumber(apartment?.price ?? 0)} $
-                        </p>
-                      </div>
-                    </div>
-                     {/* Dynamic Payment Fields */}
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                      {/* Initial Payment Input */}
-                      <div className="space-y-2">
-                        <Label htmlFor="initialPayment">
-                          {paymentType === "muddatli" ? "Boshlang'ich to'lov" :
-                           paymentType === "ipoteka" ? "Boshlang'ich to'lov" :
-                           paymentType === "naqd" ? "To'liq summa" :
-                           "Band qilish summasi"}{" "}
-                          <span className="text-red-500">*</span>
-                        </Label>
-                        <Input
-                          id="initialPayment" name="initialPayment" type="number"
-                          min="0" step="any"
-                          // Max validation can be complex, handle in validation logic
-                           max={paymentType === 'naqd' ? formData.totalAmount : undefined} // Simple max for naqd
-                          value={formData.initialPayment}
-                          onChange={handleChange}
-                          required
-                           disabled={submitting}
-                        />
-                          {/* Show percentage only for relevant types */}
-                         {(paymentType === 'muddatli' || paymentType === 'ipoteka') && Number(formData.initialPayment) > 0 && Number(formData.totalAmount) > 0 && (
-                             <p className="text-xs text-muted-foreground">
-                                 Qoldiq: {calculateRemainingPercentage()}%
-                             </p>
-                         )}
                       </div>
 
-                      {/* Fields specific to 'muddatli' */}
+                      {/* Initial Payment / Band Amount */}
+                      <div className="space-y-2">
+                        <Label htmlFor="initialPayment">
+                          {paymentType === "band"
+                            ? "Band qilish summasi ($)"
+                            : paymentType === "naqd"
+                            ? "To'liq to'lov ($)"
+                            : "Boshlang'ich to'lov ($)"}
+                        </Label>
+                        <Input
+                          id="initialPayment"
+                          name="initialPayment"
+                          type="number"
+                          placeholder={
+                            paymentType === "band"
+                              ? "Band qilish summasini kiriting"
+                              : paymentType === "naqd"
+                              ? "To'liq to'lov summasini kiriting"
+                              : "Boshlang'ich to'lovni kiriting"
+                          }
+                          value={formData.initialPayment}
+                          onChange={handleChange}
+                          min="0"
+                          required
+                        />
+                      </div>
+
+                      {/* Conditional Fields Based on Payment Type */}
                       {paymentType === "muddatli" && (
                         <>
+                          {/* Total Months */}
                           <div className="space-y-2">
-                            <Label htmlFor="totalMonths">
-                              To'lov muddati (oy){" "}
-                              <span className="text-red-500">*</span>
-                            </Label>
+                            <Label htmlFor="totalMonths">To'lov muddati (oy)</Label>
                             <Input
-                              id="totalMonths" name="totalMonths" type="number"
-                              min="1" step="1"
+                              id="totalMonths"
+                              name="totalMonths"
+                              type="number"
+                              placeholder="Oylar sonini kiriting"
                               value={formData.totalMonths}
                               onChange={handleChange}
-                              placeholder="Masalan, 12"
+                              min="1"
                               required
-                               disabled={submitting}
                             />
                           </div>
+
+                          {/* Due Date */}
                           <div className="space-y-2">
                             <Label htmlFor="due_date">
-                              Har oyning to‘lov sanasi{" "}
-                              <span className="text-red-500">*</span>
+                              Har oyning to'lov sanasi
                             </Label>
                             <Input
-                              id="due_date" name="due_date" type="number"
-                              min="1" max="31" step="1"
+                              id="due_date"
+                              name="due_date"
+                              type="number"
+                              placeholder="1-31 orasida sana kiriting"
                               value={formData.due_date}
                               onChange={handleChange}
-                              placeholder="Masalan, 15"
+                              min="1"
+                              max="31"
                               required
-                               disabled={submitting}
                             />
-                            <p className="text-xs text-muted-foreground">
-                              1 dan 31 gacha kunni kiriting.
-                            </p>
                           </div>
-                            {/* Payment Date for Muddatli Initial Payment */}
-                             <div className="space-y-2">
-                               <Label htmlFor="payment_date_muddatli">
-                                 Boshlang'ich to'lov sanasi <span className="text-red-500">*</span>
-                               </Label>
-                               <div className="relative">
-                                 <DatePicker
-                                   selected={paymentDate}
-                                   onChange={(date: Date | null) => {
-                                     setPaymentDate(date);
-                                     setIsPaymentDatePickerOpen(false);
-                                   }}
-                                   dateFormat="dd/MM/yyyy"
-                                   placeholderText="Sanani tanlang"
-                                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                   open={isPaymentDatePickerOpen}
-                                   onClickOutside={() => setIsPaymentDatePickerOpen(false)}
-                                   onSelect={() => setIsPaymentDatePickerOpen(false)} // Close on selection
-                                   onFocus={() => setIsPaymentDatePickerOpen(true)}
-                                    // minDate={new Date()} // Allow past dates? Maybe for back-dating?
-                                   required
-                                   disabled={submitting}
-                                   popperPlacement="top-start" // Adjust position if needed
-                                 />
-                               </div>
-                             </div>
                         </>
                       )}
 
-                      {/* Field specific to 'band' */}
-                      {paymentType === "band" && (
-                        <div className="space-y-2">
-                          <Label htmlFor="band_date">
-                            Band qilish muddati <span className="text-red-500">*</span>
-                          </Label>
-                          <div className="relative">
-                            <DatePicker
-                              selected={bandDate}
-                              onChange={(date: Date | null) => {
-                                setBandDate(date);
-                                setIsDatePickerOpen(false);
-                              }}
-                              dateFormat="dd/MM/yyyy"
-                              placeholderText="Sanani tanlang"
-                              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                              open={isDatePickerOpen}
-                              onClickOutside={() => setIsDatePickerOpen(false)}
-                              onSelect={() => setIsDatePickerOpen(false)} // Close on selection
-                              onFocus={() => setIsDatePickerOpen(true)}
-                              minDate={new Date()} // Band deadline should be in the future
-                              required
-                               disabled={submitting}
-                               popperPlacement="top-start"
-                            />
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            Qaysi sanagacha band qilinishini tanlang.
-                          </p>
-                        </div>
-                      )}
-
-                       {/* Payment Date for 'naqd' or 'ipoteka' */}
-                      {(paymentType === "naqd" || paymentType === "ipoteka") && (
-                        <div className="space-y-2">
-                          <Label htmlFor="payment_date_naqd_ipoteka">
-                            To'lov sanasi <span className="text-red-500">*</span>
-                          </Label>
-                          <div className="relative">
-                            <DatePicker
-                              selected={paymentDate}
-                              onChange={(date: Date | null) => {
-                                setPaymentDate(date);
-                                setIsPaymentDatePickerOpen(false);
-                              }}
-                              dateFormat="dd/MM/yyyy"
-                              placeholderText="Sanani tanlang"
-                              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                              open={isPaymentDatePickerOpen}
-                              onClickOutside={() => setIsPaymentDatePickerOpen(false)}
-                              onSelect={() => setIsPaymentDatePickerOpen(false)} // Close on selection
-                              onFocus={() => setIsPaymentDatePickerOpen(true)}
-                               // minDate={new Date()} // Allow past dates?
-                              required
-                               disabled={submitting}
-                               popperPlacement="top-start"
-                            />
-                          </div>
-                        </div>
-                      )}
-
-                       {/* Bank Name for 'ipoteka' */}
+                      {/* Bank Name for Ipoteka */}
                       {paymentType === "ipoteka" && (
                         <div className="space-y-2">
                           <Label htmlFor="bank_name">Bank nomi</Label>
                           <Input
-                            id="bank_name" name="bank_name"
-                            value={formData.bank_name || ""}
+                            id="bank_name"
+                            name="bank_name"
+                            placeholder="Bank nomini kiriting"
+                            value={formData.bank_name}
                             onChange={handleChange}
-                            placeholder="Masalan, Ipoteka Bank"
-                             disabled={submitting}
                           />
                         </div>
                       )}
+
+                      {/* Band Date */}
+                      {paymentType === "band" && (
+                        <div className="space-y-2">
+                          <Label>Band qilish sanasi</Label>
+                          <div className="relative">
+                            <DatePicker
+                              selected={bandDate}
+                              onChange={(date: Date | null) => setBandDate(date)}
+                              dateFormat="dd.MM.yyyy"
+                              placeholderText="Sanani tanlang"
+                              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                              required
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Payment Date */}
+                      {(paymentType === "naqd" || paymentType === "muddatli" || paymentType === "ipoteka") && (
+                        <div className="space-y-2">
+                          <Label>
+                            {paymentType === "naqd" ? "To'lov sanasi" : "Boshlang'ich to'lov sanasi"}
+                          </Label>
+                          <div className="relative">
+                            <DatePicker
+                              selected={paymentDate}
+                              onChange={(date: Date | null) => setPaymentDate(date)}
+                              dateFormat="dd.MM.yyyy"
+                              placeholderText="Sanani tanlang"
+                              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                              required
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
-                     {/* Comments Textarea */}
-                    <div className="space-y-2 pt-4">
-                      <Label htmlFor="comments">Izohlar</Label>
+
+                    {/* Comments */}
+                    <div className="space-y-2">
+                      <Label htmlFor="comments">Izohlar (ixtiyoriy)</Label>
                       <Textarea
-                        id="comments" name="comments"
-                        placeholder="Shartnoma yoki to'lovga oid qo'shimcha izohlar..."
+                        id="comments"
+                        name="comments"
+                        placeholder="Qo'shimcha izohlar..."
                         value={formData.comments}
                         onChange={handleChange}
                         rows={3}
-                         disabled={submitting}
                       />
                     </div>
                   </div>
                 </CardContent>
-                {/* Card Footer with Buttons */}
-                <CardFooter className="flex justify-end space-x-3 border-t px-6 py-4">
-                  <Button
-                    variant="outline" type="button"
-                    onClick={() => router.back()}
-                    disabled={submitting || isAddingClient}
-                  >
-                    Bekor qilish
-                  </Button>
+
+                <CardFooter className="flex flex-col space-y-4 sm:flex-row sm:space-x-4 sm:space-y-0">
                   <Button
                     type="submit"
-                    disabled={
-                      submitting || isAddingClient || loading || !formData.clientId || apartment?.status !== 'bosh'
-                    }
+                    disabled={submitting}
+                    className="w-full sm:w-auto"
                   >
                     {submitting ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : null}
-                    {submitting ? "Jarayonda..." : "Band qilish va Shartnoma"}
+                    {paymentType === "band"
+                      ? "Band qilish"
+                      : paymentType === "naqd"
+                      ? "Sotish (Naqd)"
+                      : paymentType === "muddatli"
+                      ? "Sotish (Muddatli)"
+                      : "Sotish (Ipoteka & Subsidya)"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    type="button"
+                    onClick={() => router.back()}
+                    className="w-full sm:w-auto"
+                  >
+                    Bekor qilish
                   </Button>
                 </CardFooter>
               </form>
             </Card>
           </div>
 
-          {/* Right Column: Info Cards */}
-          <div className="lg:col-span-1 space-y-6">
-            {/* Apartment Info Card */}
-            {apartment && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Xonadon haqida</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3 text-sm">
-                   {/* Use helper function for cleaner display */}
-                   {Object.entries({
-                       "Obyekt": apartment.object_name,
-                       "Xonadon №": apartment.room_number,
-                       "Qavat": apartment.floor,
-                       "Xonalar": apartment.rooms,
-                       "Maydon": apartment.area ? `${apartment.area} m²` : null,
-                   }).map(([label, value]) => value ? ( // Only show if value exists
-                        <div className="flex justify-between" key={label}>
-                            <span>{label}:</span>
-                            <span className="font-medium text-right">{value}</span>
-                        </div>
-                   ) : null)}
+          {/* Right Column: Summary */}
+          <div className="space-y-6">
+            {/* Apartment Info */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Xonadon haqida</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <p>
+                  <strong>Obyekt:</strong>{" "}
+                  {apartment?.object_name || "Noma'lum"}
+                </p>
+                <p>
+                  <strong>Xona raqami:</strong>{" "}
+                  {apartment?.room_number || "N/A"}
+                </p>
+                <p>
+                  <strong>Xonalar soni:</strong>{" "}
+                  {apartment?.rooms || "N/A"}
+                </p>
+                <p>
+                  <strong>Qavat:</strong> {apartment?.floor || "N/A"}
+                </p>
+                <p>
+                  <strong>Maydon:</strong> {apartment?.area || "N/A"} kv.m
+                </p>
+                <p>
+                  <strong>Status:</strong>{" "}
+                  {apartment?.status_display || apartment?.status || "N/A"}
+                </p>
+              </CardContent>
+            </Card>
 
-                  <div className="flex justify-between pt-2 border-t mt-2">
-                    <span className="font-semibold">Narx:</span>
-                    <span className="font-bold text-lg text-primary">
-                      {formatNumber(apartment.price ?? 0)} $
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span>Holati:</span>
-                    <span
-                      className={`px-2 py-0.5 rounded text-xs font-semibold capitalize ${ // Added capitalize
-                        apartment.status === "bosh" ? "bg-green-100 text-green-800" :
-                        apartment.status === "band" ? "bg-yellow-100 text-yellow-800" :
-                        apartment.status === "muddatli" ? "bg-blue-100 text-blue-800" :
-                        apartment.status === "sotilgan" ? "bg-red-100 text-red-800" :
-                        "bg-gray-100 text-gray-800" // Default style
-                      }`}
-                    >
-                      {apartment.status_display || apartment.status || "Noma'lum"} {/* Show display name if available */}
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+            {/* Payment Summary */}
+            <Card>
+              <CardHeader>
+                <CardTitle>To'lov xulosasi</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <p>
+                  <strong>Umumiy narx:</strong>{" "}
+                  {formatCurrency(formData.totalAmount || apartment?.price || 0)}
+                </p>
+                <p>
+                  <strong>
+                    {paymentType === "band"
+                      ? "Band qilish summasi:"
+                      : paymentType === "naqd"
+                      ? "To'liq to'lov:"
+                      : "Boshlang'ich to'lov:"}
+                  </strong>{" "}
+                  {formatCurrency(formData.initialPayment || 0)}
+                </p>
+                {paymentType === "muddatli" && (
+                  <>
+                    <p>
+                      <strong>Qolgan foiz:</strong>{" "}
+                      {calculateRemainingPercentage()}%
+                    </p>
+                    <p>
+                      <strong>Oylik to'lov:</strong>{" "}
+                      {formatCurrency(calculateMonthlyPayment())}
+                    </p>
+                    <p>
+                      <strong>Muddat:</strong>{" "}
+                      {formData.totalMonths || "0"} oy
+                    </p>
+                    <p>
+                      <strong>Har oyning to'lov sanasi:</strong>{" "}
+                      {formData.due_date || "N/A"}
+                    </p>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </main>
 
-             {/* Payment Summary Card (Conditional) */}
-             {((paymentType === 'muddatli' && Number(formData.totalAmount) > 0) ||
-               (paymentType === 'band' && Number(formData.totalAmount) > 0) ||
-               ((paymentType === 'naqd' || paymentType === 'ipoteka') && Number(formData.totalAmount) > 0)
-             ) && (
-             <Card>
-                 <CardHeader>
-                     <CardTitle>
-                         {paymentType === 'muddatli' ? "Muddatli to'lov xulosasi" :
-                          paymentType === 'band' ? "Band qilish xulosasi" :
-                          "To'lov xulosasi"}
-                     </CardTitle>
-                 </CardHeader>
-                 <CardContent className="space-y-3 text-sm">
-                     <div className="flex justify-between">
-                         <span>Umumiy narx:</span>
-                         <span>{formatNumber(formData.totalAmount)} $</span>
-                     </div>
-                     <div className="flex justify-between">
-                         <span>
-                             {paymentType === 'naqd' ? "To'liq summa" :
-                              paymentType === 'band' ? "Band qilish summasi" :
-                              "Boshlang'ich to'lov"}:
-                         </span>
-                         <span>{formatNumber(formData.initialPayment || "0")} $</span>
-                     </div>
-
-                     {/* Muddatli Specific */}
-                     {paymentType === 'muddatli' && (
-                         <>
-                             <div className="flex justify-between">
-                                 <span>Qolgan summa:</span>
-                                 <span>
-                                     {formatNumber(
-                                         Math.max(0, Number(formData.totalAmount) - Number(formData.initialPayment || "0"))
-                                     )} $
-                                 </span>
-                             </div>
-                             <div className="flex justify-between">
-                                 <span>Muddat:</span>
-                                 <span>{formData.totalMonths || "-"} oy</span>
-                             </div>
-                             <div className="flex justify-between">
-                                 <span>Har oyning sanasi:</span>
-                                 <span>{formData.due_date || "-"}-kuni</span>
-                             </div>
-                              <div className="flex justify-between">
-                                  <span>Boshl. to'lov sanasi:</span>
-                                  <span>{paymentDate ? paymentDate.toLocaleDateString("uz-UZ") : "Tanlanmagan"}</span>
-                              </div>
-                             <div className="flex justify-between items-center pt-3 border-t mt-2">
-                                 <span className="font-semibold">Taxminiy oylik to'lov:</span>
-                                 <span className="font-bold text-lg text-primary">
-                                     {(() => {
-                                         if (!formData.totalMonths || !formData.totalAmount || !formData.initialPayment) return "-";
-                                         try {
-                                             const monthly = calculateMonthlyPayment();
-                                             if (monthly > 0) {
-                                                 return `${formatNumber(monthly)} $`;
-                                             } else if (Number(formData.initialPayment) >= Number(formData.totalAmount)) {
-                                                 return "To'langan"; // Fully paid
-                                             }
-                                              else {
-                                                 return "-"; // Calculation resulted in 0 or less, but not fully paid
-                                             }
-                                         } catch (e) {
-                                             return <span className="text-red-500 text-sm font-normal">Xato</span>;
-                                         }
-                                     })()}
-                                 </span>
-                             </div>
-                         </>
-                     )}
-
-                      {/* Band Specific */}
-                     {paymentType === 'band' && (
-                         <div className="flex justify-between">
-                             <span>Band qilish muddati:</span>
-                             <span>{bandDate ? bandDate.toLocaleDateString("uz-UZ") : "Tanlanmagan"}</span>
-                         </div>
-                     )}
-
-                     {/* Naqd/Ipoteka Specific */}
-                     {(paymentType === 'naqd' || paymentType === 'ipoteka') && (
-                          <>
-                              <div className="flex justify-between">
-                                 <span>To'lov sanasi:</span>
-                                 <span>{paymentDate ? paymentDate.toLocaleDateString("uz-UZ") : "Tanlanmagan"}</span>
-                              </div>
-                               {paymentType === 'ipoteka' && formData.bank_name && (
-                                   <div className="flex justify-between">
-                                     <span>Bank:</span>
-                                     <span>{formData.bank_name}</span>
-                                   </div>
-                               )}
-                          </>
-                     )}
-                 </CardContent>
-             </Card>
-             )}
-
-          </div> {/* End Right Column */}
-        </div> {/* End Grid */}
-      </main> {/* End Main Content */}
-
-       {/* Footer - *FIX*: Moved inside the main wrapper div */}
-      <footer className="border-t py-4 px-4 text-center text-sm text-muted-foreground mt-auto"> {/* Added mt-auto */}
-        Barcha huquqlar ximoyalangan | Ushbu Dastur CDCGroup tomonidan yaratilgan | CraDev Company tomonidan qo'llab quvvatlanadi | since 2019
-      </footer>
-
-       {/* Receipt Modal - *FIX*: Moved inside the main wrapper div */}
+      {/* Receipt Modal */}
       {isReceiptModalOpen && requestReceipt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <Card className="w-full max-w-4xl max-h-[90vh] flex flex-col bg-white"> {/* Added bg-white */}
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 border-b pb-3 pt-4 px-4">
-              <CardTitle className="text-lg font-semibold">
-                Shartnoma №{requestReceipt.id}
-              </CardTitle>
-              <Button
-                onClick={() => setIsReceiptModalOpen(false)}
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 text-gray-500 hover:text-gray-800" // Improved styling
-              >
-                 <span className="sr-only">Yopish</span>
-                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg> {/* X icon */}
-              </Button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <Card className="max-h-[90vh] w-full max-w-2xl overflow-auto">
+            <CardHeader>
+              <CardTitle>Shartnoma №{requestReceipt.id}</CardTitle>
+              <CardDescription>
+                Shartnomani ko'rib chiqing, chop eting yoki yuklab oling.
+              </CardDescription>
             </CardHeader>
-            <CardContent className="p-4 md:p-6 flex-grow overflow-y-auto">
-              <p className="mb-4 text-sm text-muted-foreground">
-                Xonadon muvaffaqiyatli band qilindi. Quyida dastlabki shartnoma
-                bilan tanishing.
-              </p>
-              <div
-                ref={receiptRef}
-                className="p-4 bg-gray-50 rounded border border-gray-200"
-              >
-                {/* Use pre for preserving whitespace from generated contract text */}
-                <pre className="whitespace-pre-wrap text-xs sm:text-sm font-serif leading-relaxed text-gray-800">
+            <CardContent>
+              <div ref={receiptRef}>
+                <pre className="whitespace-pre-wrap font-serif text-sm">
                   {requestReceipt.contractText}
                 </pre>
               </div>
             </CardContent>
-            <CardFooter className="flex flex-col sm:flex-row gap-2 justify-end border-t px-6 py-4 bg-gray-50"> {/* Added bg */}
-              <Button
-                variant="outline"
-                onClick={handlePrintContract}
-                className="w-full sm:w-auto"
-              >
-                <Printer className="mr-2 h-4 w-4" /> Chop etish
-              </Button>
+            <CardFooter className="flex flex-col space-y-2 sm:flex-row sm:space-x-4 sm:space-y-0">
               <Button
                 onClick={() =>
                   handleDownloadContractWord(
@@ -1890,12 +1721,23 @@ _________________________                   _________________________
                 }
                 className="w-full sm:w-auto"
               >
-                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2 h-4 w-4"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> {/* Download icon */}
-                Yuklab olish (Word)
+                <Printer className="mr-2 h-4 w-4" />
+                Yuklab olish (.docx)
               </Button>
               <Button
+                onClick={handlePrintContract}
+                variant="outline"
+                className="w-full sm:w-auto"
+              >
+                <Printer className="mr-2 h-4 w-4" />
+                Chop etish
+              </Button>
+              <Button
+                onClick={() => {
+                  setIsReceiptModalOpen(false);
+                  setRequestReceipt(null);
+                }}
                 variant="secondary"
-                onClick={() => setIsReceiptModalOpen(false)}
                 className="w-full sm:w-auto"
               >
                 Yopish
@@ -1905,6 +1747,10 @@ _________________________                   _________________________
         </div>
       )}
 
-    </div> // *FIX*: End of single root element
+      {/* Footer */}
+      <footer className="border-t py-4 px-4 text-center text-sm text-muted-foreground">
+        Barcha huquqlar ximoyalangan | Ushbu Dastur CDCGroup tomonidan yaratilgan | CraDev Company tomonidan qo'llab quvvatlanadi | since 2019
+      </footer>
+    </div>
   );
 }

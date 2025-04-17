@@ -153,7 +153,7 @@ export default function PaymentsPage() {
         () => ({
             apartment: "",
             user: "",
-            payment_type: "muddatli",
+            payment_type: "naqd",
             total_amount: "",
             initial_payment: "",
             paid_amount: "",
@@ -680,10 +680,31 @@ export default function PaymentsPage() {
                 const errorData = await response.json().catch(() => ({ detail: "Server javobini o'qishda xato." }));
                 throw new Error(`To'lov qo'shishda xatolik (${response.status}): ${errorData.detail || response.statusText}`);
             }
+            const newPayment = await response.json();
+
+            // Update apartment status
+            const apartmentId = parseInt(formData.apartment, 10);
+            const apartment = apartments.find(apt => apt.id === apartmentId);
+            if (apartment) {
+                const newStatus = formData.payment_type === "band" ? "band" : "sotilgan";
+                const updateResponse = await fetch(`${API_BASE_URL}/apartments/${apartmentId}/`, {
+                    method: "PATCH",
+                    headers,
+                    body: JSON.stringify({ status: newStatus }),
+                });
+                if (!updateResponse.ok) {
+                    throw new Error("Xonadon holatini yangilashda xatolik yuz berdi");
+                }
+            }
+
             toast({
                 title: "Muvaffaqiyat!",
-                description: "Yangi to'lov qo'shildi.",
+                description: "Yangi to'lov qo'shildi va xonadon holati yangilandi.",
             });
+
+            // Redirect to apartment detail page
+            router.push(`/apartments/${apartmentId}`);
+
             if (accessToken) {
                 await fetchPayments(accessToken, filters);
                 const updatedApartments = await fetchApartmentDetails(accessToken, apartments);
@@ -815,7 +836,7 @@ export default function PaymentsPage() {
                     <p className="text-muted-foreground">Ma'lumotlar yuklanmoqda...</p>
                 </div>
                 <footer className="border-t py-4 px-4 text-center text-sm text-muted-foreground mt-auto">
-                    Barcha huquqlar ximoyalangan | Ushbu Dastur CDCGroup tomonidan yaratilgan | CraDev Company tomonidan qo'llab quvvatlanadi | since 2019
+                    Version 1.0 | Barcha huquqlar ximoyalangan | Ushbu Dastur CDCGroup tomonidan yaratilgan | CraDev Company tomonidan qo'llab quvvatlanadi | since 2019
                 </footer>
             </div>
         );
@@ -857,7 +878,7 @@ export default function PaymentsPage() {
                     </Card>
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium">Jami Qoldiq (mijozlar qarzi)</CardTitle>
+                            <CardTitle className="text-sm font-medium">Jami Qoldiq</CardTitle>
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold text-blue-600">{formatCurrency(statistics.total_remaining)}</div>
@@ -1033,14 +1054,9 @@ export default function PaymentsPage() {
                                         <TableHead>Mijoz</TableHead>
                                         <TableHead>Turi</TableHead>
                                         <TableHead className="text-right">Umumiy Summa</TableHead>
-                                        {/* <TableHead className="text-right">To'langan Summa</TableHead> */}
-                                        {/* <TableHead className="text-right">Qoldiq</TableHead> */}
-                                        {/* <TableHead className="text-right">Oylik To'lov</TableHead> */}
-                                        {/* <TableHead className="text-right">To'lov Sanasi</TableHead> */}
-                                        {/* <TableHead className="text-right">Muddat (oy)</TableHead> */}
+                                        <TableHead className="text-right">To'langan Summa</TableHead>
+                                        <TableHead className="text-right">Qoldiq</TableHead>
                                         <TableHead>Sana</TableHead>
-                                        {/* <TableHead>Holati</TableHead> */}
-                                        {/* <TableHead className="text-right">Amallar</TableHead> */}
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -1072,51 +1088,11 @@ export default function PaymentsPage() {
                                                     <TableCell>{payment.user_fio || `ID: ${payment.user}`}</TableCell>
                                                     <TableCell className="capitalize">{payment.payment_type || "-"}</TableCell>
                                                     <TableCell className="text-right">{formatCurrency(payment.total_amount)}</TableCell>
-                                                    {/* <TableCell className="text-right">{formatCurrency(payment.paid_amount)}</TableCell> */}
-                                                    {/* <TableCell className="text-right font-semibold text-red-600">
+                                                    <TableCell className="text-right">{formatCurrency(payment.paid_amount)}</TableCell>
+                                                    <TableCell className="text-right font-semibold text-red-600">
                                                         {formatCurrency(getPaymentBalance(payment))}
-                                                    </TableCell> */}
-                                                    {/* <TableCell className="text-right">
-                                                        {payment.payment_type === "muddatli" ? formatCurrency(payment.monthly_payment) : "-"}
-                                                    </TableCell> */}
-                                                    {/* <TableCell className="text-right">
-                                                        {payment.payment_type === "muddatli" && payment.due_date ? `Har oy ${payment.due_date}` : "-"}
-                                                    </TableCell> */}
-                                                    {/* <TableCell className="text-right">
-                                                        {payment.payment_type === "muddatli" && payment.duration_months
-                                                            ? `${payment.duration_months} oy`
-                                                            : "-"}
-                                                    </TableCell> */}
-                                                    <TableCell>{formatDate(payment.created_at)}</TableCell>
-                                                    {/* <TableCell>{getStatusBadge(payment.status)}</TableCell> */}
-                                                    <TableCell className="text-right">
-                                                        {/* <div className="flex justify-end space-x-1">
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                onClick={() => handleOpenEditModal(payment)}
-                                                                disabled={actionLoading}
-                                                                title="Izohni tahrirlash"
-                                                                className="h-8 w-8"
-                                                            >
-                                                                <Edit className="h-4 w-4" />
-                                                            </Button>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                className="text-red-600 hover:text-red-700 hover:bg-red-100 h-8 w-8"
-                                                                onClick={() => handleDeletePayment(payment.id)}
-                                                                disabled={actionLoading || deletingPaymentId === payment.id}
-                                                                title="O'chirish"
-                                                            >
-                                                                {deletingPaymentId === payment.id ? (
-                                                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                                                ) : (
-                                                                    <Trash className="h-4 w-4" />
-                                                                )}
-                                                            </Button>
-                                                        </div> */}
                                                     </TableCell>
+                                                    <TableCell>{formatDate(payment.created_at)}</TableCell>
                                                 </TableRow>
                                             );
                                         })
@@ -1387,7 +1363,7 @@ export default function PaymentsPage() {
 
             {/* Footer */}
             <footer className="border-t py-4 px-4 text-center text-sm text-muted-foreground mt-auto">
-                Barcha huquqlar ximoyalangan | Ushbu Dastur CDCGroup tomonidan yaratilgan | CraDev Company tomonidan qo'llab quvvatlanadi | since 2019
+                Version 1.0 | Barcha huquqlar ximoyalangan | Ushbu Dastur CDCGroup tomonidan yaratilgan | CraDev Company tomonidan qo'llab quvvatlanadi | since 2019
             </footer>
         </div>
     );
