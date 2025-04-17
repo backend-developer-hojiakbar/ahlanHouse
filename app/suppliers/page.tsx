@@ -47,68 +47,61 @@ const SuppliersPage = () => {
     phone_number: "",
     address: "",
     description: "",
+    balance: "0.00", // Balans maydoni qo'shildi
   });
-  // State for storing the access token
   const [accessToken, setAccessToken] = useState<string | null>(null);
 
   const API_URL = "http://api.ahlan.uz/suppliers/";
 
-  // Get access token from localStorage on component mount
+  // Access token olish
   useEffect(() => {
-    // Make sure this runs only on the client
     if (typeof window !== "undefined") {
       const token = localStorage.getItem("access_token");
       if (!token) {
-        // If no token, redirect to login
         toast({
-            title: "Avtorizatsiya xatosi",
-            description: "Iltimos, tizimga qaytadan kiring.",
-            variant: "destructive",
+          title: "Avtorizatsiya xatosi",
+          description: "Iltimos, tizimga qaytadan kiring.",
+          variant: "destructive",
         });
-        router.push("/login"); // Redirect to your login page
+        router.push("/login");
       } else {
         setAccessToken(token);
       }
     }
-  }, [router]); // Added router to dependency array
+  }, [router]);
 
-  // Helper function to get authorization headers
+  // Autentifikatsiya sarlavhalari
   const getAuthHeaders = () => {
     if (!accessToken) {
       console.error("Access token is not available for API call");
-       if (typeof window !== "undefined") { // Prevent error during SSR/build
-         // Optionally check again to prevent unnecessary redirects during initial load
-         if (!localStorage.getItem("access_token")) {
-             router.push("/login");
-         }
-       }
-      return {}; // Return empty headers or handle error appropriately
+      if (typeof window !== "undefined") {
+        if (!localStorage.getItem("access_token")) {
+          router.push("/login");
+        }
+      }
+      return {};
     }
     return {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${accessToken}`, // Use the token from state
+      "Authorization": `Bearer ${accessToken}`,
     };
   };
 
   // Ma'lumotlarni API dan olish (GET)
   useEffect(() => {
-    // Only fetch suppliers if we have an access token
     if (!accessToken) {
-      // If token is not yet set (initial render), don't fetch
-      // Set loading to false only if we explicitly decide not to fetch due to no token AFTER checking
       if (typeof window !== "undefined" && !localStorage.getItem("access_token")) {
-           setLoading(false); // No token means no data to load
+        setLoading(false);
       }
       return;
     }
 
     const fetchSuppliers = async () => {
-      setLoading(true); // Set loading true when starting fetch
+      setLoading(true);
       try {
         const headers = getAuthHeaders();
-        // If headers are empty due to missing token (shouldn't happen often here, but as a safeguard)
         if (!headers["Authorization"]) {
-            throw new Error("Avtorizatsiya tokeni mavjud emas.");
+          throw new Error("Avtorizatsiya tokeni mavjud emas.");
         }
 
         const response = await fetch(API_URL, {
@@ -116,23 +109,21 @@ const SuppliersPage = () => {
           headers: headers,
         });
 
-        // Handle potential 401 Unauthorized specifically
         if (response.status === 401) {
-            localStorage.removeItem("access_token"); // Remove invalid token
-            setAccessToken(null); // Clear token state
-            toast({
-                title: "Sessiya muddati tugagan",
-                description: "Iltimos, tizimga qaytadan kiring.",
-                variant: "destructive",
-            });
-            router.push("/login");
-            return; // Stop further execution
+          localStorage.removeItem("access_token");
+          setAccessToken(null);
+          toast({
+            title: "Sessiya muddati tugagan",
+            description: "Iltimos, tizimga qaytadan kiring.",
+            variant: "destructive",
+          });
+          router.push("/login");
+          return;
         }
 
         if (!response.ok) throw new Error(`Ma'lumotlarni olishda xatolik: ${response.statusText}`);
         const data = await response.json();
 
-        // API javobidan "results" massivini olish
         if (data && Array.isArray(data.results)) {
           setSuppliers(data.results);
         } else {
@@ -142,7 +133,7 @@ const SuppliersPage = () => {
         }
       } catch (error) {
         console.error("Xatolik:", error);
-        setSuppliers([]); // Clear suppliers on error
+        setSuppliers([]);
         toast({ title: "Xatolik", description: (error as Error).message || "Ma'lumotlarni yuklashda muammo yuz berdi", variant: "destructive" });
       } finally {
         setLoading(false);
@@ -150,7 +141,7 @@ const SuppliersPage = () => {
     };
 
     fetchSuppliers();
-  }, [accessToken, router]); // Add accessToken and router to dependency array
+  }, [accessToken, router]);
 
   // Formadagi o'zgarishlarni boshqarish
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -163,32 +154,31 @@ const SuppliersPage = () => {
     e.preventDefault();
     const headers = getAuthHeaders();
     if (!headers["Authorization"]) {
-        toast({ title: "Xatolik", description: "Avtorizatsiya tokeni topilmadi.", variant: "destructive" });
-        return; // Don't submit without token
+      toast({ title: "Xatolik", description: "Avtorizatsiya tokeni topilmadi.", variant: "destructive" });
+      return;
     }
     try {
       const url = editId ? `${API_URL}${editId}/` : API_URL;
       const method = editId ? "PUT" : "POST";
       const response = await fetch(url, {
         method,
-        headers: headers, // Use the helper function
-        body: JSON.stringify({ ...formData, balance: "0.00" }), // Backendga moslashtirildi
+        headers: headers,
+        body: JSON.stringify(formData), // Balans maydoni formData ichida yuboriladi
       });
 
-       if (response.status === 401) {
-            localStorage.removeItem("access_token");
-            setAccessToken(null);
-            toast({ title: "Sessiya muddati tugagan", description: "Iltimos, tizimga qaytadan kiring.", variant: "destructive" });
-            router.push("/login");
-            return;
-        }
+      if (response.status === 401) {
+        localStorage.removeItem("access_token");
+        setAccessToken(null);
+        toast({ title: "Sessiya muddati tugagan", description: "Iltimos, tizimga qaytadan kiring.", variant: "destructive" });
+        router.push("/login");
+        return;
+      }
 
       if (!response.ok) {
-          const errorData = await response.json().catch(() => ({})); // Try to parse error details
-          console.error("Saqlash xatosi:", errorData);
-          // Try to extract specific error messages from backend
-          const errorMessages = Object.values(errorData).flat().join(' ');
-          throw new Error(`Saqlashda xatolik: ${response.statusText}. ${errorMessages || ''}`);
+        const errorData = await response.json().catch(() => ({}));
+        console.error("Saqlash xatosi:", errorData);
+        const errorMessages = Object.values(errorData).flat().join(' ');
+        throw new Error(`Saqlashda xatolik: ${response.statusText}. ${errorMessages || ''}`);
       }
 
       const updatedSupplier = await response.json();
@@ -199,33 +189,31 @@ const SuppliersPage = () => {
         );
         toast({ title: "Yangilandi", description: "Yetkazib beruvchi muvaffaqiyatli yangilandi" });
       } else {
-        // Add new supplier to the beginning of the list
         setSuppliers((prev) => [updatedSupplier, ...prev]);
         toast({ title: "Qo'shildi", description: "Yangi yetkazib beruvchi qo'shildi" });
       }
 
-      // Harakatga qarab keyingi qadamlar
       if (action === "save") {
-        resetForm(); // Closes the dialog as well
+        resetForm();
       } else if (action === "saveAndAdd") {
-        // Clear form but keep dialog open
         setFormData({
           company_name: "",
           contact_person_name: "",
           phone_number: "",
           address: "",
           description: "",
+          balance: "0.00", // Balansni qayta 0.00 qilib tiklaymiz
         });
-        setEditId(null); // Ensure it's in "add new" mode
+        setEditId(null);
       } else if (action === "saveAndContinue") {
-        // Keep dialog open, update form data with the response, set editId
-         setFormData({
-            company_name: updatedSupplier.company_name,
-            contact_person_name: updatedSupplier.contact_person_name,
-            phone_number: updatedSupplier.phone_number,
-            address: updatedSupplier.address,
-            description: updatedSupplier.description,
-         });
+        setFormData({
+          company_name: updatedSupplier.company_name,
+          contact_person_name: updatedSupplier.contact_person_name,
+          phone_number: updatedSupplier.phone_number,
+          address: updatedSupplier.address,
+          description: updatedSupplier.description,
+          balance: updatedSupplier.balance, // Balansni yangilangan qiymatdan olamiz
+        });
         setEditId(updatedSupplier.id);
       }
     } catch (error) {
@@ -237,35 +225,33 @@ const SuppliersPage = () => {
   // Yetkazib beruvchini o'chirish (DELETE)
   const handleDelete = async (id: number) => {
     const headers = getAuthHeaders();
-     if (!headers["Authorization"]) {
-        toast({ title: "Xatolik", description: "Avtorizatsiya tokeni topilmadi.", variant: "destructive" });
-        return; // Don't delete without token
+    if (!headers["Authorization"]) {
+      toast({ title: "Xatolik", description: "Avtorizatsiya tokeni topilmadi.", variant: "destructive" });
+      return;
     }
-    // Add confirmation dialog before deleting
     if (!confirm(`Rostdan ham ${suppliers.find(s => s.id === id)?.company_name || 'bu yetkazib beruvchini'} o'chirmoqchimisiz?`)) {
-        return;
+      return;
     }
 
     try {
       const response = await fetch(`${API_URL}${id}/`, {
         method: "DELETE",
-        headers: headers, // Use the helper function
+        headers: headers,
       });
 
-       if (response.status === 401) {
-            localStorage.removeItem("access_token");
-            setAccessToken(null);
-            toast({ title: "Sessiya muddati tugagan", description: "Iltimos, tizimga qaytadan kiring.", variant: "destructive" });
-            router.push("/login");
-            return;
-        }
+      if (response.status === 401) {
+        localStorage.removeItem("access_token");
+        setAccessToken(null);
+        toast({ title: "Sessiya muddati tugagan", description: "Iltimos, tizimga qaytadan kiring.", variant: "destructive" });
+        router.push("/login");
+        return;
+      }
 
-      // Check if delete was successful (status 204 No Content is common for DELETE)
       if (!response.ok && response.status !== 204) {
-           const errorData = await response.json().catch(() => ({}));
-           console.error("O'chirish xatosi:", errorData);
-           throw new Error(`O'chirishda xatolik: ${response.statusText} ${JSON.stringify(errorData)}`);
-       }
+        const errorData = await response.json().catch(() => ({}));
+        console.error("O'chirish xatosi:", errorData);
+        throw new Error(`O'chirishda xatolik: ${response.statusText} ${JSON.stringify(errorData)}`);
+      }
       setSuppliers((prev) => prev.filter((supplier) => supplier.id !== id));
       toast({ title: "O'chirildi", description: "Yetkazib beruvchi muvaffaqiyatli o'chirildi" });
     } catch (error) {
@@ -283,8 +269,9 @@ const SuppliersPage = () => {
       phone_number: supplier.phone_number,
       address: supplier.address,
       description: supplier.description,
+      balance: supplier.balance, // Balansni formaga qo'shamiz
     });
-    setOpen(true); // Open the dialog
+    setOpen(true);
   };
 
   // Formani tozalash va modalni yopish
@@ -295,13 +282,13 @@ const SuppliersPage = () => {
       phone_number: "",
       address: "",
       description: "",
+      balance: "0.00", // Balansni standart qiymatga qaytaramiz
     });
     setEditId(null);
-    setOpen(false); // Close the dialog
+    setOpen(false);
   };
 
   // Qidiruv bo'yicha filtrlangan yetkazib beruvchilar
-  // Check if supplier fields exist before calling toLowerCase
   const filteredSuppliers = suppliers.filter((supplier) =>
     [
       supplier.company_name,
@@ -309,41 +296,36 @@ const SuppliersPage = () => {
       supplier.phone_number,
     ].some(
       (field) =>
-        field && // Ensure field is not null or undefined
-        typeof field === 'string' && // Ensure field is a string
+        field &&
+        typeof field === 'string' &&
         field.toLowerCase().includes(searchTerm.toLowerCase())
     )
   );
 
-  // Helper to format balance
+  // Balansni formatlash
   const formatBalance = (balance: string) => {
-      const balanceNum = parseFloat(balance);
-      if (isNaN(balanceNum)) {
-          return <span className="text-muted-foreground">N/A</span>;
-      }
-      // Format using Intl.NumberFormat for better locale handling and currency symbol
-      const formatter = new Intl.NumberFormat('en-US', { // Or 'us-US' if available and desired
-          style: 'currency',
-          currency: 'USD', // Assuming USD, change if needed
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-      });
+    const balanceNum = parseFloat(balance);
+    if (isNaN(balanceNum)) {
+      return <span className="text-muted-foreground">N/A</span>;
+    }
+    const formatter = new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
 
-      // Display absolute value and handle sign separately for color
-      const formatted = formatter.format(Math.abs(balanceNum));
-      if (balanceNum >= 0) {
-          // Remove the negative sign if formatter added it for $0.00 edge case
-          return <span className="text-green-600">{formatted.replace('-$', '$')}</span>
-      } else {
-          // Ensure negative sign is present
-          return <span className="text-red-600">{formatted.startsWith('$') ? `-${formatted}` : formatted}</span>
-      }
-  }
+    const formatted = formatter.format(Math.abs(balanceNum));
+    if (balanceNum >= 0) {
+      return <span className="text-green-600">{formatted.replace('-$', '$')}</span>;
+    } else {
+      return <span className="text-red-600">{formatted.startsWith('$') ? `-${formatted}` : formatted}</span>;
+    }
+  };
 
-  // --- Render ---
+  // Render
   return (
     <div className="flex min-h-screen flex-col">
-      {/* Header section */}
       <div className="border-b sticky top-0 bg-background z-10">
         <div className="flex h-16 items-center px-4">
           <MainNav className="mx-6" />
@@ -354,16 +336,14 @@ const SuppliersPage = () => {
         </div>
       </div>
 
-      {/* Main Content */}
       <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
-        {/* Page Title and Add Button */}
         <div className="flex items-center justify-between space-y-2 flex-wrap gap-2">
           <h2 className="text-3xl font-bold tracking-tight">Yetkazib beruvchilar</h2>
           <Dialog open={open} onOpenChange={(isOpen) => {
-              setOpen(isOpen);
-              if (!isOpen) { // Reset form only when closing
-                  resetForm();
-              }
+            setOpen(isOpen);
+            if (!isOpen) {
+              resetForm();
+            }
           }}>
             <DialogTrigger asChild>
               <Button onClick={() => setOpen(true)}>
@@ -380,9 +360,8 @@ const SuppliersPage = () => {
                   Yetkazib beruvchi ma'lumotlarini kiriting yoki yangilang. Majburiy maydonlar (*) bilan belgilangan.
                 </DialogDescription>
               </DialogHeader>
-              {/* Form Fields */}
               <div className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto px-2 -mx-2">
-                <div className="space-y-1.5"> {/* Adjusted spacing */}
+                <div className="space-y-1.5">
                   <Label htmlFor="company_name">Kompaniya nomi *</Label>
                   <Input
                     id="company_name"
@@ -410,7 +389,7 @@ const SuppliersPage = () => {
                     value={formData.phone_number}
                     onChange={handleChange}
                     required
-                    type="tel" // Added type for better mobile experience
+                    type="tel"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -425,58 +404,63 @@ const SuppliersPage = () => {
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="description">Tavsif (Ixtiyoriy)</Label>
-                  <Input // Consider using Textarea for longer descriptions
+                  <Input
                     id="description"
                     name="description"
                     value={formData.description}
                     onChange={handleChange}
                   />
                 </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="balance">Balans ($)</Label>
+                  <Input
+                    id="balance"
+                    name="balance"
+                    type="number"
+                    step="0.01"
+                    value={formData.balance}
+                    onChange={handleChange}
+                  />
+                </div>
               </div>
-              {/* Dialog Footer with Action Buttons */}
               <DialogFooter>
-                 <Button variant="outline" onClick={resetForm}>Bekor qilish</Button>
+                <Button variant="outline" onClick={resetForm}>Bekor qilish</Button>
                 <Button
-                  type="button" // Changed from submit to button
+                  type="button"
                   className="bg-green-600 hover:bg-green-700 text-white"
                   onClick={(e) => handleSubmit(e as unknown as React.FormEvent, "save")}
-                  // Basic validation check example
                   disabled={!formData.company_name || !formData.contact_person_name || !formData.phone_number || !formData.address}
                 >
                   Saqlash
                 </Button>
-                {/* Show "Save and Add" only when adding new */}
                 {!editId && (
-                    <Button
-                        type="button"
-                        variant="secondary"
-                        onClick={(e) => handleSubmit(e as unknown as React.FormEvent, "saveAndAdd")}
-                        disabled={!formData.company_name || !formData.contact_person_name || !formData.phone_number || !formData.address}
-                    >
-                        Saqlash va Yana Qo‘shish
-                    </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={(e) => handleSubmit(e as unknown as React.FormEvent, "saveAndAdd")}
+                    disabled={!formData.company_name || !formData.contact_person_name || !formData.phone_number || !formData.address}
+                  >
+                    Saqlash va Yana Qo‘shish
+                  </Button>
                 )}
-                 {/* Show "Save and Continue" only when editing */}
-                 {editId && (
-                    <Button
-                        type="button"
-                        variant="secondary"
-                        onClick={(e) => handleSubmit(e as unknown as React.FormEvent, "saveAndContinue")}
-                        disabled={!formData.company_name || !formData.contact_person_name || !formData.phone_number || !formData.address}
-                    >
-                        Saqlash va Tahrirni Davom Ettirish
-                    </Button>
-                 )}
+                {editId && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={(e) => handleSubmit(e as unknown as React.FormEvent, "saveAndContinue")}
+                    disabled={!formData.company_name || !formData.contact_person_name || !formData.phone_number || !formData.address}
+                  >
+                    Saqlash va Tahrirni Davom Ettirish
+                  </Button>
+                )}
               </DialogFooter>
             </DialogContent>
           </Dialog>
         </div>
 
-        {/* Suppliers Table Card */}
         <Card>
           <CardContent className="p-4 md:p-6">
             <div className="space-y-4">
-              {/* Search Input */}
               <div className="flex items-center space-x-2">
                 <Input
                   placeholder="Kompaniya, shaxs, telefon bo'yicha qidirish..."
@@ -484,20 +468,16 @@ const SuppliersPage = () => {
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="max-w-sm"
                 />
-                {/* Clear search button shown only when there is a search term */}
                 {searchTerm && (
-                    <Button variant="outline" size="sm" onClick={() => setSearchTerm("")}> {/* Made button smaller */}
-                        Tozalash
-                    </Button>
+                  <Button variant="outline" size="sm" onClick={() => setSearchTerm("")}>
+                    Tozalash
+                  </Button>
                 )}
               </div>
 
-              {/* Loading State or Table */}
               {loading ? (
                 <div className="flex items-center justify-center h-[400px]">
-                  {/* You can add a spinner component here */}
-                   {/* Example using simple text */}
-                   <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
@@ -507,7 +487,6 @@ const SuppliersPage = () => {
                 <div className="rounded-md border overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      {/* === HYDRATION FIX: Ensure no whitespace between TableRow and TableHead === */}
                       <TableRow>
                         <TableHead>Kompaniya nomi</TableHead>
                         <TableHead>Aloqa shaxsi</TableHead>
@@ -515,12 +494,10 @@ const SuppliersPage = () => {
                         <TableHead>Balans</TableHead>
                         <TableHead className="text-right sticky right-0 bg-background z-[1]">Amallar</TableHead>
                       </TableRow>
-                       {/* === END HYDRATION FIX === */}
                     </TableHeader>
                     <TableBody>
                       {filteredSuppliers.length > 0 ? (
                         filteredSuppliers.map((supplier) => (
-                          // === HYDRATION FIX: Ensure no whitespace between TableRow and TableCell ===
                           <TableRow key={supplier.id}>
                             <TableCell className="font-medium">{supplier.company_name}</TableCell>
                             <TableCell>{supplier.contact_person_name}</TableCell>
@@ -528,9 +505,6 @@ const SuppliersPage = () => {
                             <TableCell>{formatBalance(supplier.balance)}</TableCell>
                             <TableCell className="text-right sticky right-0 bg-background z-[1]">
                               <div className="flex justify-end space-x-1 md:space-x-2">
-                                {/* View Button */}
-                               
-                                {/* Edit Button */}
                                 <Button
                                   variant="ghost"
                                   size="icon"
@@ -539,7 +513,6 @@ const SuppliersPage = () => {
                                 >
                                   <Edit className="h-4 w-4" />
                                 </Button>
-                                {/* Delete Button */}
                                 <Button
                                   variant="ghost"
                                   size="icon"
@@ -552,16 +525,13 @@ const SuppliersPage = () => {
                               </div>
                             </TableCell>
                           </TableRow>
-                          // === END HYDRATION FIX ===
                         ))
                       ) : (
-                        // === HYDRATION FIX: Ensure no whitespace between TableRow and TableCell ===
                         <TableRow>
                           <TableCell colSpan={5} className="h-24 text-center">
                             {searchTerm ? "Qidiruv natijasi bo'yicha yetkazib beruvchi topilmadi." : "Hozircha yetkazib beruvchilar mavjud emas."}
                           </TableCell>
                         </TableRow>
-                         // === END HYDRATION FIX ===
                       )}
                     </TableBody>
                   </Table>
@@ -572,8 +542,8 @@ const SuppliersPage = () => {
         </Card>
       </div>
       <footer className="border-t py-4 px-4 text-center text-sm text-muted-foreground mt-auto">
-                Version 1.0 | Barcha huquqlar ximoyalangan | Ushbu Dastur CDCGroup tomonidan yaratilgan | CraDev Company tomonidan qo'llab quvvatlanadi | since 2019
-            </footer>
+        Version 1.0 | Barcha huquqlar ximoyalangan | Ushbu Dastur CDCGroup tomonidan yaratilgan | CraDev Company tomonidan qo'llab quvvatlanadi | since 2019
+      </footer>
     </div>
   );
 };
