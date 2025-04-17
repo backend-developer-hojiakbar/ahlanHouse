@@ -431,12 +431,12 @@ export default function ApartmentsPage() {
         return <Badge className="bg-blue-500 hover:bg-blue-600 text-white">Bo‘sh</Badge>;
       case "band":
         return <Badge className="bg-red-500 hover:bg-red-600 text-white">Band</Badge>;
-      case "sotilgan":
-        return <Badge className="bg-green-500 hover:bg-green-600 text-white">Sotilgan</Badge>;
+      // case "sotilgan":
+      //   return <Badge className="bg-green-500 hover:bg-green-600 text-white">Sotilgan</Badge>;
       case "muddatli":
         return <Badge className="bg-orange-500 hover:bg-orange-600 text-white">Muddatli</Badge>;
-      // case "paid":
-      //   return <Badge className="bg-green-500 hover:bg-green-600 text-white">Sotilgan</Badge>;
+      case "paid":
+        return <Badge className="bg-green-500 hover:bg-green-600 text-white">Sotilgan</Badge>;
       default:
         return <Badge variant="secondary">{status || "Noma'lum"}</Badge>;
     }
