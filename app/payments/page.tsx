@@ -903,7 +903,7 @@ export default function PaymentsPage() {
     }
   };
 
-  // Delete Payment Handler
+  // Delete Payment Handler kodlari 
   const handleDeletePayment = async (paymentId: number) => {
     if (deletingPaymentId === paymentId) return;
     if (
@@ -960,6 +960,7 @@ export default function PaymentsPage() {
     }
   };
 
+    //hamma kodlar ishlayabdi 
   const filteredApartmentsForSelect = useMemo(() => {
     if (filters.object === "all") {
       return [...apartments].sort((a, b) =>
@@ -973,6 +974,7 @@ export default function PaymentsPage() {
       .sort((a, b) => (a.room_number || "").localeCompare(b.room_number || ""));
   }, [apartments, filters.object]);
 
+  //ishlash
   if (loading) {
     return (
       <div className="flex min-h-screen flex-col">

@@ -35,6 +35,7 @@ const ALL_STATUSES = [
   { value: "band", label: "Band" },
   { value: "sotilgan", label: "Sotilgan" },
   { value: "muddatli", label: "Muddatli" },
+  // { value: "paid", label: "Sotilgan" }, // `paid` holati "Sotilgan" sifatida ko'rsatiladi
 ];
 
 const ALL_ROOM_OPTIONS = [
@@ -123,11 +124,14 @@ export default function ApartmentsPage() {
   }, [router]);
 
   // Auth headers
-  const getAuthHeaders = useCallback(() => ({
-    Accept: "application/json",
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${accessToken}`,
-  }), [accessToken]);
+  const getAuthHeaders = useCallback(
+    () => ({
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    }),
+    [accessToken]
+  );
 
   // Obyektlarni yuklash
   const fetchProperties = useCallback(async () => {
@@ -164,7 +168,10 @@ export default function ApartmentsPage() {
       const queryParams = new URLSearchParams();
 
       // Filtrlarni qo‘shish
-      if (filters.status && filters.status !== "all") queryParams.append("status", filters.status);
+      if (filters.status && filters.status !== "all" && filters.status !== "") {
+        queryParams.append("status", filters.status.toLowerCase());
+        console.log("Status filtri qo‘shildi:", filters.status);
+      }
       if (filters.rooms && filters.rooms !== "all") queryParams.append("rooms", filters.rooms);
       if (filters.minPrice) queryParams.append("min_price", filters.minPrice);
       if (filters.maxPrice) queryParams.append("max_price", filters.maxPrice);
@@ -183,6 +190,7 @@ export default function ApartmentsPage() {
 
       if (queryParams.toString()) {
         url += `?${queryParams.toString()}`;
+        console.log("API so'rovi URL:", url);
       }
 
       const response = await fetch(url, {
@@ -414,26 +422,25 @@ export default function ApartmentsPage() {
   };
 
   // Status badge
-  // Status badge
-const getStatusBadge = (status: string, paymentType?: string) => {
-  if (paymentType === "muddatli") {
-    return <Badge className="bg-orange-500 hover:bg-orange-600 text-white">Muddatli</Badge>;
-  }
-  switch (status?.toLowerCase()) {
-    case "bosh":
-      return <Badge className="bg-blue-500 hover:bg-blue-600 text-white">Bo‘sh</Badge>;
-    case "band":
-      return <Badge className="bg-red-500 hover:bg-red-600 text-white">Band</Badge>;
-    case "sotilgan":
-      return <Badge className="bg-green-500 hover:bg-green-600 text-white">Sotilgan</Badge>;
-    case "muddatli":
+  const getStatusBadge = (status: string, paymentType?: string) => {
+    if (paymentType === "muddatli") {
       return <Badge className="bg-orange-500 hover:bg-orange-600 text-white">Muddatli</Badge>;
-    case "paid": // Yangi holat qo'shildi
-      return <Badge className="bg-green-500 hover:bg-green-600 text-white">Sotilgan</Badge>;
-    default:
-      return <Badge variant="secondary">{status || "Noma'lum"}</Badge>;
-  }
-};
+    }
+    switch (status?.toLowerCase()) {
+      case "bosh":
+        return <Badge className="bg-blue-500 hover:bg-blue-600 text-white">Bo‘sh</Badge>;
+      case "band":
+        return <Badge className="bg-red-500 hover:bg-red-600 text-white">Band</Badge>;
+      case "sotilgan":
+        return <Badge className="bg-green-500 hover:bg-green-600 text-white">Sotilgan</Badge>;
+      case "muddatli":
+        return <Badge className="bg-orange-500 hover:bg-orange-600 text-white">Muddatli</Badge>;
+      // case "paid":
+      //   return <Badge className="bg-green-500 hover:bg-green-600 text-white">Sotilgan</Badge>;
+      default:
+        return <Badge variant="secondary">{status || "Noma'lum"}</Badge>;
+    }
+  };
 
   // To‘lov turi etiketi
   const getPaymentTypeLabel = (paymentType: string) => {
