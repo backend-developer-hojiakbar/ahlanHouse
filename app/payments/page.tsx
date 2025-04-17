@@ -1055,49 +1055,46 @@ export default function PaymentsPage() {
                                         <TableHead>Turi</TableHead>
                                         <TableHead className="text-right">Umumiy Summa</TableHead>
                                         <TableHead className="text-right">To'langan Summa</TableHead>
-                                        <TableHead className="text-right">Qoldiq</TableHead>
+                                        {/* <TableHead className="text-right">Qoldiq</TableHead> */}
                                         <TableHead>Sana</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {paymentsLoading ? (
-                                        <TableRow>
-                                            <TableCell colSpan={14} className="h-24 text-center">
-                                                <div className="flex justify-center items-center">
-                                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Yuklanmoqda...
-                                                </div>
-                                            </TableCell>
-                                        </TableRow>
-                                    ) : filteredPayments.length === 0 ? (
-                                        <TableRow>
-                                            <TableCell colSpan={14} className="h-24 text-center">
-                                                Tanlangan filtrlar bo'yicha to'lovlar topilmadi.
-                                            </TableCell>
-                                        </TableRow>
-                                    ) : (
-                                        filteredPayments.map((payment, index) => {
-                                            const apartment = apartments.find((apt) => apt.id === payment.apartment);
-                                            return (
-                                                <TableRow
-                                                    key={payment.id}
-                                                    className={cn("hover:bg-muted/50", deletingPaymentId === payment.id && "opacity-50")}
-                                                >
-                                                    <TableCell className="font-medium">{getRowNumber(index)}</TableCell>
-                                                    <TableCell>{apartment?.object_name || "-"}</TableCell>
-                                                    <TableCell>{payment.apartment_info || apartment?.room_number || `ID: ${payment.apartment}`}</TableCell>
-                                                    <TableCell>{payment.user_fio || `ID: ${payment.user}`}</TableCell>
-                                                    <TableCell className="capitalize">{payment.payment_type || "-"}</TableCell>
-                                                    <TableCell className="text-right">{formatCurrency(payment.total_amount)}</TableCell>
-                                                    <TableCell className="text-right">{formatCurrency(payment.paid_amount)}</TableCell>
-                                                    <TableCell className="text-right font-semibold text-red-600">
-                                                        {formatCurrency(getPaymentBalance(payment))}
-                                                    </TableCell>
-                                                    <TableCell>{formatDate(payment.created_at)}</TableCell>
-                                                </TableRow>
-                                            );
-                                        })
-                                    )}
-                                </TableBody>
+    {paymentsLoading ? (
+        <TableRow>
+            <TableCell colSpan={14} className="h-24 text-center">
+                <div className="flex justify-center items-center">
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Yuklanmoqda...
+                </div>
+            </TableCell>
+        </TableRow>
+    ) : filteredPayments.length === 0 ? (
+        <TableRow>
+            <TableCell colSpan={14} className="h-24 text-center">
+                Tanlangan filtrlar bo'yicha to'lovlar topilmadi.
+            </TableCell>
+        </TableRow>
+    ) : (
+        filteredPayments.map((payment, index) => {
+            const apartment = apartments.find((apt) => apt.id === payment.apartment);
+            return (
+                <TableRow
+                    key={payment.id}
+                    className={cn("hover:bg-muted/50", deletingPaymentId === payment.id && "opacity-50")}
+                >
+                    <TableCell className="font-medium">{getRowNumber(index)}</TableCell>
+                    <TableCell>{apartment?.object_name || "-"}</TableCell>
+                    <TableCell>{payment.apartment_info || apartment?.room_number || `ID: ${payment.apartment}`}</TableCell>
+                    <TableCell>{payment.user_fio || `ID: ${payment.user}`}</TableCell>
+                    <TableCell className="capitalize">{payment.payment_type || "-"}</TableCell>
+                    <TableCell className="text-right">{formatCurrency(payment.total_amount)}</TableCell>
+                    <TableCell className="text-right">{formatCurrency(payment.paid_amount)}</TableCell>
+                    <TableCell>{formatDate(payment.payment_date)}</TableCell>
+                </TableRow>
+            );
+        })
+    )}
+</TableBody>
                             </Table>
                         </div>
                     </CardContent>

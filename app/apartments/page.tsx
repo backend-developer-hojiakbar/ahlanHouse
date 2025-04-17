@@ -414,23 +414,26 @@ export default function ApartmentsPage() {
   };
 
   // Status badge
-  const getStatusBadge = (status: string, paymentType?: string) => {
-    if (paymentType === "muddatli") {
+  // Status badge
+const getStatusBadge = (status: string, paymentType?: string) => {
+  if (paymentType === "muddatli") {
+    return <Badge className="bg-orange-500 hover:bg-orange-600 text-white">Muddatli</Badge>;
+  }
+  switch (status?.toLowerCase()) {
+    case "bosh":
+      return <Badge className="bg-blue-500 hover:bg-blue-600 text-white">Bo‘sh</Badge>;
+    case "band":
+      return <Badge className="bg-red-500 hover:bg-red-600 text-white">Band</Badge>;
+    case "sotilgan":
+      return <Badge className="bg-green-500 hover:bg-green-600 text-white">Sotilgan</Badge>;
+    case "muddatli":
       return <Badge className="bg-orange-500 hover:bg-orange-600 text-white">Muddatli</Badge>;
-    }
-    switch (status?.toLowerCase()) {
-      case "bosh":
-        return <Badge className="bg-blue-500 hover:bg-blue-600 text-white">Bo‘sh</Badge>;
-      case "band":
-        return <Badge className="bg-red-500 hover:bg-red-600 text-white">Band</Badge>;
-      case "sotilgan":
-        return <Badge className="bg-green-500 hover:bg-green-600 text-white">Sotilgan</Badge>;
-      case "muddatli":
-        return <Badge className="bg-orange-500 hover:bg-orange-600 text-white">Muddatli</Badge>;
-      default:
-        return <Badge variant="secondary">{status || "Noma'lum"}</Badge>;
-    }
-  };
+    case "paid": // Yangi holat qo'shildi
+      return <Badge className="bg-green-500 hover:bg-green-600 text-white">Sotilgan</Badge>;
+    default:
+      return <Badge variant="secondary">{status || "Noma'lum"}</Badge>;
+  }
+};
 
   // To‘lov turi etiketi
   const getPaymentTypeLabel = (paymentType: string) => {
