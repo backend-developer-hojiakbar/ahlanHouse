@@ -114,7 +114,6 @@ const initialFormData = {
   expense_type: "",
   date: new Date().toISOString().split("T")[0],
   comment: "",
-  status: "Nasiya",
 };
 const initialNewSupplierData = {
   company_name: "",
@@ -261,14 +260,15 @@ export default function ExpensesPage() {
 
   const fetchExpensesAndFilteredTotals = useCallback(async () => {
     if (!accessToken) return;
-    setLoading(true);
-    setLoadingTotals(true);
+    setLoading(true); // Start table loading
+    setLoadingTotals(true); // Start totals loading
 
-    const totalsQueryParams = new URLSearchParams();
+    // --- Build Base Query Params from Filters ---
+    const queryParams = new URLSearchParams();
     if (filters.object && filters.object !== "all")
-      totalsQueryParams.append("object", filters.object);
+      queryParams.append("object", filters.object);
     if (filters.expense_type && filters.expense_type !== "all")
-      totalsQueryParams.append("expense_type", filters.expense_type);
+      queryParams.append("expense_type", filters.expense_type);
     if (filters.dateRange && filters.dateRange !== "all") {
       const today = new Date();
       let startDate = new Date(today);
@@ -290,109 +290,169 @@ export default function ExpensesPage() {
           break;
       }
       if (startDate <= today) {
-        totalsQueryParams.append(
+        queryParams.append(
           "date__gte",
           startDate.toISOString().split("T")[0]
         );
-        if (filters.dateRange === "today")
-          totalsQueryParams.append(
+        // Add date__lte only for 'today' to avoid including future dates accidentally
+        if (filters.dateRange === "today") {
+          queryParams.append(
             "date__lte",
             today.toISOString().split("T")[0]
           );
+        }
       }
     }
     if (debouncedSearchTerm)
-      totalsQueryParams.append("search", debouncedSearchTerm);
-    totalsQueryParams.append("page_size", "10000");
+      queryParams.append("search", debouncedSearchTerm);
 
+    // --- Fetch Total Expenses ---
     let calculatedFilteredTotal = 0;
-    let calculatedFilteredPaid = 0;
-    let calculatedFilteredPending = 0;
     let calculatedSelectedObjectTotal: number | null = null;
+    const expenseTotalsQueryParams = new URLSearchParams(queryParams);
+    expenseTotalsQueryParams.append("page_size", "10000"); // Fetch all for sum
 
-    try {
-      const totalsResponse = await fetch(
-        `${API_BASE_URL}/expenses/?${totalsQueryParams.toString()}`,
-        {
-          method: "GET",
-          headers: getAuthHeaders(),
-        }
-      );
-      if (!totalsResponse.ok) {
+    const fetchTotalExpensesPromise = fetch(
+      `${API_BASE_URL}/expenses/?${expenseTotalsQueryParams.toString()}`,
+      { method: "GET", headers: getAuthHeaders() }
+    )
+      .then(async (response) => {
+        if (!response.ok) {
         console.error(
-          `Filtered totals yuklanmadi (Status: ${totalsResponse.status})`
-        );
-      } else {
-        const totalsData = await totalsResponse.json();
-        const allFilteredExpenses = totalsData.results || [];
+            `Umumiy xarajatlar yuklanmadi (Status: ${response.status})`
+          );
+          return { total: 0, objectTotal: null }; // Return default on error
+        }
+        const data = await response.json();
+        const allFilteredExpenses = data.results || [];
+        let total = 0;
+        let objectTotal: number | null = null;
         allFilteredExpenses.forEach((expense: Expense) => {
           const amount = Number(expense.amount || 0);
-          calculatedFilteredTotal += amount;
-          if (expense.status === "To‘langan") {
-            calculatedFilteredPaid += amount;
-          } else if (expense.status === "Kutilmoqda") {
-            calculatedFilteredPending += amount;
-          }
+          total += amount;
+          // Calculate selected object total simultaneously
           if (
             filters.object &&
             filters.object !== "all" &&
             expense.object?.toString() === filters.object
           ) {
-            calculatedSelectedObjectTotal =
-              (calculatedSelectedObjectTotal ?? 0) + amount;
+            objectTotal = (objectTotal ?? 0) + amount;
           }
         });
-      }
-    } catch (error: any) {
-      console.error("Filtered totals yuklashda xatolik:", error);
-    } finally {
-      setFilteredTotalAmount(calculatedFilteredTotal);
-      setFilteredPaidAmount(calculatedFilteredPaid);
-      setFilteredPendingAmount(calculatedFilteredPending);
-      setSelectedObjectTotal(calculatedSelectedObjectTotal);
-      setLoadingTotals(false);
-    }
+        return { total, objectTotal };
+      })
+      .catch((error) => {
+        console.error("Umumiy xarajatlarni yuklashda xatolik:", error);
+        toast.error("Umumiy xarajatlarni yuklashda xatolik yuz berdi.");
+        return { total: 0, objectTotal: null }; // Return default on error
+      });
 
-    const tableQueryParams = new URLSearchParams(totalsQueryParams);
-    tableQueryParams.delete("page_size");
+    // --- Fetch Total Supplier Payments ---
+    // IMPORTANT: Assumes /supplier-payments/ supports the same filters
+    let calculatedFilteredPaid = 0;
+    const paymentTotalsQueryParams = new URLSearchParams(queryParams);
+    paymentTotalsQueryParams.append("page_size", "10000"); // Fetch all for sum
+
+    const fetchTotalPaymentsPromise = fetch(
+      `${API_BASE_URL}/supplier-payments/?${paymentTotalsQueryParams.toString()}`,
+      { method: "GET", headers: getAuthHeaders() }
+    )
+      .then(async (response) => {
+        if (!response.ok) {
+          // Handle case where payments endpoint might not support all filters
+          const errorText = await response.text();
+          console.warn(
+            `To'langan summa yuklanmadi (Status: ${response.status}). API /supplier-payments/ uchun barcha filtrlarni qo'llab-quvvatlamasligi mumkin. Xato: ${errorText}`
+          );
+           // Optionally show a milder toast warning here
+          // toast.warn("To'langan summa aniq hisoblanmadi (API cheklovi).");
+          return 0; // Return 0 if payments can't be fetched/filtered correctly
+        }
+        const data = await response.json();
+        // Assuming payment structure has 'results' and each item has 'amount'
+        const allFilteredPayments = data.results || [];
+        return allFilteredPayments.reduce(
+          (sum: number, payment: { amount?: string | number }) =>
+            sum + Number(payment.amount || 0),
+          0
+        );
+      })
+      .catch((error) => {
+        console.error("To'lovlarni yuklashda xatolik:", error);
+        toast.error("To'langan summani yuklashda xatolik yuz berdi.");
+        return 0; // Return default on error
+      });
+
+
+    // --- Fetch Paginated Expenses for Table ---
+    const tableQueryParams = new URLSearchParams(queryParams); // Use base filters
     tableQueryParams.set("page", currentPage.toString());
     tableQueryParams.set("page_size", itemsPerPage.toString());
 
-    try {
-      const tableResponse = await fetch(
+    const fetchTableExpensesPromise = fetch(
         `${API_BASE_URL}/expenses/?${tableQueryParams.toString()}`,
-        {
-          method: "GET",
-          headers: getAuthHeaders(),
-        }
-      );
-      if (!tableResponse.ok) {
-        const errorData = await tableResponse
+      { method: "GET", headers: getAuthHeaders() }
+    )
+      .then(async (response) => {
+        if (!response.ok) {
+           const errorData = await response
           .json()
           .catch(() => ({
-            detail: `Serverdan javob o'qilmadi (Status: ${tableResponse.status})`,
+              detail: `Serverdan javob o'qilmadi (Status: ${response.status})`,
           }));
         throw new Error(
-          `Xarajatlar sahifasi yuklanmadi (Status: ${tableResponse.status}): ${
+            `Xarajatlar sahifasi yuklanmadi (Status: ${response.status}): ${
             errorData.detail || JSON.stringify(errorData)
           }`
         );
       }
-      const tableData = await tableResponse.json();
-      setExpenses(tableData.results || []);
-      setTotalPages(Math.ceil(tableData.count / itemsPerPage));
-    } catch (error: any) {
+        return response.json();
+      })
+      .catch((error) => {
       console.error("Paginated expenses yuklashda xatolik:", error);
       toast.error(error.message || "Xarajatlar jadvalini yuklashda xatolik");
+          return { results: [], count: 0 }; // Return default on error
+      });
+
+    // --- Process results after all promises settle ---
+    try {
+      const [totalExpensesResult, totalPaymentsResult, tableData] = await Promise.all([
+          fetchTotalExpensesPromise,
+          fetchTotalPaymentsPromise,
+          fetchTableExpensesPromise
+      ]);
+
+      calculatedFilteredTotal = totalExpensesResult.total;
+      calculatedSelectedObjectTotal = totalExpensesResult.objectTotal;
+      calculatedFilteredPaid = totalPaymentsResult;
+
+      // Set state based on fetched data
+      setFilteredTotalAmount(calculatedFilteredTotal);
+      setFilteredPaidAmount(calculatedFilteredPaid);
+      setFilteredPendingAmount(calculatedFilteredTotal - calculatedFilteredPaid); // Calculate Nasiya
+      setSelectedObjectTotal(calculatedSelectedObjectTotal);
+
+      setExpenses(tableData.results || []);
+      setTotalPages(Math.ceil((tableData.count || 0) / itemsPerPage));
+
+    } catch (error) {
+        // Errors are mostly handled within individual fetches, but catch any Promise.all error
+        console.error("Xarajatlar va jami summalarni yuklashda umumiy xatolik:", error);
+        // Reset states to default/empty on major failure
+        setFilteredTotalAmount(0);
+        setFilteredPaidAmount(0);
+        setFilteredPendingAmount(0);
+        setSelectedObjectTotal(null);
       setExpenses([]);
       setTotalPages(1);
     } finally {
-      setLoading(false);
+      setLoadingTotals(false); // Stop totals loading
+      setLoading(false); // Stop table loading
     }
   }, [accessToken, filters, currentPage, debouncedSearchTerm, getAuthHeaders]);
 
   const fetchModalExpenses = useCallback(
-    async (status: "To‘langan" | "Kutilmoqda") => {
+    async (status: "To'langan" | "Kutilmoqda") => {
       if (!accessToken) return;
       setModalLoading(true);
       setModalExpenses([]);
@@ -447,7 +507,7 @@ export default function ExpensesPage() {
           }
         );
         if (!response.ok) {
-          throw new Error(`${status} xarajatlar ro‘yxatini yuklashda xatolik`);
+          throw new Error(`${status} xarajatlar ro'yxatini yuklashda xatolik`);
         }
         const data = await response.json();
         setModalExpenses(data.results || []);
@@ -495,8 +555,7 @@ export default function ExpensesPage() {
         headers: getAuthHeaders(),
         body: JSON.stringify({
           ...expenseData,
-          status:
-            expenseData.status === "Nasiya" ? "Kutilmoqda" : expenseData.status,
+          status: "Kutilmoqda",
         }),
       });
       if (!response.ok) {
@@ -512,12 +571,8 @@ export default function ExpensesPage() {
       }
       toast.success("Xarajat muvaffaqiyatli qo'shildi");
       await fetchExpensesAndFilteredTotals();
-      if (action === "save") {
         setOpen(false);
         setFormData(initialFormData);
-      } else {
-        setFormData(initialFormData);
-      }
     } catch (error: any) {
       toast.error(error.message);
     } finally {
@@ -555,7 +610,6 @@ export default function ExpensesPage() {
         expense_type: data.expense_type?.toString() || "",
         date: formattedDate,
         comment: data.comment || "",
-        status: data.status === "Kutilmoqda" ? "Nasiya" : data.status,
       });
     } catch (error: any) {
       toast.error(error.message);
@@ -579,8 +633,7 @@ export default function ExpensesPage() {
         headers: getAuthHeaders(),
         body: JSON.stringify({
           ...expenseData,
-          status:
-            expenseData.status === "Nasiya" ? "Kutilmoqda" : expenseData.status,
+          status: "Kutilmoqda", // Har doim "Kutilmoqda" (Nasiya) bo'ladi
         }),
       });
       if (!response.ok) {
@@ -746,7 +799,7 @@ export default function ExpensesPage() {
   };
   const handleOpenPaidModal = () => {
     setPaidModalOpen(true);
-    fetchModalExpenses("To‘langan");
+    fetchModalExpenses("To'langan");
   };
   const handleOpenPendingModal = () => {
     setPendingModalOpen(true);
@@ -788,7 +841,6 @@ export default function ExpensesPage() {
       expense_type: Number(formData.expense_type),
       date: formData.date,
       comment: formData.comment.trim(),
-      status: formData.status,
     };
 
     createExpense(expenseData, action);
@@ -807,7 +859,6 @@ export default function ExpensesPage() {
       expense_type: Number(formData.expense_type),
       date: formData.date,
       comment: formData.comment.trim(),
-      status: formData.status,
     };
     updateExpense(currentExpense.id, expenseData, action);
   };
@@ -916,7 +967,7 @@ export default function ExpensesPage() {
               <TableHead>Yetkazib beruvchi</TableHead>
               <TableHead>Tavsif</TableHead>
               <TableHead>Turi</TableHead>
-              <TableHead>Status</TableHead>
+              {/* <TableHead>Status</TableHead> */}
               <TableHead className="text-right w-[150px]">Summa</TableHead>
               <TableHead className="text-right w-[100px]">Amallar</TableHead>
             </TableRow>
@@ -948,10 +999,10 @@ export default function ExpensesPage() {
                     {expense.expense_type_name || `ID: ${expense.expense_type}`}
                   </Badge>
                 </TableCell>
-                <TableCell>
+                {/* <TableCell>
                   <Badge
                     className={`whitespace-nowrap ${
-                      expense.status === "To‘langan"
+                      expense.status === "To'langan"
                         ? "bg-green-500 text-white"
                         : "bg-red-500 text-white"
                     }`}
@@ -960,7 +1011,7 @@ export default function ExpensesPage() {
                       ? "Nasiya"
                       : expense.status}
                   </Badge>
-                </TableCell>
+                </TableCell> */}
                 <TableCell className="text-right font-semibold">
                   {formatCurrency(expense.amount)}
                 </TableCell>
@@ -1298,7 +1349,7 @@ export default function ExpensesPage() {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="space-y-1">
+                    {/* <div className="space-y-1">
                       <Label htmlFor="status">Status *</Label>
                       <Select
                         required
@@ -1312,11 +1363,11 @@ export default function ExpensesPage() {
                           <SelectValue placeholder="Tanlang..." />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="To‘langan">To‘langan</SelectItem>
+                          <SelectItem value="To'langan">To'langan</SelectItem>
                           <SelectItem value="Nasiya">Nasiya</SelectItem>
                         </SelectContent>
                       </Select>
-                    </div>
+                    </div> */}
                   </div>
                   <div className="space-y-1 sm:col-span-2">
                     <Label htmlFor="comment">Tavsif / Izoh *</Label>
@@ -1670,7 +1721,7 @@ export default function ExpensesPage() {
                           <SelectValue placeholder="Tanlang..." />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="To‘langan">To‘langan</SelectItem>
+                          <SelectItem value="To'langan">To'langan</SelectItem>
                           <SelectItem value="Nasiya">Nasiya</SelectItem>
                         </SelectContent>
                       </Select>
@@ -2008,9 +2059,9 @@ export default function ExpensesPage() {
         <Dialog open={paidModalOpen} onOpenChange={setPaidModalOpen}>
           <DialogContent className="sm:max-w-[800px] max-h-[80vh] flex flex-col">
             <DialogHeader>
-              <DialogTitle>To‘langan Xarajatlar Ro‘yxati</DialogTitle>
+              <DialogTitle>To'langan Xarajatlar Ro'yxati</DialogTitle>
               <DialogDescription>
-                Quyida filtrlangan to‘langan xarajatlar ro‘yxati keltirilgan.
+                Quyida filtrlangan to'langan xarajatlar ro'yxati keltirilgan.
               </DialogDescription>
             </DialogHeader>
             <div className="flex-1 overflow-y-auto">
@@ -2024,7 +2075,7 @@ export default function ExpensesPage() {
               ) : modalExpenses.length === 0 ? (
                 <div className="flex items-center justify-center h-[200px]">
                   <p className="text-muted-foreground">
-                    To‘langan xarajatlar topilmadi.
+                    To'langan xarajatlar topilmadi.
                   </p>
                 </div>
               ) : (
@@ -2105,9 +2156,9 @@ export default function ExpensesPage() {
         <Dialog open={pendingModalOpen} onOpenChange={setPendingModalOpen}>
           <DialogContent className="sm:max-w-[800px] max-h-[80vh] flex flex-col">
             <DialogHeader>
-              <DialogTitle>Nasiya Xarajatlar Ro‘yxati</DialogTitle>
+              <DialogTitle>Nasiya Xarajatlar Ro'yxati</DialogTitle>
               <DialogDescription>
-                Quyida filtrlangan nasiya xarajatlar ro‘yxati keltirilgan.
+                Quyida filtrlangan nasiya xarajatlar ro'yxati keltirilgan.
               </DialogDescription>
             </DialogHeader>
             <div className="flex-1 overflow-y-auto">

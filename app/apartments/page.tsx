@@ -31,11 +31,10 @@ import { toast } from "@/hooks/use-toast";
 import { Toaster, toast as hotToast } from "react-hot-toast";
 
 const ALL_STATUSES = [
-  { value: "bosh", label: "Bo‘sh" },
+  { value: "bosh", label: "Bo'sh" },
   { value: "band", label: "Band" },
   { value: "sotilgan", label: "Sotilgan" },
   { value: "muddatli", label: "Muddatli" },
-  // { value: "paid", label: "Sotilgan" }, // `paid` holati "Sotilgan" sifatida ko'rsatiladi
 ];
 
 const ALL_ROOM_OPTIONS = [
@@ -167,23 +166,29 @@ export default function ApartmentsPage() {
       let url = `${API_BASE_URL}/apartments/`;
       const queryParams = new URLSearchParams();
 
-      // Filtrlarni qo‘shish
-      if (filters.status && filters.status !== "all" && filters.status !== "") {
-        queryParams.append("status", filters.status.toLowerCase());
-        console.log("Status filtri qo‘shildi:", filters.status);
-      }
-      if (filters.rooms && filters.rooms !== "all") queryParams.append("rooms", filters.rooms);
-      if (filters.minPrice) queryParams.append("min_price", filters.minPrice);
-      if (filters.maxPrice) queryParams.append("max_price", filters.maxPrice);
-      if (filters.minArea) queryParams.append("min_area", filters.minArea);
-      if (filters.maxArea) queryParams.append("max_area", filters.maxArea);
-      if (filters.floor && filters.floor !== "all") queryParams.append("floor", filters.floor);
-      if (filters.search) queryParams.append("search", filters.search);
+      // Filtrlarni qo'shish
       if (filters.property && filters.property !== "all") {
         queryParams.append("object", filters.property);
-      }
-      if (propertyIdParam && !filters.property) {
+      } else if (propertyIdParam && filters.property !== "all") {
         queryParams.append("object", propertyIdParam);
+      }
+      if (filters.rooms && filters.rooms !== "all") queryParams.append("rooms", filters.rooms);
+      if (filters.minPrice) queryParams.append("price__gte", filters.minPrice);
+      if (filters.maxPrice) queryParams.append("price__lte", filters.maxPrice);
+      if (filters.minArea) queryParams.append("area__gte", filters.minArea);
+      if (filters.maxArea) queryParams.append("area__lte", filters.maxArea);
+      if (filters.floor && filters.floor !== "all") queryParams.append("floor", filters.floor);
+      if (filters.search) queryParams.append("search", filters.search);
+
+      // Status filtrini APIga yuborish
+      if (filters.status && filters.status !== "all" && filters.status !== "") {
+        if (filters.status.toLowerCase() === "sotilgan") {
+          queryParams.append("status__in", "paid,sotilgan");
+          console.log("Status filtri qo'shildi (paid,sotilgan):", filters.status);
+        } else {
+          queryParams.append("status", filters.status.toLowerCase());
+          console.log("Status filtri qo'shildi:", filters.status);
+        }
       }
 
       queryParams.append("page_size", "1000");
@@ -191,6 +196,8 @@ export default function ApartmentsPage() {
       if (queryParams.toString()) {
         url += `?${queryParams.toString()}`;
         console.log("API so'rovi URL:", url);
+      } else {
+         console.log("API so'rovi URL (filtrsiz):", url);
       }
 
       const response = await fetch(url, {
@@ -210,66 +217,94 @@ export default function ApartmentsPage() {
           router.push("/login");
           return;
         }
+         const errorData = await response.text();
+         console.error("API xato javobi:", errorData);
         throw new Error(`Xonadonlarni olishda xatolik (${response.status})`);
       }
 
       const data = await response.json();
       let tempApartments = data.results || [];
 
-      // Har bir xonadon uchun to‘lov ma’lumotlari va obyekt nomini olish
-      const detailFetchPromises = tempApartments.map(async (apartment: any) => {
+       // Har bir xonadon uchun to'lov ma'lumotlari va obyekt nomini olish
+       const detailFetchPromises = tempApartments.map(async (apartment: any) => {
         let payment = null;
         try {
-          const paymentResponse = await fetch(
-            `${API_BASE_URL}/payments/?apartment=${apartment.id}&ordering=-created_at`,
-            { method: "GET", headers: getAuthHeaders() }
-          );
+          const paymentUrl = `${API_BASE_URL}/payments/?apartment=${apartment.id}&ordering=-created_at`;
+          const paymentResponse = await fetch(paymentUrl, { method: "GET", headers: getAuthHeaders() });
           if (paymentResponse.ok) {
             const paymentData = await paymentResponse.json();
             if (paymentData.results && paymentData.results.length > 0) {
               payment = paymentData.results[0];
             }
+          } else {
+             console.warn(`Xonadon ${apartment.id} uchun to'lov ma'lumotlarini olishda javob xatoligi (${paymentResponse.status})`);
           }
         } catch (error) {
-          console.warn(`To‘lov ma’lumotlarini olishda xatolik (ID: ${apartment.id})`);
+          console.warn(`Xonadon ${apartment.id} uchun to'lov ma'lumotlarini olishda xatolik:`, error);
         }
-
-        let objectName = apartment.object_name || "Noma'lum obyekt";
-        if (!apartment.object_name && apartment.object) {
-          const objectId = typeof apartment.object === "object" ? apartment.object.id : apartment.object;
-          try {
-            const objectResponse = await fetch(`${API_BASE_URL}/objects/${objectId}/`, {
-              method: "GET",
-              headers: getAuthHeaders(),
-            });
-            if (objectResponse.ok) {
-              const objectData = await objectResponse.json();
-              objectName = objectData.name || "Noma'lum obyekt";
+         let objectName = apartment.object_name || "Noma'lum obyekt";
+         const currentProperties = properties;
+         if (!apartment.object_name && apartment.object) {
+           const objectId = typeof apartment.object === "object" ? apartment.object.id : apartment.object;
+           const foundProperty = currentProperties.find(p => p.id === objectId);
+           if (foundProperty) {
+             objectName = foundProperty.name;
+           } else {
+            try {
+                const objectResponse = await fetch(`${API_BASE_URL}/objects/${objectId}/`, { method: "GET", headers: getAuthHeaders() });
+                if (objectResponse.ok) {
+                  const objectData = await objectResponse.json();
+                  objectName = objectData.name || "Noma'lum obyekt";
+                } else {
+                    console.warn(`Obyekt nomini olishda javob xatoligi (ID: ${objectId}, Status: ${objectResponse.status})`);
+                }
+            } catch (error) {
+                console.warn(`Obyekt nomini olishda xatolik (ID: ${objectId}):`, error);
             }
-          } catch (error) {
-            console.warn(`Obyekt nomini olishda xatolik (ID: ${objectId})`);
-          }
-        }
+           }
+         }
 
-        return {
-          ...apartment,
-          object_name: objectName,
-          payment,
-          reservation_date: apartment.reserved_until,
-        };
-      });
+         // API statusini frontend uchun normallashtirish
+         const originalApiStatus = apartment.status; // Asl statusni saqlab qolamiz (agar kerak bo'lsa)
+         const displayStatus = originalApiStatus?.toLowerCase() === 'paid' ? 'sotilgan' : originalApiStatus;
 
-      const detailedApartments = await Promise.all(detailFetchPromises);
+         return {
+           ...apartment,
+           status: displayStatus, // Frontendda ishlatish uchun normallashtirilgan status
+           originalStatus: originalApiStatus, // Asl API statusini ham saqlashimiz mumkin
+           object_name: objectName,
+           payment,
+           reservation_date: apartment.reserved_until,
+         };
+       });
 
-      // Tartiblash: obyekt ID bo‘yicha, keyin xona raqami bo‘yicha
-      detailedApartments.sort((a, b) => {
-        const aObject = typeof a.object === "object" ? a.object.id : a.object;
-        const bObject = typeof b.object === "object" ? b.object.id : b.object;
-        if (aObject === bObject) {
-          return a.room_number.localeCompare(b.room_number, undefined, { numeric: true });
-        }
-        return aObject - bObject;
-      });
+       let detailedApartments = await Promise.all(detailFetchPromises);
+
+       // --- YANGI QO'SHILGAN CLIENT-SIDE FILTER ---
+       // Agar "Sotilgan" filtri tanlangan bo'lsa, API natijasini qo'shimcha filtrlaymiz
+       if (filters.status.toLowerCase() === 'sotilgan') {
+         console.log("Client-side 'Sotilgan' filtrini qo'llash...");
+         detailedApartments = detailedApartments.filter(apt =>
+           apt.status.toLowerCase() === 'sotilgan' // Faqat normallashtirilgan statusi 'sotilgan' bo'lganlarni qoldiramiz
+         );
+       }
+       // ------------------------------------------
+
+       // Tartiblash
+       const currentPropertiesForSort = properties;
+       detailedApartments = detailedApartments.sort((a, b) => {
+            const aObject = typeof a.object === 'object' ? a.object.id : a.object;
+            const bObject = typeof b.object === 'object' ? b.object.id : b.object;
+            const aObjectName = currentPropertiesForSort.find(p => p.id === aObject)?.name || a.object_name || '';
+            const bObjectName = currentPropertiesForSort.find(p => p.id === bObject)?.name || b.object_name || '';
+            const objectNameComparison = aObjectName.localeCompare(bObjectName);
+            if (objectNameComparison !== 0) return objectNameComparison;
+            const roomNumA = parseInt(a.room_number.replace(/[^0-9]/g, ''), 10) || 0;
+            const roomNumB = parseInt(b.room_number.replace(/[^0-9]/g, ''), 10) || 0;
+            if (roomNumA !== roomNumB) return roomNumA - roomNumB;
+            return a.room_number.localeCompare(b.room_number);
+        });
+
 
       setApartments(detailedApartments);
     } catch (error) {
@@ -278,12 +313,13 @@ export default function ApartmentsPage() {
         description: (error as Error).message || "Xonadonlarni yuklashda xatolik.",
         variant: "destructive",
       });
+      console.error("Xonadonlarni yuklash xatosi:", error);
     } finally {
       setLoading(false);
     }
-  }, [accessToken, filters, propertyIdParam, getAuthHeaders, router]);
+  }, [accessToken, filters, propertyIdParam, getAuthHeaders, router, properties]);
 
-  // Xonadonni o‘chirish
+  // Xonadonni o'chirish
   const confirmDeleteApartment = useCallback(async () => {
     if (!accessToken || !apartmentToDelete) return;
 
@@ -305,17 +341,17 @@ export default function ApartmentsPage() {
           router.push("/login");
           return;
         }
-        throw new Error(`Xonadonni o‘chirishda xatolik (${response.status})`);
+        throw new Error(`Xonadonni o'chirishda xatolik (${response.status})`);
       }
 
-      hotToast.success("Muvaffaqiyatli o‘chirildi", {
+      hotToast.success("Muvaffaqiyatli o'chirildi", {
         position: "top-right",
       });
       fetchApartments();
     } catch (error) {
       toast({
         title: "Xatolik",
-        description: (error as Error).message || "Xonadonni o‘chirishda xatolik.",
+        description: (error as Error).message || "Xonadonni o'chirishda xatolik.",
         variant: "destructive",
       });
     } finally {
@@ -335,8 +371,9 @@ export default function ApartmentsPage() {
         area: parseFloat(editForm.area) || selectedApartment.area,
         floor: parseInt(editForm.floor) || selectedApartment.floor,
         price: parseFloat(editForm.price) || selectedApartment.price,
-        status: editForm.status || selectedApartment.status,
-        object: parseInt(editForm.object) || selectedApartment.object,
+        // Tahrirlashda 'sotilgan' ni 'paid' ga o'girish (agar API shuni kutsa)
+        status: editForm.status === 'sotilgan' ? 'paid' : (editForm.status || selectedApartment.status),
+        object: parseInt(editForm.object) || (typeof selectedApartment.object === 'object' ? selectedApartment.object.id : selectedApartment.object),
       };
 
       const response = await fetch(`${API_BASE_URL}/apartments/${selectedApartment.id}/`, {
@@ -357,7 +394,8 @@ export default function ApartmentsPage() {
           router.push("/login");
           return;
         }
-        throw new Error(`Xonadonni yangilashda xatolik (${response.status})`);
+         const errorData = await response.json().catch(() => ({ detail: "Server xatosi yoki javob JSON emas." }));
+         throw new Error(`Xonadonni yangilashda xatolik (${response.status}): ${errorData.detail || JSON.stringify(errorData)}`);
       }
 
       toast({
@@ -372,25 +410,25 @@ export default function ApartmentsPage() {
         description: (error as Error).message || "Xonadonni yangilashda xatolik.",
         variant: "destructive",
       });
+       console.error("Yangilash xatosi:", error);
     }
   }, [accessToken, selectedApartment, editForm, fetchApartments, getAuthHeaders, router]);
 
-  // Ma’lumotlarni boshlang‘ich yuklash
+  // 1. Faqat Obyektlarni yuklash uchun useEffect
   useEffect(() => {
     if (accessToken) {
       fetchProperties();
-      fetchApartments();
     }
-  }, [accessToken, fetchProperties, fetchApartments]);
+  }, [accessToken, fetchProperties]);
 
-  // Filtr o‘zgarishlarini qayta yuklash
+  // 2. Xonadonlarni yuklash uchun useEffect (Filtrlar yoki token o'zgarganda)
   useEffect(() => {
-    if (accessToken && properties.length > 0) {
+    if (accessToken) {
       fetchApartments();
     }
-  }, [filters, propertyIdParam, accessToken, properties, fetchApartments]);
+  }, [accessToken, filters, propertyIdParam, fetchApartments]);
 
-  // Filtr o‘zgarishi
+  // Filtr o'zgarishi
   const handleFilterChange = (name: string, value: string) => {
     setFilters((prev) => ({
       ...prev,
@@ -407,13 +445,14 @@ export default function ApartmentsPage() {
       area: apartment.area.toString() || "",
       floor: apartment.floor.toString() || "",
       price: apartment.price.toString() || "",
-      status: apartment.status || "",
+      // Modalda 'sotilgan' ko'rsatish, API 'paid' saqlasa ham
+      status: apartment.status === 'paid' ? 'sotilgan' : apartment.status || "",
       object: (typeof apartment.object === "object" ? apartment.object.id : apartment.object).toString() || "",
     });
     setEditModalOpen(true);
   };
 
-  // Tahrirlash formasi o‘zgarishi
+  // Tahrirlash formasi o'zgarishi
   const handleEditFormChange = (name: string, value: string) => {
     setEditForm((prev) => ({
       ...prev,
@@ -423,32 +462,37 @@ export default function ApartmentsPage() {
 
   // Status badge
   const getStatusBadge = (status: string, paymentType?: string) => {
+    // API dan kelgan 'paid' ni 'sotilgan' deb ko'rsatish
+    const displayStatus = status?.toLowerCase() === 'paid' ? 'sotilgan' : status?.toLowerCase();
+
+    // Muddatli to'lovni birinchi tekshirish (agar payment mavjud bo'lsa)
     if (paymentType === "muddatli") {
       return <Badge className="bg-orange-500 hover:bg-orange-600 text-white">Muddatli</Badge>;
     }
-    switch (status?.toLowerCase()) {
+
+    switch (displayStatus) {
       case "bosh":
-        return <Badge className="bg-blue-500 hover:bg-blue-600 text-white">Bo‘sh</Badge>;
+        return <Badge className="bg-blue-500 hover:bg-blue-600 text-white">Bo'sh</Badge>;
       case "band":
         return <Badge className="bg-red-500 hover:bg-red-600 text-white">Band</Badge>;
-      // case "sotilgan":
-      //   return <Badge className="bg-green-500 hover:bg-green-600 text-white">Sotilgan</Badge>;
-      case "muddatli":
-        return <Badge className="bg-orange-500 hover:bg-orange-600 text-white">Muddatli</Badge>;
-      case "paid":
+      case "sotilgan": // Endi 'paid' ham shu yerga tushadi
         return <Badge className="bg-green-500 hover:bg-green-600 text-white">Sotilgan</Badge>;
+      case "pending": // API dan kelgan 'pending' holati uchun
+         return <Badge className="bg-yellow-500 hover:bg-yellow-600 text-white">Kutilmoqda</Badge>; // Or "Muddatli"? Let's use "Kutilmoqda"
+      case "muddatli": // Bu holat payment mavjud bo'lmaganda yoki boshqa sabab bilan kelishi mumkin
+        return <Badge className="bg-orange-500 hover:bg-orange-600 text-white">Muddatli</Badge>;
       default:
         return <Badge variant="secondary">{status || "Noma'lum"}</Badge>;
     }
   };
 
-  // To‘lov turi etiketi
+  // To'lov turi etiketi
   const getPaymentTypeLabel = (paymentType: string) => {
     switch (paymentType?.toLowerCase()) {
       case "naqd":
-        return "Naqd (To‘liq)";
+        return "Naqd (To'liq)";
       case "muddatli":
-        return "Muddatli to‘lov";
+        return "Muddatli to'lov";
       case "ipoteka":
         return "Ipoteka";
       case "subsidiya":
@@ -644,13 +688,13 @@ export default function ApartmentsPage() {
                         <div className="flex items-center">
                           <CreditCard className="mr-1.5 h-3.5 w-3.5" />
                           <span className="truncate">
-                            To‘lov turi: {getPaymentTypeLabel(apartment.payment.payment_type)}
+                            To'lov turi: {getPaymentTypeLabel(apartment.payment.payment_type)}
                           </span>
                         </div>
                         {apartment.payment.payment_type === "naqd" && (
                           <div className="truncate">
                             <span>
-                              Jami to‘langan: {formatCurrency(Number(apartment.payment.total_amount))}
+                              Jami to'langan: {formatCurrency(Number(apartment.payment.total_amount))}
                             </span>
                           </div>
                         )}
@@ -658,7 +702,7 @@ export default function ApartmentsPage() {
                           <div className="space-y-1">
                             <div className="truncate">
                               <span>
-                                Boshlang‘ich: {formatCurrency(Number(apartment.payment.initial_payment))}
+                                Boshlang'ich: {formatCurrency(Number(apartment.payment.initial_payment))}
                               </span>
                             </div>
                             <div className="truncate">
@@ -703,7 +747,7 @@ export default function ApartmentsPage() {
                             setDeleteModalOpen(true);
                           }}
                         >
-                          <Trash2 className="mr-2 h-4 w-4" /> O‘chirish
+                          <Trash2 className="mr-2 h-4 w-4" /> O'chirish
                         </Button>
                       </div>
                     ) : (
@@ -717,7 +761,7 @@ export default function ApartmentsPage() {
                           setDeleteModalOpen(true);
                         }}
                       >
-                        <Trash2 className="mr-2 h-4 w-4" /> O‘chirish
+                        <Trash2 className="mr-2 h-4 w-4" /> O'chirish
                       </Button>
                     )}
                     <Button
@@ -875,17 +919,17 @@ export default function ApartmentsPage() {
       <Dialog open={deleteModalOpen} onOpenChange={setDeleteModalOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Xonadonni o‘chirish</DialogTitle>
+            <DialogTitle>Xonadonni o'chirish</DialogTitle>
           </DialogHeader>
           <div className="py-4">
-            <p>Haqiqatan ham ushbu xonadonni o‘chirmoqchimisiz?</p>
+            <p>Haqiqatan ham ushbu xonadonni o'chirmoqchimisiz?</p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteModalOpen(false)}>
               Bekor qilish
             </Button>
             <Button variant="destructive" onClick={confirmDeleteApartment}>
-              O‘chirish
+              O'chirish
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -893,7 +937,7 @@ export default function ApartmentsPage() {
 
       <footer className="border-t bg-muted/40 py-4">
         <div className="container mx-auto text-center text-sm text-muted-foreground">
-          Version 1.0 | Barcha huquqlar ximoyalangan | Ushbu Dastur CDCGroup tomonidan yaratilgan | CraDev Company tomonidan qo‘llab quvvatlanadi | since 2019
+          Version 1.0 | Barcha huquqlar ximoyalangan | Ushbu Dastur CDCGroup tomonidan yaratilgan | CraDev Company tomonidan qo'llab quvvatlanadi | since 2019
         </div>
       </footer>
     </div>
