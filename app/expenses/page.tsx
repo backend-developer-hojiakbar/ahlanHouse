@@ -1008,9 +1008,7 @@ export default function ExpensesPage() {
                                         {/* Display amount clearly */}
                                         {formatCurrency(expense.amount)}
                                          {/* Indicate pending status visually if balance > 0 */}
-                                         {isPending && (
-                                             <Badge variant="outline" className="ml-2 bg-yellow-100 text-yellow-800 border-yellow-300 text-xs">Nasiya</Badge>
-                                         )}
+                                        
                                     </TableCell>
                                     <TableCell className="text-right">
                                         <div className="flex justify-end space-x-1">
