@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { MainNav } from "@/components/main-nav";
 import { UserNav } from "@/components/user-nav";
@@ -173,7 +173,8 @@ export default function ExpensesPage() {
     const [totalPages, setTotalPages] = useState(1);
 
     // Sorting
-    const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc"); // Default to descending (newest first)
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+    const [localExpenses, setLocalExpenses] = useState<Expense[]>([]);
 
     // Dialog states
     const [open, setOpen] = useState(false);
@@ -213,8 +214,11 @@ export default function ExpensesPage() {
     }, [router]);
 
     // --- API Calls ---
-    const getAuthHeaders = useCallback(() => {
-        if (!accessToken) return {};
+    const getAuthHeaders = useCallback((): HeadersInit => {
+        if (!accessToken) return {
+            Accept: "application/json",
+            "Content-Type": "application/json"
+        };
         return {
             Accept: "application/json",
             "Content-Type": "application/json",
@@ -310,8 +314,8 @@ export default function ExpensesPage() {
             }
         }
         if (debouncedSearchTerm) queryParams.append("search", debouncedSearchTerm);
-        // Add sorting parameter based on sortOrder
-        queryParams.append("ordering", sortOrder === "desc" ? "-id" : "id");
+        // Default sorting - newest first
+        queryParams.append("ordering", "-id");
 
         let calculatedFilteredTotal = 0;
         let calculatedSelectedObjectTotal: number | null = null;
@@ -429,9 +433,8 @@ export default function ExpensesPage() {
             setFilteredPendingAmount(Math.max(0, calculatedFilteredTotal - calculatedFilteredPaid));
             setSelectedObjectTotal(calculatedSelectedObjectTotal);
 
-            setExpenses((prev) => {
-                return tableData.results && tableData.results.length > 0 ? tableData.results : prev;
-            });
+            const sortedResults = tableData.results || [];
+            setExpenses(sortedResults);
             setTotalPages(Math.ceil((tableData.count || 0) / itemsPerPage));
         } catch (error) {
             console.error("Xarajatlar va jami summalarni yuklashda umumiy xatolik:", error);
@@ -648,7 +651,6 @@ export default function ExpensesPage() {
         currentPage,
         debouncedSearchTerm,
         suppliers.length,
-        sortOrder,
     ]);
 
     // --- CRUD Operations ---
@@ -1025,10 +1027,21 @@ export default function ExpensesPage() {
             setCurrentPage(page);
         }
     };
-    const handleSortToggle = () => {
-        setSortOrder((prev) => (prev === "desc" ? "asc" : "desc"));
-        setCurrentPage(1);
-    };
+
+    // API dan kelgan yangi ma'lumotlarni saqlash
+    useEffect(() => {
+        if (expenses.length > 0) {
+            const sorted = [...expenses];
+            sorted.sort((a, b) => sortOrder === 'desc' ? b.id - a.id : a.id - b.id);
+            setLocalExpenses(sorted);
+        }
+    }, [expenses, sortOrder]);
+
+    const handleSortToggle = useCallback(() => {
+        setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc');
+    }, []);
+
+    const expensesToRender = localExpenses;
     const handleOpenPaidModal = () => {
         setPaidModalOpen(true);
         fetchPaidModalExpenses();
@@ -1154,7 +1167,7 @@ export default function ExpensesPage() {
     );
 
     // --- Table Rendering Function ---
-    function renderExpensesTable(expensesToRender: Expense[]) {
+    const renderExpensesTable = () => {
         const isLoading = loading && !isRefreshing;
         if (isLoading) {
             return (
@@ -1164,7 +1177,8 @@ export default function ExpensesPage() {
                 </div>
             );
         }
-        if (expensesToRender.length === 0) {
+
+        if (expenses.length === 0) {
             return (
                 <div className="flex items-center justify-center h-[200px] border rounded-md">
                     <p className="text-muted-foreground text-center">
@@ -1175,32 +1189,42 @@ export default function ExpensesPage() {
                 </div>
             );
         }
+
+        // Sort expenses based on sortOrder
+        const sortedExpenses = [...expenses].sort((a, b) => {
+            if (sortOrder === 'asc') {
+                return a.id - b.id;
+            }
+            return b.id - a.id;
+        });
+
         return (
             <div className="rounded-md border overflow-x-auto relative">
                 <Table>
                     <TableHeader>
                         <TableRow>
                             <TableHead className="w-[60px]">
-                                <Button
-                                    variant="ghost"
+                                <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    className="h-8 flex items-center gap-1 font-medium"
                                     onClick={handleSortToggle}
-                                    className="flex items-center space-x-1 p-0"
                                 >
-                                    <span>#</span>
-                                    <ArrowUpDown className="h-4 w-4" />
+                                    ID
+                                    <ArrowUpDown className={`h-4 w-4 transition-transform ${sortOrder === 'asc' ? 'rotate-180' : ''}`} />
                                 </Button>
                             </TableHead>
-                            <TableHead className="w-[120px]">Sana</TableHead>
+                            <TableHead>Sana</TableHead>
                             <TableHead>Obyekt</TableHead>
                             <TableHead>Yetkazib beruvchi</TableHead>
-                            <TableHead>Tavsif</TableHead>
+                            <TableHead>Izoh</TableHead>
                             <TableHead>Turi</TableHead>
-                            <TableHead className="text-right w-[150px]">Summa</TableHead>
-                            <TableHead className="text-right w-[100px]">Amallar</TableHead>
+                            <TableHead className="text-right">Summa</TableHead>
+                            <TableHead className="text-right">Amallar</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {expensesToRender.map((expense, index) => {
+                        {sortedExpenses.map((expense, index) => {
                             const supplierInfo = suppliers.find((s) => s.id === expense.supplier);
                             const supplierBalance = supplierInfo ? Number(supplierInfo.balance || 0) : undefined;
                             const isPending = expense.status === "Kutilmoqda" && supplierBalance !== undefined && supplierBalance > 0;
@@ -1265,7 +1289,7 @@ export default function ExpensesPage() {
                             </TableCell>
                             <TableCell className="text-right">
                                 {formatCurrency(
-                                    expensesToRender.reduce((sum, exp) => sum + Number(exp.amount || 0), 0)
+                                    sortedExpenses.reduce((sum: number, exp: Expense) => sum + Number(exp.amount || 0), 0)
                                 )}
                             </TableCell>
                             <TableCell></TableCell>
@@ -1274,8 +1298,9 @@ export default function ExpensesPage() {
                 </Table>
             </div>
         );
-    }
+    };
 
+// ...
     // --- JSX ---
     return (
         <div className="flex min-h-screen w-full flex-col bg-muted/40">
