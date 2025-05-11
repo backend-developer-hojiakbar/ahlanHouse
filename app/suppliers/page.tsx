@@ -360,19 +360,37 @@ const SuppliersPage = () => {
     }
   };
 
+  // O'chirish uchun state'lar
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteCode, setDeleteCode] = useState("");
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deleteError, setDeleteError] = useState("");
+
   // Yetkazib beruvchini o'chirish (DELETE)
   const handleDelete = async (id: number) => {
+    setDeletingId(id);
+    setDeleteCode("");
+    setDeleteError("");
+    setDeleteDialogOpen(true);
+  };
+
+  // O'chirish kodini tekshirish va o'chirish
+  const confirmDelete = async () => {
+    if (!deletingId) return;
+    
+    if (deleteCode !== "7777") {
+      setDeleteError("Noto'g'ri kod kiritildi!");
+      return;
+    }
+
     const headers = getAuthHeaders();
     if (!headers["Authorization"]) {
       toast({ title: "Xatolik", description: "Avtorizatsiya tokeni topilmadi.", variant: "destructive" });
       return;
     }
-    if (!confirm(`Rostdan ham ${suppliers.find(s => s.id === id)?.company_name || 'bu yetkazib beruvchini'} o'chirmoqchimisiz?`)) {
-      return;
-    }
 
     try {
-      const response = await fetch(`${SUPPLIERS_API_URL}${id}/`, {
+      const response = await fetch(`${SUPPLIERS_API_URL}${deletingId}/`, {
         method: "DELETE",
         headers: headers,
       });
@@ -390,7 +408,8 @@ const SuppliersPage = () => {
         console.error("O'chirish xatosi:", errorData);
         throw new Error(`O'chirishda xatolik: ${response.statusText} ${JSON.stringify(errorData)}`);
       }
-      setSuppliers((prev) => prev.filter((supplier) => supplier.id !== id));
+      setSuppliers((prev) => prev.filter((supplier) => supplier.id !== deletingId));
+      setDeleteDialogOpen(false);
       toast({ title: "O'chirildi", description: "Yetkazib beruvchi muvaffaqiyatli o'chirildi" });
     } catch (error) {
       console.error("Xatolik:", error);
@@ -1061,6 +1080,52 @@ const SuppliersPage = () => {
             <DialogFooter className="mt-4">
               <Button variant="outline" onClick={() => setTransactionsModalOpen(false)}>
                 Yopish
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* O'chirish tasdiqlash modali */}
+        <Dialog open={deleteDialogOpen} onOpenChange={(isOpen) => {
+          if (!isOpen) {
+            setDeleteDialogOpen(false);
+            setDeleteCode("");
+            setDeleteError("");
+            setDeletingId(null);
+          }
+        }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>O'chirishni tasdiqlang</DialogTitle>
+              <DialogDescription>
+                {suppliers.find(s => s.id === deletingId)?.company_name || ""} ni o'chirish uchun maxsus kodni kiriting
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label>Maxsus kod</Label>
+                <Input
+                  type="password"
+                  placeholder="Kodni kiriting"
+                  value={deleteCode}
+                  onChange={(e) => {
+                    setDeleteCode(e.target.value);
+                    setDeleteError("");
+                  }}
+                />
+                {deleteError && (
+                  <p className="text-sm text-red-500">{deleteError}</p>
+                )}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>Bekor qilish</Button>
+              <Button
+                variant="destructive"
+                onClick={confirmDelete}
+                disabled={!deleteCode}
+              >
+                O'chirish
               </Button>
             </DialogFooter>
           </DialogContent>
