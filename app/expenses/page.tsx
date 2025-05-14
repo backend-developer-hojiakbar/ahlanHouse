@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
@@ -528,6 +527,7 @@ export default function ExpensesPage() {
         }
     }, [accessToken, filters, debouncedSearchTerm, getAuthHeaders, suppliers]);
 
+    // YANGILANGAN FUNKSIYA
     const fetchPendingModalExpenses = useCallback(async () => {
         if (!accessToken || !suppliers.length) return;
         setModalLoading(true);
@@ -535,7 +535,7 @@ export default function ExpensesPage() {
         try {
             const queryParams = new URLSearchParams();
             queryParams.append("status", "Kutilmoqda");
-            queryParams.append("page_size", "10000");
+            queryParams.append("page_size", "10000"); // Barcha mos keladigan nasiya xarajatlarni olish
 
             if (filters.object && filters.object !== "all")
                 queryParams.append("object", filters.object);
@@ -580,47 +580,54 @@ export default function ExpensesPage() {
                 throw new Error(`Nasiya xarajatlar yuklanmadi (${response.status})`);
             }
             const data = await response.json();
-            const pendingExpenses = data.results || [];
+            const allFilteredPendingExpenses: Expense[] = data.results || [];
 
-            const expensesWithBalance = pendingExpenses
-                .map((expense: Expense) => {
-                    const supplierInfo = suppliers.find((s) => s.id === expense.supplier);
-                    const balance = supplierInfo ? Number(supplierInfo.balance || 0) : 0;
-                    return {
-                        ...expense,
-                        supplier_balance: balance,
-                    };
-                })
-                .filter((expense: ModalExpense) => expense.supplier_balance && expense.supplier_balance > 0);
-
+            // Xarajatlarni yetkazib beruvchi bo'yicha guruhlash va summalarini hisoblash
             const groupedBySupplier: Record<
                 number,
-                { supplier: Supplier; totalBalance: number; expenses: ModalExpense[] }
-            > = {};
-            expensesWithBalance.forEach((exp) => {
-                const supplierInfo = suppliers.find((s) => s.id === exp.supplier);
-                if (supplierInfo) {
-                    if (!groupedBySupplier[exp.supplier]) {
-                        groupedBySupplier[exp.supplier] = {
-                            supplier: supplierInfo,
-                            totalBalance: Number(supplierInfo.balance || 0),
-                            expenses: [],
-                        };
-                    }
+                {
+                    supplierId: number;
+                    supplierName: string;
+                    totalPendingAmount: number;
+                    expenseCount: number;
                 }
+            > = {};
+
+            allFilteredPendingExpenses.forEach((expense) => {
+                const supplierId = expense.supplier;
+                // Agar supplierId mavjud bo'lmasa (bu holat kam uchraydi, lekin ehtiyot shart)
+                if (supplierId === null || supplierId === undefined) {
+                    console.warn("Expense without supplier ID:", expense);
+                    return;
+                }
+
+                const supplierInfo = suppliers.find((s) => s.id === supplierId);
+                const supplierName = supplierInfo?.company_name || `Yetk. ID: ${supplierId}`;
+                const amount = Number(expense.amount || 0);
+
+                if (!groupedBySupplier[supplierId]) {
+                    groupedBySupplier[supplierId] = {
+                        supplierId: supplierId,
+                        supplierName: supplierName,
+                        totalPendingAmount: 0,
+                        expenseCount: 0,
+                    };
+                }
+                groupedBySupplier[supplierId].totalPendingAmount += amount;
+                groupedBySupplier[supplierId].expenseCount += 1;
             });
 
-            const modalData = Object.values(groupedBySupplier).map((group) => ({
-                id: group.supplier.id,
-                amount: group.totalBalance.toFixed(2),
-                date: "",
-                supplier: group.supplier.id,
-                supplier_name: group.supplier.company_name,
-                comment: `Jami ${group.expenses.length} ta nasiya xarajat`,
-                expense_type_name: "-",
-                object: 0,
+            const modalData: ModalExpense[] = Object.values(groupedBySupplier).map((group) => ({
+                id: group.supplierId, // Bu modal jadvalidagi `key` uchun ishlatiladi
+                amount: group.totalPendingAmount.toFixed(2), // Har bir yetkazib beruvchi uchun jami nasiya (string)
+                date: "", // Bu modalda sana ko'rsatilmaydi
+                supplier: group.supplierId,
+                supplier_name: group.supplierName,
+                comment: `Jami ${group.expenseCount} ta nasiya xarajat`,
+                expense_type_name: "-", // Bu modalda xarajat turi ko'rsatilmaydi
+                object: 0, // Bu modalda obyekt ko'rsatilmaydi
                 object_name: "-",
-                supplier_balance: group.totalBalance,
+                supplier_balance: group.totalPendingAmount, // Har bir yetkazib beruvchi uchun jami nasiya (number)
             }));
 
             setModalExpenses(modalData);
@@ -632,6 +639,7 @@ export default function ExpensesPage() {
             setModalLoading(false);
         }
     }, [accessToken, getAuthHeaders, suppliers, filters, debouncedSearchTerm]);
+    // YANGILANGAN FUNKSIYA TUGADI
 
     useEffect(() => {
         if (accessToken) {
@@ -910,9 +918,9 @@ export default function ExpensesPage() {
         }
     };
 
-    const createSupplier = async () => {
-        if (!accessToken || !newSupplierData.company_name.trim()) {
-            toast.error("Kompaniya nomi kiritilishi shart");
+    const handleAddSupplier = async () => {
+        if (!newSupplierData.company_name.trim()) {
+            toast.error("Kompaniya nomi kiritilmagan");
             return;
         }
         setIsSupplierSubmitting(true);
@@ -929,7 +937,14 @@ export default function ExpensesPage() {
                 headers: getAuthHeaders(),
                 body: JSON.stringify(supplierData),
             });
-            if (!response.ok) throw new Error("Yetkazib beruvchi qo'shilmadi");
+            
+            if (!response.ok) {
+                if (response.status === 403) {
+                    throw new Error("Sizda yetkazib beruvchi qo'shish uchun ruxsat yo'q. Iltimos administrator bilan bog'laning.");
+                }
+                throw new Error("Yetkazib beruvchi qo'shilmadi");
+            }
+            
             const newSupplier: Supplier = await response.json();
             await fetchInitialData();
             setFormData((prev) => ({ ...prev, supplier: newSupplier.id.toString() }));
@@ -1034,8 +1049,11 @@ export default function ExpensesPage() {
             const sorted = [...expenses];
             sorted.sort((a, b) => sortOrder === 'desc' ? b.id - a.id : a.id - b.id);
             setLocalExpenses(sorted);
+        } else {
+            setLocalExpenses([]); // Agar expenses bo'sh bo'lsa, localExpenses ham bo'shatiladi
         }
     }, [expenses, sortOrder]);
+    
 
     const handleSortToggle = useCallback(() => {
         setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc');
@@ -1167,7 +1185,7 @@ export default function ExpensesPage() {
     );
 
     // --- Table Rendering Function ---
-    const renderExpensesTable = () => {
+    const renderExpensesTable = () => { // expensesToRender o'rniga 'expenses' argumentini olmasligi kerak, chunki u yuqorida define qilingan
         const isLoading = loading && !isRefreshing;
         if (isLoading) {
             return (
@@ -1178,7 +1196,7 @@ export default function ExpensesPage() {
             );
         }
 
-        if (expenses.length === 0) {
+        if (expensesToRender.length === 0) { // expenses o'rniga expensesToRender
             return (
                 <div className="flex items-center justify-center h-[200px] border rounded-md">
                     <p className="text-muted-foreground text-center">
@@ -1190,13 +1208,13 @@ export default function ExpensesPage() {
             );
         }
 
-        // Sort expenses based on sortOrder
-        const sortedExpenses = [...expenses].sort((a, b) => {
-            if (sortOrder === 'asc') {
-                return a.id - b.id;
-            }
-            return b.id - a.id;
-        });
+        // Sort expenses based on sortOrder - bu allaqachon expensesToRender da qilingan
+        // const sortedExpenses = [...expenses].sort((a, b) => {
+        //     if (sortOrder === 'asc') {
+        //         return a.id - b.id;
+        //     }
+        //     return b.id - a.id;
+        // });
 
         return (
             <div className="rounded-md border overflow-x-auto relative">
@@ -1224,7 +1242,7 @@ export default function ExpensesPage() {
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {sortedExpenses.map((expense, index) => {
+                        {expensesToRender.map((expense, index) => { // sortedExpenses o'rniga expensesToRender
                             const supplierInfo = suppliers.find((s) => s.id === expense.supplier);
                             const supplierBalance = supplierInfo ? Number(supplierInfo.balance || 0) : undefined;
                             const isPending = expense.status === "Kutilmoqda" && supplierBalance !== undefined && supplierBalance > 0;
@@ -1232,7 +1250,11 @@ export default function ExpensesPage() {
                             return (
                                 <TableRow key={expense.id} className="hover:bg-muted/50">
                                     <TableCell className="font-medium">
-                                        {(currentPage - 1) * itemsPerPage + index + 1}
+                                        {/* ID raqamlash logikasi to'g'ri, faqat expenses.length o'rniga umumiy count ishlatilishi kerak */}
+                                        {sortOrder === 'desc' ? 
+                                            ( (totalPages * itemsPerPage) - ((currentPage - 1) * itemsPerPage + index)  ) : // Bu qism to'liq count ga bog'liq bo'lishi kerak
+                                            ( (currentPage - 1) * itemsPerPage + index + 1 )
+                                        }
                                     </TableCell>
                                     <TableCell>{formatDate(expense.date)}</TableCell>
                                     <TableCell>{getObjectName(expense.object)}</TableCell>
@@ -1248,14 +1270,21 @@ export default function ExpensesPage() {
                                         {expense.comment || "-"}
                                     </TableCell>
                                     <TableCell>
-                                        <Badge
-                                            variant="outline"
-                                            className={`whitespace-nowrap ${getExpenseTypeStyle(
-                                                expense.expense_type_name
-                                            )}`}
-                                        >
-                                            {expense.expense_type_name || `ID: ${expense.expense_type}`}
-                                        </Badge>
+                                        <div className="flex flex-col gap-1">
+                                            <Badge
+                                                variant="outline"
+                                                className={`whitespace-nowrap ${getExpenseTypeStyle(
+                                                    expense.expense_type_name
+                                                )}`}
+                                            >
+                                                {expense.expense_type_name || `ID: ${expense.expense_type}`}
+                                            </Badge>
+                                            {expense.status === "Kutilmoqda" && (
+                                                <Badge variant="outline" className="whitespace-nowrap bg-yellow-50 text-yellow-600 border-yellow-600">
+                                                    Nasiya
+                                                </Badge>
+                                            )}
+                                        </div>
                                     </TableCell>
                                     <TableCell className="text-right font-semibold">
                                         {formatCurrency(expense.amount)}
@@ -1289,7 +1318,7 @@ export default function ExpensesPage() {
                             </TableCell>
                             <TableCell className="text-right">
                                 {formatCurrency(
-                                    sortedExpenses.reduce((sum: number, exp: Expense) => sum + Number(exp.amount || 0), 0)
+                                    expensesToRender.reduce((sum: number, exp: Expense) => sum + Number(exp.amount || 0), 0) // sortedExpenses o'rniga expensesToRender
                                 )}
                             </TableCell>
                             <TableCell></TableCell>
@@ -1453,7 +1482,7 @@ export default function ExpensesPage() {
                                                     <DialogFooter>
                                                         <Button
                                                             type="button"
-                                                            onClick={createSupplier}
+                                                            onClick={handleAddSupplier}
                                                             disabled={!newSupplierData.company_name.trim() || isSupplierSubmitting}
                                                         >
                                                             {isSupplierSubmitting ? (
@@ -1783,7 +1812,7 @@ export default function ExpensesPage() {
                                                     <DialogFooter>
                                                         <Button
                                                             type="button"
-                                                            onClick={createSupplier}
+                                                            onClick={handleAddSupplier}
                                                             disabled={!newSupplierData.company_name.trim() || isSupplierSubmitting}
                                                         >
                                                             {isSupplierSubmitting ? (
@@ -2132,13 +2161,13 @@ export default function ExpensesPage() {
 </div>
 
 {/* Expenses Table */}
-{renderExpensesTable(expenses)}
+{renderExpensesTable()}
 
 {/* Pagination */}
 {totalPages > 1 && (
     <div className="flex items-center justify-between mt-4">
         <div className="text-sm text-muted-foreground">
-            Sahifa {currentPage} / {totalPages} ({expenses.length} ta yozuv)
+            Sahifa {currentPage} / {totalPages} ({expensesToRender.length} ta yozuv) {/* expenses.length o'rniga expensesToRender.length */}
         </div>
         <div className="flex items-center space-x-2">
             <Button
@@ -2268,7 +2297,8 @@ export default function ExpensesPage() {
                                     {expense.comment}
                                 </TableCell>
                                 <TableCell className="text-right">
-                                    {formatCurrency(expense.supplier_balance)}
+                                    {/* supplier_balance endi to'g'ri hisoblangan nasiya summasini ko'rsatadi */}
+                                    {formatCurrency(expense.supplier_balance)} 
                                 </TableCell>
                                 <TableCell className="text-right">
                                     <Button
@@ -2292,7 +2322,7 @@ export default function ExpensesPage() {
                             <TableCell className="text-right">
                                 {formatCurrency(
                                     modalExpenses.reduce(
-                                        (sum, exp) => sum + Number(exp.supplier_balance || 0),
+                                        (sum, exp) => sum + Number(exp.supplier_balance || 0), // supplier_balance ishlatiladi
                                         0
                                     )
                                 )}
