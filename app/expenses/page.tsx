@@ -314,7 +314,7 @@ export default function ExpensesPage() {
             }
         }
         if (debouncedSearchTerm) queryParams.append("search", debouncedSearchTerm);
-        // Default sorting - newest first
+        // Ma'lumotlarni olish
         queryParams.append("ordering", "-id");
 
         let calculatedFilteredTotal = 0;
@@ -412,9 +412,23 @@ export default function ExpensesPage() {
                 return 0;
             });
 
+        // Avval umumiy sahifalar sonini aniqlash uchun so'rov yuborish
+        const countQueryParams = new URLSearchParams(queryParams);
+        countQueryParams.set("page_size", "1");
+        
+        const getCountPromise = fetch(
+            `${API_BASE_URL}/expenses/?${countQueryParams.toString()}`,
+            { method: "GET", headers: getAuthHeaders() }
+        ).then(async (response) => {
+            if (!response.ok) return { count: 0 };
+            return response.json();
+        });
+
         const tableQueryParams = new URLSearchParams(queryParams);
         tableQueryParams.set("page", currentPage.toString());
         tableQueryParams.set("page_size", itemsPerPage.toString());
+        // ID bo'yicha tartiblash
+        tableQueryParams.set("ordering", "-id");
 
         const fetchTableExpensesPromise = fetch(
             `${API_BASE_URL}/expenses/?${tableQueryParams.toString()}`,
@@ -688,6 +702,8 @@ export default function ExpensesPage() {
         currentPage,
         debouncedSearchTerm,
         suppliers.length,
+        getAuthHeaders,
+        sortOrder,
     ]);
 
     // --- CRUD Operations ---
@@ -1072,15 +1088,26 @@ export default function ExpensesPage() {
         }
     };
 
-    // API dan kelgan yangi ma'lumotlarni saqlash
+    // API dan kelgan ma'lumotlarni saqlash va tartiblash
     useEffect(() => {
-        if (expenses.length > 0) {
-            const sorted = [...expenses];
-            sorted.sort((a, b) => sortOrder === 'desc' ? b.id - a.id : a.id - b.id);
-            setLocalExpenses(sorted);
-        } else {
-            setLocalExpenses([]); // Agar expenses bo'sh bo'lsa, localExpenses ham bo'shatiladi
-        }
+        // Ma'lumotlarni tartiblash
+        const sortedExpenses = [...expenses].sort((a, b) => {
+            // Avval sana bo'yicha
+            const dateA = new Date(a.date).getTime();
+            const dateB = new Date(b.date).getTime();
+            
+            if (dateA !== dateB) {
+                // Agar sanalar har xil bo'lsa, sana bo'yicha tartiblash
+                return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
+            } else {
+                // Agar sanalar bir xil bo'lsa, ID bo'yicha tartiblash
+                return sortOrder === 'desc' 
+                    ? Number(b.id) - Number(a.id)
+                    : Number(a.id) - Number(b.id);
+            }
+        });
+        
+        setLocalExpenses(sortedExpenses);
     }, [expenses, sortOrder]);
     
 
