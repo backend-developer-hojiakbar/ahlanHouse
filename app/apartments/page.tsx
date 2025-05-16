@@ -159,6 +159,8 @@ export default function ApartmentsPage() {
   const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [showDebtorsModal, setShowDebtorsModal] = useState(false);
+  const [debtors, setDebtors] = useState<Apartment[]>([]);
 
   const API_BASE_URL = "http://api.ahlan.uz";
   // Auth token and headers
@@ -285,6 +287,7 @@ export default function ApartmentsPage() {
         let calculatedRemaining: number | null = null;
         let calculatedTotalAmount: number | null = parseFloat(apartment.price as string) || 0;
         let primaryPayment: Payment | null = null;
+        let userInfo: any = null;
 
         if (apartment.status?.toLowerCase() !== 'bosh') {
           try {
@@ -303,6 +306,22 @@ export default function ApartmentsPage() {
                 const firstPaymentTotal = parseFloat(primaryPayment.total_amount as string);
                 if (!isNaN(firstPaymentTotal) && firstPaymentTotal > 0) {
                   calculatedTotalAmount = firstPaymentTotal;
+                }
+                
+                // Mijoz ma'lumotlarini olish
+                if (primaryPayment.user) {
+                  try {
+                    const userResponse = await fetch(`${API_BASE_URL}/users/${primaryPayment.user}/`, {
+                      method: 'GET',
+                      headers: getAuthHeaders(),
+                    });
+                    if (userResponse.ok) {
+                      userInfo = await userResponse.json();
+                      primaryPayment.user_fio = userInfo.fio || userInfo.username || 'Noma\'lum';
+                    }
+                  } catch (error) {
+                    console.error(`Mijoz ma'lumotlarini olishda xatolik (ID: ${primaryPayment.user}):`, error);
+                  }
                 }
 
                 calculatedTotalPaid = allPayments.reduce((sum, p) => {
@@ -728,6 +747,82 @@ export default function ApartmentsPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-muted/40">
+      <Dialog open={showDebtorsModal} onOpenChange={setShowDebtorsModal}>
+        <DialogContent className="max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>Qarzdorlar ro'yxati</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-sm font-medium">Umumiy qarzdorlar</div>
+                <div className="text-2xl font-bold">{debtors.length}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-sm font-medium">Umumiy summa</div>
+                <div className="text-2xl font-bold text-blue-600">
+                  {formatCurrency(debtors.reduce((sum, apt) => sum + (apt.calculatedTotalAmount ?? 0), 0))}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-sm font-medium">To'langan summa</div>
+                <div className="text-2xl font-bold text-green-600">
+                  {formatCurrency(debtors.reduce((sum, apt) => sum + (apt.calculatedTotalPaid ?? 0), 0))}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="text-sm font-medium">Qoldiq summa</div>
+                <div className="text-2xl font-bold text-red-600">
+                  {formatCurrency(debtors.reduce((sum, apt) => sum + (apt.calculatedRemaining ?? 0), 0))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Xonadon</TableHead>
+                  <TableHead>Obyekt</TableHead>
+                  <TableHead>Mijoz</TableHead>
+                  <TableHead>To'lov turi</TableHead>
+                  <TableHead className="text-right">Jami summa</TableHead>
+                  <TableHead className="text-right">To'langan</TableHead>
+                  <TableHead className="text-right">Qoldiq</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {debtors.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center">Qarzdorlar topilmadi</TableCell>
+                  </TableRow>
+                ) : (
+                  debtors.map((debtor) => (
+                    <TableRow key={debtor.id} className="cursor-pointer hover:bg-muted/50" onClick={() => {
+                      setShowDebtorsModal(false);
+                      router.push(`/apartments/${debtor.id}`);
+                    }}>
+                      <TableCell>{debtor.room_number}</TableCell>
+                      <TableCell>{debtor.object_name}</TableCell>
+                      <TableCell>{debtor.payment?.user_fio || '-'}</TableCell>
+                      <TableCell>{getPaymentTypeLabel(debtor.payment?.payment_type)}</TableCell>
+                      <TableCell className="text-right">{formatCurrency(debtor.calculatedTotalAmount)}</TableCell>
+                      <TableCell className="text-right text-green-600">{formatCurrency(debtor.calculatedTotalPaid)}</TableCell>
+                      <TableCell className="text-right text-red-600">{formatCurrency(debtor.calculatedRemaining)}</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Toaster />
       {/* Header */}
       <div className="border-b bg-background">
@@ -752,6 +847,25 @@ export default function ApartmentsPage() {
               disabled={loading}
             >
               {viewMode === 'grid' ? <List className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                const debtorsList = apartments.filter(apt => {
+                const remainingAmount = apt.calculatedRemaining;
+                const status = apt.status?.toLowerCase();
+                return remainingAmount !== null && remainingAmount !== 0 && status !== 'bosh';
+              }).sort((a, b) => {
+                const remainingA = a.calculatedRemaining ?? 0;
+                const remainingB = b.calculatedRemaining ?? 0;
+                return remainingB - remainingA; // Eng ko'p qarzi borlar tepada
+              });
+                setDebtors(debtorsList);
+                setShowDebtorsModal(true);
+              }}
+              disabled={loading}
+            >
+              Qarzdorlar
             </Button>
             <Link href="/apartments/add" passHref>
               <Button disabled={loading}>
