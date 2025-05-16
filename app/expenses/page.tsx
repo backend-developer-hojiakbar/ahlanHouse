@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
@@ -361,6 +362,30 @@ export default function ExpensesPage() {
             paymentTotalsQueryParams.set("date__lte", queryParams.get("date__lte")!);
         paymentTotalsQueryParams.append("page_size", "10000");
 
+        // Kutilmoqda statusidagi xarajatlarni olish
+        const fetchPendingExpensesPromise = fetch(
+            `${API_BASE_URL}/expenses/?status=Kutilmoqda&page_size=10000`,
+            { method: "GET", headers: getAuthHeaders() }
+        )
+            .then(async (response) => {
+                if (!response.ok) {
+                    console.error(`Kutilayotgan xarajatlar yuklanmadi (Status: ${response.status})`);
+                    return 0;
+                }
+                const data = await response.json();
+                const pendingExpenses = data.results || [];
+                return pendingExpenses.reduce(
+                    (sum: number, expense: { amount?: string | number }) =>
+                        sum + Number(expense.amount || 0),
+                    0
+                );
+            })
+            .catch((error) => {
+                console.error("Kutilayotgan xarajatlarni yuklashda xatolik:", error);
+                toast.error("Kutilayotgan summani yuklashda xatolik yuz berdi.");
+                return 0;
+            });
+
         const fetchTotalPaymentsPromise = fetch(
             `${API_BASE_URL}/supplier-payments/?${paymentTotalsQueryParams.toString()}`,
             { method: "GET", headers: getAuthHeaders() }
@@ -417,24 +442,28 @@ export default function ExpensesPage() {
             });
 
         try {
-            const [totalExpensesResult, totalPaymentsResult, tableData] = await Promise.all([
+            const [expenseTotalsData, totalPayments, pendingAmount, tableData] = await Promise.all([
                 fetchTotalExpensesPromise,
                 fetchTotalPaymentsPromise,
+                fetchPendingExpensesPromise,
                 fetchTableExpensesPromise,
             ]);
 
-            calculatedFilteredTotal = totalExpensesResult.total;
-            calculatedSelectedObjectTotal = totalExpensesResult.objectTotal;
-            calculatedFilteredPaid = totalPaymentsResult;
+            const { total, objectTotal } = expenseTotalsData;
+            calculatedFilteredTotal = total;
+            calculatedSelectedObjectTotal = objectTotal;
+            calculatedFilteredPaid = totalPayments;
 
             setFilteredTotalAmount(calculatedFilteredTotal);
             setFilteredPaidAmount(calculatedFilteredPaid);
-            setFilteredPendingAmount(Math.max(0, calculatedFilteredTotal - calculatedFilteredPaid));
+            setFilteredPendingAmount(pendingAmount);
             setSelectedObjectTotal(calculatedSelectedObjectTotal);
-
-            const sortedResults = tableData.results || [];
-            setExpenses(sortedResults);
-            setTotalPages(Math.ceil((tableData.count || 0) / itemsPerPage));
+            
+            if (tableData) {
+                setTotalPages(Math.ceil(tableData.count / itemsPerPage));
+                setExpenses(tableData.results || []);
+                setLocalExpenses(tableData.results || []);
+            }
         } catch (error) {
             console.error("Xarajatlar va jami summalarni yuklashda umumiy xatolik:", error);
             setFilteredTotalAmount(0);
