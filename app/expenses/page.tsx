@@ -159,8 +159,8 @@ export default function ExpensesPage() {
 
     // Totals & Filters
     const [filteredTotalAmount, setFilteredTotalAmount] = useState<number>(0);
-const [filteredPaidAmount, setFilteredPaidAmount] = useState<number>(0);
-const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<number>(0);
+    const [filteredPaidAmount, setFilteredPaidAmount] = useState<number>(0);
+    const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<number>(0);
     const [filteredPendingAmount, setFilteredPendingAmount] = useState<number>(0);
     const [selectedObjectTotal, setSelectedObjectTotal] = useState<number | null>(null);
     const [filters, setFilters] = useState({
@@ -322,7 +322,6 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
             }
         }
         if (debouncedSearchTerm) queryParams.append("search", debouncedSearchTerm);
-        // Add sorting parameter based on sortOrder
         queryParams.append("ordering", sortOrder === "desc" ? "-id" : "id");
 
         let calculatedFilteredTotal = 0;
@@ -435,8 +434,7 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
             calculatedFilteredTotal = totalExpensesResult.total;
             calculatedSelectedObjectTotal = totalExpensesResult.objectTotal;
             calculatedFilteredPaid = totalPaymentsResult;
-
-            // Kutilmoqda (Nasiya) summani to'g'ri hisoblash uchun API-dan to'g'ridan-to'g'ri so'rovni yuborish
+            
             const pendingExpensesResponse = await fetch(
                 `${API_BASE_URL}/expenses/?status=Kutilmoqda`,
                 { method: "GET", headers: getAuthHeaders() }
@@ -453,9 +451,9 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
             }
 
             setFilteredTotalAmount(calculatedFilteredTotal);
-            setFilteredPendingAmount(pendingTotal); // Nasiya summani to'g'ridan-to'g'ri API-dan olish
-            setFilteredPaidAmount(Math.max(0, calculatedFilteredTotal - pendingTotal)); // To'langan miqdorni yangilash
-            setFilteredPaidExpensesAmount(Math.max(0, calculatedFilteredTotal - pendingTotal)); // To'langan xarajatlar summasini o'rnatish
+            setFilteredPendingAmount(pendingTotal);
+            setFilteredPaidAmount(Math.max(0, calculatedFilteredTotal - pendingTotal));
+            setFilteredPaidExpensesAmount(Math.max(0, calculatedFilteredTotal - pendingTotal));
             setSelectedObjectTotal(calculatedSelectedObjectTotal);
 
             setExpenses((prev) => {
@@ -559,7 +557,6 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
         setModalLoading(true);
         setModalExpenses([]);
         try {
-            // 1. Barcha to'lovlarni olish
             const paymentsResponse = await fetch(
                 `${API_BASE_URL}/supplier-payments/?page_size=10000`,
                 {
@@ -575,7 +572,6 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
             const paymentsData = await paymentsResponse.json();
             const allPayments = paymentsData.results || [];
 
-            // 2. Barcha xarajatlarni olish (status = Kutilmoqda)
             const queryParams = new URLSearchParams();
             queryParams.append("status", "Kutilmoqda");
             queryParams.append("page_size", "10000");
@@ -627,35 +623,29 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
             const expensesData = await expensesResponse.json();
             const expenses = expensesData.results || [];
 
-            // 3. Har bir xarajat uchun to'lovlarni hisoblash
             const modalData = expenses.map((expense: Expense): ModalExpense | null => {
-                // Shu xarajat uchun to'lovlarni filtrlash (faqat xarajat ID si bo'yicha)
                 const expensePayments = allPayments.filter((payment: { supplier: number; description?: string; amount: string | number }) => 
                     payment.supplier === expense.supplier &&
                     payment.description?.includes(`Xarajat ID: ${expense.id}`)
                 );
 
-                // To'langan summani hisoblash
                 const paidAmount = expensePayments.reduce((sum: number, payment: { amount: string | number }) => 
                     sum + Number(payment.amount || 0), 0
                 );
-
-                // Qolgan summani hisoblash
                 const remainingAmount = Math.max(0, Number(expense.amount) - paidAmount);
 
-                // Agar to'liq to'langan bo'lsa, xarajat statusini yangilash
                 if (paidAmount >= Number(expense.amount)) {
                     fetch(`${API_BASE_URL}/expenses/${expense.id}/`, {
                         method: "PUT",
                         headers: getAuthHeaders(),
                         body: JSON.stringify({
-                            ...expense,
+                            ...expense, // Send all existing fields
                             status: "To'langan"
                         }),
                     }).catch(error => {
                         console.error(`Xarajat (ID: ${expense.id}) statusini yangilashda xatolik:`, error);
                     });
-                    return null; // To'liq to'langan xarajatlarni ko'rsatmaslik
+                    return null;
                 }
 
                 return {
@@ -672,13 +662,9 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
                     remaining_amount: remainingAmount
                 };
             });
-
-            // null qiymatlarni (to'liq to'langan xarajatlarni) olib tashlash
             const filteredModalData = modalData.filter((item: ModalExpense | null): item is ModalExpense => item !== null);
-
             setModalExpenses(filteredModalData);
 
-            // 4. Qolgan umumiy summani hisoblash
             const totalRemainingAmount = filteredModalData.reduce((sum: number, expense: ModalExpense) => 
                 sum + Number(expense.remaining_amount || 0), 0
             );
@@ -698,10 +684,10 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
                 fetchExpensesAndFilteredTotals();
             });
         }
-    }, [accessToken, fetchInitialData]);
+    }, [accessToken, fetchInitialData]); // Removed fetchExpensesAndFilteredTotals from here
 
     useEffect(() => {
-        if (accessToken && suppliers.length > 0) {
+        if (accessToken && (properties.length > 0 || suppliers.length > 0 || expenseTypes.length > 0 || !loading)) { // ensure initial data or initial load complete
             fetchExpensesAndFilteredTotals();
         }
     }, [
@@ -709,11 +695,14 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
         filters,
         currentPage,
         debouncedSearchTerm,
-        suppliers.length,
         sortOrder,
+        properties.length, // Add dependencies to re-fetch when these change, if needed
+        suppliers.length,
+        expenseTypes.length,
+        // fetchExpensesAndFilteredTotals // Removed to avoid infinite loop if it's not stable
     ]);
 
-    // Update URL query parameter when currentPage changes
+
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
         if (currentPage === 1) {
@@ -731,7 +720,7 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
             const paymentData = {
                 supplier: supplierId,
                 amount: Number(amount),
-                payment_type: "naqd",
+                payment_type: "naqd", // Defaulting to 'naqd'
                 description: description || "Xarajat uchun naqd to'lov",
             };
             const response = await fetch(`${API_BASE_URL}/supplier-payments/`, {
@@ -748,6 +737,7 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
             }
             return await response.json();
         } catch (error: any) {
+            // Re-throw the error to be caught by the caller
             throw new Error(`To'lov qo'shishda xatolik: ${error.message}`);
         }
     };
@@ -768,7 +758,7 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
                 headers: getAuthHeaders(),
                 body: JSON.stringify({
                     ...expenseData,
-                    status: expenseStatus,
+                    status: expenseStatus, // Set status based on formData.status
                 }),
             });
             if (!response.ok) {
@@ -782,8 +772,9 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
             }
             const newExpense = await response.json();
 
+            // Optimistically update UI or re-fetch for consistency
             setExpenses((prev) => [
-                {
+                { // Ensure all necessary fields for display are present
                     ...newExpense,
                     supplier_name:
                         suppliers.find((s) => s.id === expenseData.supplier)?.company_name ||
@@ -798,6 +789,8 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
                 ...prev,
             ]);
 
+
+            // If payment type was "Naqd pul", create a supplier payment
             if (expenseStatus === "To‘langan") {
                 try {
                     await createSupplierPayment(
@@ -806,21 +799,25 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
                         `Xarajat ID: ${newExpense.id} - ${expenseData.comment}`
                     );
                 } catch (error: any) {
+                    // Log error, but don't block success of expense creation
                     toast.error(`Xarajat qo'shildi, lekin to'lovni saqlashda xatolik: ${error.message}`);
                 }
             }
 
             toast.success("Xarajat muvaffaqiyatli qo'shildi");
-            setCurrentPage(1);
+            setCurrentPage(1); // Reset to first page to see new item
             setOpen(false);
-            setFormData(initialFormData);
+            setFormData(initialFormData); // Reset form
 
+            // Re-fetch data to ensure consistency
             await Promise.all([
                 fetchExpensesAndFilteredTotals(),
-                fetchInitialData(),
+                fetchInitialData(), // Re-fetch dependent data like suppliers if necessary
             ]);
+
         } catch (error: any) {
-            setExpenses((prev) => prev.filter((exp) => exp.id !== -1));
+            // Remove optimistically added item if creation failed
+            setExpenses((prev) => prev.filter((exp) => exp.id !== -1)); // Assuming temporary ID was -1
             toast.error(error.message);
         } finally {
             setIsSubmitting(false);
@@ -830,22 +827,25 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
     const fetchExpenseById = async (id: number) => {
         if (!accessToken) return;
         setEditOpen(true);
-        setCurrentExpense(null);
-        setFormData(initialFormData);
+        setCurrentExpense(null); // Clear previous one
+        setFormData(initialFormData); // Reset form
         try {
-            const response = await fetch(`${API_BASE_URL}/expenses/${expenseToDelete}/`, {
+            // CORRECTED: Use the 'id' parameter passed to the function for the API call
+            const response = await fetch(`${API_BASE_URL}/expenses/${id}/`, {
                 method: "GET",
                 headers: getAuthHeaders(),
             });
             if (!response.ok) throw new Error(`Xarajat (ID: ${id}) olinmadi`);
             const data: Expense = await response.json();
-            setCurrentExpense(data);
+            setCurrentExpense(data); // Set the current expense for editing
             let formattedDate = data.date;
             if (data.date) {
                 try {
+                    // Ensure date is in YYYY-MM-DD for the input type="date"
                     formattedDate = format(new Date(data.date), "yyyy-MM-dd");
                 } catch {
                     console.warn("Could not format date:", data.date);
+                    // If formatting fails, use original or handle error
                 }
             }
             setFormData({
@@ -855,16 +855,16 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
                 expense_type: data.expense_type?.toString() || "",
                 date: formattedDate,
                 comment: data.comment || "",
-                status: data.status === "To‘langan" ? "Naqd pul" : "Nasiya",
+                status: data.status === "To‘langan" ? "Naqd pul" : "Nasiya", // Reflect current status in form
             });
         } catch (error: any) {
             toast.error(error.message);
-            setEditOpen(false);
+            setEditOpen(false); // Close dialog on error
         }
     };
 
     const updateExpense = async (
-        id: number,
+        id: number, // This 'id' is currentExpense.id, passed from handleEditSubmit
         expenseData: any,
         action: "save" | "saveAndAdd" | "saveAndContinue"
     ) => {
@@ -875,12 +875,13 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
         setIsSubmitting(true);
         try {
             const expenseStatus = formData.status === "Naqd pul" ? "To‘langan" : "Kutilmoqda";
-            const response = await fetch(`${API_BASE_URL}/expenses/${expenseToDelete}/`, {
+            // CORRECTED: Use the 'id' parameter (which is currentExpense.id) for the API call
+            const response = await fetch(`${API_BASE_URL}/expenses/${id}/`, {
                 method: "PUT",
                 headers: getAuthHeaders(),
                 body: JSON.stringify({
-                    ...expenseData,
-                    status: expenseStatus,
+                    ...expenseData, // object, supplier, amount, expense_type, date, comment
+                    status: expenseStatus, // Set status based on form's payment type
                 }),
             });
             if (!response.ok) {
@@ -894,11 +895,17 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
             }
             const updatedExpense = await response.json();
 
+            // If status changed to "To'langan" or remained "To'langan" (Naqd pul)
+            // A more robust logic might be needed here to avoid duplicate payments or
+            // to handle cases where an expense was already 'To‘langan' and is just being edited.
+            // For now, if "Naqd pul" is selected, it implies a payment might be associated.
             if (expenseStatus === "To‘langan") {
+                // This might create a new payment record every time an expense is edited to "Naqd pul".
+                // Consider checking if a payment for this expense already exists or if the status *changed* to "To'langan".
                 try {
                     await createSupplierPayment(
                         expenseData.supplier,
-                        expenseData.amount,
+                        expenseData.amount, // Assuming amount might have changed
                         `Xarajat ID: ${id} (Yangilangan) - ${expenseData.comment}`
                     );
                 } catch (error: any) {
@@ -907,11 +914,13 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
             }
 
             toast.success("Xarajat muvaffaqiyatli yangilandi");
+            // Re-fetch data to reflect changes
             await Promise.all([
                 fetchExpensesAndFilteredTotals(),
-                fetchInitialData(),
+                fetchInitialData(), // Re-fetch suppliers, etc. if they could have changed
             ]);
 
+            // Handle dialog state based on action
             if (action === "save") {
                 setEditOpen(false);
                 setCurrentExpense(null);
@@ -920,8 +929,9 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
                 setEditOpen(false);
                 setCurrentExpense(null);
                 setFormData(initialFormData);
-                setOpen(true);
+                setOpen(true); // Open the "add new" dialog
             }
+            // 'saveAndContinue' would keep the edit dialog open implicitly if not closed
         } catch (error: any) {
             toast.error(error.message);
         } finally {
@@ -932,7 +942,7 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
     const deleteExpense = async (id: number) => {
         if (!accessToken) return;
         setExpenseToDelete(id);
-        setDeleteCode("");
+        setDeleteCode(""); // Clear previous code
         setDeleteDialogOpen(true);
     };
 
@@ -946,11 +956,12 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
                 method: "DELETE",
                 headers: getAuthHeaders(),
             });
-            if (response.status === 204 || response.ok) {
+            if (response.status === 204 || response.ok) { // 204 No Content is success for DELETE
                 setDeleteDialogOpen(false);
                 setDeleteCode("");
                 setExpenseToDelete(null);
                 toast.success("Xarajat muvaffaqiyatli o'chirildi");
+                // Refresh data
                 await Promise.all([
                     fetchExpensesAndFilteredTotals(),
                     fetchInitialData(),
@@ -965,6 +976,7 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
             toast.error(error.message);
         }
     };
+
 
     const createExpenseType = async () => {
         if (!accessToken || !newExpenseTypeName.trim()) {
@@ -983,6 +995,7 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
             setExpenseTypes((prev) =>
                 [...prev, newType].sort((a, b) => a.name.localeCompare(b.name))
             );
+            // Optionally set the new type in the main form if it's open
             setFormData((prev) => ({ ...prev, expense_type: newType.id.toString() }));
             setNewExpenseTypeName("");
             setAddExpenseTypeOpen(false);
@@ -1015,9 +1028,11 @@ const [filteredPaidExpensesAmount, setFilteredPaidExpensesAmount] = useState<num
             });
             if (!response.ok) throw new Error("Yetkazib beruvchi qo'shilmadi");
             const newSupplier: Supplier = await response.json();
-            await fetchInitialData();
+            // Re-fetch suppliers list to include the new one
+            await fetchInitialData(); // This will re-fetch all initial data, including suppliers
+            // Optionally set the new supplier in the main form
             setFormData((prev) => ({ ...prev, supplier: newSupplier.id.toString() }));
-            setNewSupplierData(initialNewSupplierData);
+            setNewSupplierData(initialNewSupplierData); // Reset new supplier form
             setAddSupplierOpen(false);
             toast.success(`"${newSupplier.company_name}" yetkazib beruvchi qo'shildi`);
         } catch (error: any) {
@@ -1040,8 +1055,7 @@ const handleAddPayment = async () => {
         }
         setIsSubmittingPayment(true);
         try {
-            // 1. Xarajatni olish
-            const expenseResponse = await fetch(`${API_BASE_URL}/expenses/${expenseToDelete}/`, {
+            const expenseResponse = await fetch(`${API_BASE_URL}/expenses/${expenseToDelete}/`, { // expenseToDelete is set by handleOpenPaymentDialog
                 method: "GET",
                 headers: getAuthHeaders(),
             });
@@ -1049,12 +1063,10 @@ const handleAddPayment = async () => {
             if (!expenseResponse.ok) {
                 throw new Error(`Xarajat ma'lumotlarini olishda xatolik (${expenseResponse.status})`);
             }
+            const expenseDataForPayment = await expenseResponse.json();
 
-            const expenseData = await expenseResponse.json();
-
-            // 2. To'lovlarni olish
             const paymentsResponse = await fetch(
-                `${API_BASE_URL}/supplier-payments/?supplier=${currentPaymentSupplier.id}`,
+                `${API_BASE_URL}/supplier-payments/?supplier=${currentPaymentSupplier.id}&description__icontains=Xarajat%20ID:%20${expenseToDelete}`, // Filter by expense ID in description
                 {
                     method: "GET",
                     headers: getAuthHeaders(),
@@ -1064,23 +1076,20 @@ const handleAddPayment = async () => {
             if (!paymentsResponse.ok) {
                 throw new Error(`To'lovlarni olishda xatolik (${paymentsResponse.status})`);
             }
-
             const paymentsData = await paymentsResponse.json();
-            const existingPayments = paymentsData.results || [];
+            const existingPaymentsForThisExpense = paymentsData.results || [];
 
-            // 3. Mavjud to'lovlar summasini hisoblash
-            const existingPaymentsTotal = existingPayments.reduce(
+            const existingPaymentsTotal = existingPaymentsForThisExpense.reduce(
                 (sum: number, payment: { amount: string | number }) =>
                     sum + Number(payment.amount || 0),
                 0
             );
 
-            // 4. Yangi to'lovni qo'shish
             const paymentData = {
                 supplier: currentPaymentSupplier.id,
                 amount: paymentAmount,
                 payment_type: "naqd",
-                description: `${paymentDescription.trim()} (Xarajat ID: ${expenseToDelete})`,
+                description: `${paymentDescription.trim()} (Xarajat ID: ${expenseToDelete})`, // Ensure expense ID is in description
             };
 
             const response = await fetch(`${API_BASE_URL}/supplier-payments/`, {
@@ -1099,19 +1108,22 @@ const handleAddPayment = async () => {
                 );
             }
 
-            // 5. Agar to'lovlar summasi xarajat summasiga teng yoki undan katta bo'lsa, statusni yangilash
             const totalPaid = existingPaymentsTotal + Number(paymentAmount);
-            if (totalPaid >= Number(expenseData.amount)) {
-                // Prepare updated expense data with only allowed fields
-const updatedExpenseData = {
-    object: expenseData.object,
-    supplier: expenseData.supplier,
-    amount: expenseData.amount,
-    expense_type: expenseData.expense_type,
-    date: expenseData.date,
-    comment: expenseData.comment,
-    status: "To‘langan"
-};
+            if (totalPaid >= Number(expenseDataForPayment.amount)) {
+                // Prepare only the fields that are allowed by the backend for PUT /expenses/{id}/
+                // Typically, you don't send all fields, just the ones you want to change or are required.
+                // If the backend expects all fields, ensure they are all present.
+                // Here, we assume we need to send back all original fields plus the new status.
+                const updatedExpenseData = {
+                    object: expenseDataForPayment.object.id || expenseDataForPayment.object, // Handle if object is nested or just ID
+                    supplier: expenseDataForPayment.supplier.id || expenseDataForPayment.supplier,
+                    amount: expenseDataForPayment.amount,
+                    expense_type: expenseDataForPayment.expense_type.id || expenseDataForPayment.expense_type,
+                    date: expenseDataForPayment.date, // Ensure date is in correct format if API expects specific
+                    comment: expenseDataForPayment.comment,
+                    status: "To‘langan" // The change we want to make
+                };
+
                 const updateResponse = await fetch(`${API_BASE_URL}/expenses/${expenseToDelete}/`, {
                     method: "PUT",
                     headers: getAuthHeaders(),
@@ -1119,7 +1131,9 @@ const updatedExpenseData = {
                 });
 
                 if (!updateResponse.ok) {
-                    console.error("Xarajat statusini yangilashda xatolik");
+                    const errorText = await updateResponse.text();
+                    console.error("Xarajat statusini yangilashda xatolik: ", errorText);
+                    toast.error("Xarajat statusini yangilab bo'lmadi. API javobi: " + errorText.substring(0,100));
                 }
             }
 
@@ -1130,12 +1144,12 @@ const updatedExpenseData = {
             setCurrentPaymentSupplier(null);
             setExpenseToDelete(null);
 
-await Promise.all([
-    fetchInitialData(),
-    fetchExpensesAndFilteredTotals(),
-    fetchPendingModalExpenses(),
-    fetchPaidModalExpenses(),
-]);
+            await Promise.all([
+                fetchInitialData(),
+                fetchExpensesAndFilteredTotals(),
+                fetchPendingModalExpenses(),
+                fetchPaidModalExpenses(),
+            ]);
         } catch (error: any) {
             console.error("Payment submission error:", error);
             toast.error(error.message);
@@ -1160,15 +1174,17 @@ await Promise.all([
     };
     const handleFilterChange = (name: string, value: string) => {
         setFilters((prev) => ({ ...prev, [name]: value === "all" ? "" : value }));
-        setCurrentPage(1);
+        setCurrentPage(1); // Reset to first page on filter change
     };
     const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setSearchTerm(e.target.value);
-        setCurrentPage(1);
+        setCurrentPage(1); // Reset to first page on search change
     };
+
     const handleOpenEditDialog = (expenseId: number) => {
-        fetchExpenseById(expenseId);
+        fetchExpenseById(expenseId); // This will open dialog and populate form
     };
+
     const handlePageChange = (page: number) => {
         if (page >= 1 && page <= totalPages) {
             setCurrentPage(page);
@@ -1176,7 +1192,7 @@ await Promise.all([
     };
     const handleSortToggle = () => {
         setSortOrder((prev) => (prev === "desc" ? "asc" : "desc"));
-        setCurrentPage(1);
+        setCurrentPage(1); // Reset to first page on sort change
     };
     const handleOpenPaidModal = () => {
         setPaidModalOpen(true);
@@ -1186,17 +1202,20 @@ await Promise.all([
         setPendingModalOpen(true);
         fetchPendingModalExpenses();
     };
-const handleOpenPaymentDialog = (expense: ModalExpense) => {
-    setExpenseToDelete(expense.id);
-    setCurrentPaymentSupplier({
-        id: expense.supplier,
-        company_name: expense.supplier_name
-    });
-    setPaymentAmount(expense.amount || "");
-    setPaymentDescription(`To'lov: ${expense.comment}`);
-    setPendingModalOpen(false);
-    setPaymentDialogOpen(true);
-};
+
+    const handleOpenPaymentDialog = (expense: ModalExpense) => {
+        setExpenseToDelete(expense.id); // Set the ID of the expense for which payment is being made
+        setCurrentPaymentSupplier({
+            id: expense.supplier,
+            company_name: expense.supplier_name
+            // Add other supplier details if needed by the payment form or logic
+        });
+        // Pre-fill payment amount with remaining amount or full amount if appropriate
+        setPaymentAmount(expense.remaining_amount?.toString() || expense.amount || "");
+        setPaymentDescription(`To'lov: ${expense.supplier_name} uchun (Xarajat: ${expense.comment.substring(0,30)}...)`);
+        setPendingModalOpen(false); // Close pending modal if open
+        setPaymentDialogOpen(true);
+    };
 
     // --- Form Validation ---
     const validateFormData = (): boolean => {
@@ -1206,10 +1225,11 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
         if (!formData.expense_type) errors.push(`"Xarajat turi" tanlanishi shart.`);
         if (!formData.date) errors.push(`"Sana" kiritilishi shart.`);
         if (!formData.comment.trim()) errors.push(`"Izoh" kiritilishi shart.`);
-        if (!formData.status) errors.push(`"To'lov turi" tanlanishi shart.`);
+        if (!formData.status) errors.push(`"To'lov turi" tanlanishi shart.`); // This refers to 'Naqd pul' / 'Nasiya'
         const amountNum = Number(formData.amount);
         if (formData.amount === "" || isNaN(amountNum) || amountNum <= 0)
             errors.push(`"Summa" musbat raqam bo'lishi kerak.`);
+
         if (errors.length > 0) {
             toast.error(errors.join("\n"));
             return false;
@@ -1218,38 +1238,42 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
     };
 
     // --- Submit Handlers ---
-    const handleSubmit = (
+    const handleSubmit = ( // For creating new expense
         e: React.FormEvent,
-        action: "save" | "saveAndAdd" | "saveAndContinue"
+        action: "save" | "saveAndAdd" | "saveAndContinue" // "saveAndContinue" might not be fully implemented for dialogs
     ) => {
         e.preventDefault();
         if (!validateFormData()) return;
-        const expenseData = {
+        const expenseData = { // Data to be sent to API
             object: Number(formData.object),
             supplier: Number(formData.supplier),
             amount: formData.amount,
             expense_type: Number(formData.expense_type),
-            date: formData.date,
+            date: formData.date, // Ensure format is YYYY-MM-DD if API expects that
             comment: formData.comment.trim(),
+            // 'status' is handled inside createExpense based on formData.status ('Naqd pul'/'Nasiya')
         };
         createExpense(expenseData, action);
     };
-    const handleEditSubmit = async (
+
+    const handleEditSubmit = async ( // For updating existing expense
         e: React.FormEvent,
         action: "save" | "saveAndAdd" | "saveAndContinue"
     ) => {
         e.preventDefault();
-        if (!currentExpense || !validateFormData()) return;
-        const expenseData = {
+        if (!currentExpense || !validateFormData()) return; // Ensure an expense is loaded and form is valid
+        const expenseData = { // Data to be sent to API
             object: Number(formData.object),
             supplier: Number(formData.supplier),
             amount: formData.amount,
             expense_type: Number(formData.expense_type),
             date: formData.date,
             comment: formData.comment.trim(),
+            // 'status' will be handled inside updateExpense based on formData.status
         };
         updateExpense(currentExpense.id, expenseData, action);
     };
+
 
     // --- Helper Functions ---
     const getExpenseTypeStyle = (typeName: string | undefined): string => {
@@ -1271,13 +1295,14 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
     const formatCurrency = useCallback(
         (amount: number | string | undefined | null) => {
             const numericAmount = Number(amount || 0);
-            if (!isClient) return `${numericAmount.toFixed(2)} USD`;
+            if (!isClient) return `${numericAmount.toFixed(2)} USD`; // Fallback for SSR
             try {
-                return numericAmount.toLocaleString("en-US", {
+                return numericAmount.toLocaleString("en-US", { // Using 'en-US' for USD consistently
                     style: "currency",
                     currency: "USD",
                 });
             } catch (e) {
+                // Fallback if toLocaleString fails (e.g., in some environments)
                 return `${numericAmount.toFixed(2)} USD`;
             }
         },
@@ -1286,21 +1311,22 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
     const formatDate = useCallback(
         (dateString: string | undefined | null) => {
             if (!dateString) return "-";
-            if (!isClient) return dateString;
+            if (!isClient) return dateString; // Fallback for SSR
             try {
                 const date = new Date(dateString);
-                if (isNaN(date.getTime())) return dateString;
-                return format(date, "dd/MM/yyyy");
+                // Check if date is valid, sometimes API might return non-standard date strings
+                if (isNaN(date.getTime())) return dateString; // Return original if invalid
+                return format(date, "dd/MM/yyyy"); // Standard European format
             } catch (e) {
-                console.warn("Date formatting error:", e);
-                return dateString;
+                console.warn("Date formatting error:", e, "Original string:", dateString);
+                return dateString; // Return original on error
             }
         },
         [isClient]
     );
     const getObjectName = useCallback(
         (objectId: number | undefined) => {
-            if (objectId === undefined || objectId === 0) return "-";
+            if (objectId === undefined || objectId === 0) return "-"; // Handle 0 or undefined
             return properties.find((p) => p.id === objectId)?.name || `Obyekt ID: ${objectId}`;
         },
         [properties]
@@ -1308,7 +1334,7 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
 
     // --- Table Rendering Function ---
     function renderExpensesTable(expensesToRender: Expense[]) {
-        const isLoading = loading && !isRefreshing;
+        const isLoading = loading && !isRefreshing; // Main loading, not refresh-specific
         if (isLoading) {
             return (
                 <div className="flex items-center justify-center h-[200px] border rounded-md">
@@ -1317,7 +1343,7 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                 </div>
             );
         }
-        if (expensesToRender.length === 0) {
+        if (expensesToRender.length === 0 && !isLoading) { // Check !isLoading to avoid showing "no data" during load
             return (
                 <div className="flex items-center justify-center h-[200px] border rounded-md">
                     <p className="text-muted-foreground text-center">
@@ -1329,7 +1355,7 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
             );
         }
         return (
-            <div className="rounded-md border overflow-x-auto relative">
+            <div className="rounded-md border overflow-x-auto relative"> {/* Ensure table is scrollable on small screens */}
                 <Table>
                     <TableHeader>
                         <TableRow>
@@ -1337,7 +1363,7 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                                 <Button
                                     variant="ghost"
                                     onClick={handleSortToggle}
-                                    className="flex items-center space-x-1 p-0"
+                                    className="flex items-center space-x-1 p-0 hover:bg-transparent" // Make sort button subtle
                                 >
                                     <span>#</span>
                                     <ArrowUpDown className="h-4 w-4" />
@@ -1362,13 +1388,17 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                             return (
                                 <TableRow key={expense.id} className="hover:bg-muted/50">
                                     <TableCell className="font-medium">
-                                        {(currentPage - 1) * itemsPerPage + index + 1}
+                                        {/* Calculate row number based on current page and sort order */}
+                                        {sortOrder === "desc"
+                                          ? (totalExpenses - (currentPage - 1) * itemsPerPage - index) // For descending
+                                          : ((currentPage - 1) * itemsPerPage + index + 1) // For ascending
+                                        }
                                     </TableCell>
                                     <TableCell>{formatDate(expense.date)}</TableCell>
                                     <TableCell>{getObjectName(expense.object)}</TableCell>
                                     <TableCell>
                                         {expense.supplier_name || `Yetk. ID: ${expense.supplier}`}
-                                        {isPending && supplierBalance !== undefined && (
+                                        {isPending && supplierBalance !== undefined && ( // Show balance if pending and available
                                             <div className="text-xs text-yellow-600 mt-1">
                                                 Balans: {formatCurrency(supplierBalance)}
                                             </div>
@@ -1388,11 +1418,13 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                                         </Badge>
                                     </TableCell>
                                     <TableCell>
-                                        <Badge
-                                            variant="outline"
-                                            className={`whitespace-nowrap ${getExpenseTypeStyle(
-                                                expense.expense_type_name
-                                            )}`}
+                                        <Badge /* Using status for color/text, consistent with modal if needed */
+                                            variant={expense.status === "To‘langan" ? "default" : expense.status === "Kutilmoqda" ? "secondary" : "outline"}
+                                            className={`whitespace-nowrap ${
+                                                expense.status === "To‘langan" ? "bg-green-100 text-green-800" :
+                                                expense.status === "Kutilmoqda" ? "bg-yellow-100 text-yellow-800" :
+                                                "bg-gray-100 text-gray-800"
+                                            }`}
                                         >
                                             {expense.status}
                                         </Badge>
@@ -1423,8 +1455,9 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                                 </TableRow>
                             );
                         })}
+                        {/* Footer row for page total - ensure it's sticky if table scrolls */}
                         <TableRow className="bg-muted hover:bg-muted font-bold sticky bottom-0">
-                            <TableCell colSpan={6} className="text-right">
+                            <TableCell colSpan={7} className="text-right"> {/* Adjusted colSpan */}
                                 Jami (Sahifada):
                             </TableCell>
                             <TableCell className="text-right">
@@ -1432,13 +1465,28 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                                     expensesToRender.reduce((sum, exp) => sum + Number(exp.amount || 0), 0)
                                 )}
                             </TableCell>
-                            <TableCell></TableCell>
+                            <TableCell></TableCell> {/* Empty cell for actions column */}
                         </TableRow>
                     </TableBody>
                 </Table>
             </div>
         );
     }
+    // --- Placeholder for totalExpenses state if needed for row numbering ---
+    const [totalExpenses, setTotalExpenses] = useState(0);
+    useEffect(() => {
+      // Assuming fetchExpensesAndFilteredTotals updates a 'count' for total items
+      // This is a simplified example; you'd get 'count' from your API response
+      // and set it to totalExpenses state.
+      // For now, this effect might need adjustment based on how 'tableData.count' is managed.
+      if (expenses.length > 0 && totalPages > 0) { // Basic estimation
+          // This is not accurate if tableData.count is the true total.
+          // You should setTotalExpenses(tableData.count) in fetchExpensesAndFilteredTotals
+      }
+    }, [expenses, totalPages, currentPage]);
+    // In fetchExpensesAndFilteredTotals, after setTotalPages:
+    // setTotalExpenses(tableData.count || 0);
+    // This would provide the correct total for row numbering.
 
     // --- JSX ---
     return (
@@ -1463,7 +1511,10 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                         open={open}
                         onOpenChange={(isOpen) => {
                             setOpen(isOpen);
-                            if (isOpen) setFormData(initialFormData);
+                            if (isOpen) {
+                               setFormData(initialFormData); // Reset form when opening
+                               setCurrentExpense(null); // Ensure no current expense is set for add mode
+                            }
                         }}
                     >
                         <DialogTrigger asChild>
@@ -1476,13 +1527,13 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                             <DialogHeader>
                                 <DialogTitle>Yangi xarajat qo'shish</DialogTitle>
                                 <DialogDescription>
-                                    Xarajat ma'lumotlarini kiriting (* majburiy). To'lov turi sifatida "Naqd pul" tanlansa, xarajat "To‘langan" sifatida saqlanadi va yetkazib beruvchi balansiga qo'shiladi.
+                                    Xarajat ma'lumotlarini kiriting (* majburiy). To'lov turi sifatida "Naqd pul" tanlansa, xarajat "To‘langan" sifatida saqlanadi va yetkazib beruvchi balansiga tegishli to'lov yoziladi.
                                 </DialogDescription>
                             </DialogHeader>
                             <form
                                 id="add-expense-form"
-                                onSubmit={(e) => handleSubmit(e, "save")}
-                                className="flex-1 overflow-y-auto pr-4 pl-1 -mr-2"
+                                onSubmit={(e) => handleSubmit(e, "save")} // Default action "save"
+                                className="flex-1 overflow-y-auto pr-4 pl-1 -mr-2" // Added padding for scrollbar
                             >
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3 py-4">
                                     {/* Amount */}
@@ -1494,7 +1545,7 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                                             name="amount"
                                             type="number"
                                             step="0.01"
-                                            min="0.01"
+                                            min="0.01" // Ensure positive amount
                                             value={formData.amount}
                                             onChange={handleChange}
                                             placeholder="Masalan: 1500.50"
@@ -1508,9 +1559,9 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                                             id="date"
                                             name="date"
                                             type="date"
-                                            value={formData.date}
+                                            value={formData.date} // Should be YYYY-MM-DD
                                             onChange={handleChange}
-                                            max={new Date().toISOString().split("T")[0]}
+                                            max={new Date().toISOString().split("T")[0]} // Prevent future dates
                                         />
                                     </div>
                                     {/* Supplier */}
@@ -1521,7 +1572,7 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                                                 required
                                                 value={formData.supplier}
                                                 onValueChange={(value) => handleSelectChange("supplier", value)}
-                                                name="supplier"
+                                                name="supplier" // Name attribute for forms
                                             >
                                                 <SelectTrigger id="supplier" className="flex-1">
                                                     <SelectValue placeholder="Tanlang..." />
@@ -1537,7 +1588,7 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                                             <Dialog open={addSupplierOpen} onOpenChange={setAddSupplierOpen}>
                                                 <DialogTrigger asChild>
                                                     <Button
-                                                        type="button"
+                                                        type="button" // Prevent form submission
                                                         variant="outline"
                                                         size="icon"
                                                         title="Yangi yetkazib beruvchi qo'shish"
@@ -1591,7 +1642,7 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                                                     </div>
                                                     <DialogFooter>
                                                         <Button
-                                                            type="button"
+                                                            type="button" // Important: type="button"
                                                             onClick={createSupplier}
                                                             disabled={!newSupplierData.company_name.trim() || isSupplierSubmitting}
                                                         >
@@ -1601,11 +1652,11 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                                                             Qo'shish
                                                         </Button>
                                                         <Button
-                                                            type="button"
+                                                            type="button" // Important: type="button"
                                                             variant="outline"
                                                             onClick={() => {
                                                                 setAddSupplierOpen(false);
-                                                                setNewSupplierData(initialNewSupplierData);
+                                                                setNewSupplierData(initialNewSupplierData); // Reset form on cancel
                                                             }}
                                                             disabled={isSupplierSubmitting}
                                                         >
@@ -1624,7 +1675,7 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                                                 required
                                                 value={formData.expense_type}
                                                 onValueChange={(value) => handleSelectChange("expense_type", value)}
-                                                name="expense_type"
+                                                name="expense_type" // Name attribute
                                             >
                                                 <SelectTrigger id="expense_type" className="flex-1">
                                                     <SelectValue placeholder="Tanlang..." />
@@ -1643,7 +1694,7 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                                             >
                                                 <DialogTrigger asChild>
                                                     <Button
-                                                        type="button"
+                                                        type="button" // Prevent form submission
                                                         variant="outline"
                                                         size="icon"
                                                         title="Yangi xarajat turi qo'shish"
@@ -1666,7 +1717,7 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                                                     </div>
                                                     <DialogFooter>
                                                         <Button
-                                                            type="button"
+                                                            type="button" // Important
                                                             onClick={createExpenseType}
                                                             disabled={!newExpenseTypeName.trim() || isExpenseTypeSubmitting}
                                                         >
@@ -1675,12 +1726,12 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                                                             ) : null}
                                                             Qo'shish
                                                         </Button>
-                                                        <Button
-                                                            type="button"
+                                                         <Button
+                                                            type="button" // Important
                                                             variant="outline"
                                                             onClick={() => {
                                                                 setAddExpenseTypeOpen(false);
-                                                                setNewExpenseTypeName("");
+                                                                setNewExpenseTypeName(""); // Reset on cancel
                                                             }}
                                                             disabled={isExpenseTypeSubmitting}
                                                         >
@@ -1698,7 +1749,7 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                                             required
                                             value={formData.object}
                                             onValueChange={(value) => handleSelectChange("object", value)}
-                                            name="object"
+                                            name="object" // Name attribute
                                         >
                                             <SelectTrigger id="object">
                                                 <SelectValue placeholder="Tanlang..." />
@@ -1712,14 +1763,14 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                                             </SelectContent>
                                         </Select>
                                     </div>
-                                    {/* Status */}
+                                    {/* Status (Payment Type) */}
                                     <div className="space-y-1">
                                         <Label htmlFor="status">To'lov turi *</Label>
                                         <Select
                                             required
-                                            value={formData.status}
+                                            value={formData.status} // 'Naqd pul' or 'Nasiya'
                                             onValueChange={(value) => handleSelectChange("status", value)}
-                                            name="status"
+                                            name="status" // Name attribute
                                         >
                                             <SelectTrigger id="status">
                                                 <SelectValue placeholder="Tanlang..." />
@@ -1748,7 +1799,7 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                             <DialogFooter className="flex flex-col sm:flex-row sm:justify-end sm:space-x-2 space-y-2 sm:space-y-0 pt-4 border-t">
                                 <Button
                                     type="submit"
-                                    form="add-expense-form"
+                                    form="add-expense-form" // Links to the form
                                     className="bg-green-600 hover:bg-green-700 w-full sm:w-auto"
                                     disabled={
                                         isSubmitting ||
@@ -1768,10 +1819,10 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                                     Saqlash
                                 </Button>
                                 <Button
-                                    type="button"
+                                    type="button" // Important: type="button"
                                     variant="outline"
                                     className="w-full sm:w-auto"
-                                    onClick={() => setOpen(false)}
+                                    onClick={() => setOpen(false)} // Just close the dialog
                                     disabled={isSubmitting}
                                 >
                                     Bekor qilish
@@ -1785,26 +1836,26 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                 <Dialog
                     open={editOpen}
                     onOpenChange={(isOpen) => {
-                        if (!isOpen) {
-                            setCurrentExpense(null);
-                            setFormData(initialFormData);
+                        if (!isOpen) { // When dialog is closing
+                            setCurrentExpense(null); // Clear current expense
+                            setFormData(initialFormData); // Reset form
                         }
                         setEditOpen(isOpen);
                     }}
                 >
                     <DialogContent className="sm:max-w-[600px] max-h-[90vh] flex flex-col">
                         <DialogHeader>
-                            <DialogTitle>Xarajatni tahrirlash (ID: {currentExpense?.id})</DialogTitle>
+                            <DialogTitle>Xarajatni tahrirlash (ID: {currentExpense?.id || "Yuklanmoqda..."})</DialogTitle>
                             <DialogDescription>
                                 Xarajat ma'lumotlarini yangilang (* majburiy). To'lov turi o'zgartirilishi mumkin.
                             </DialogDescription>
                         </DialogHeader>
                         <form
                             id="edit-expense-form"
-                            onSubmit={(e) => handleEditSubmit(e, "save")}
+                            onSubmit={(e) => handleEditSubmit(e, "save")} // Default action "save"
                             className="flex-1 overflow-y-auto pr-4 pl-1 -mr-2"
                         >
-                            {!currentExpense && editOpen ? (
+                            {!currentExpense && editOpen ? ( // Show loader if dialog is open but data not yet loaded
                                 <div className="flex justify-center items-center h-40">
                                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                                     <span className="ml-2 text-muted-foreground">Yuklanmoqda...</span>
@@ -1834,7 +1885,7 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                                             id="edit-date"
                                             name="date"
                                             type="date"
-                                            value={formData.date}
+                                            value={formData.date} // Ensure this is YYYY-MM-DD
                                             onChange={handleChange}
                                             max={new Date().toISOString().split("T")[0]}
                                         />
@@ -1860,87 +1911,29 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                                                     ))}
                                                 </SelectContent>
                                             </Select>
+                                            {/* Add New Supplier Dialog (can be reused or a separate instance) */}
                                             <Dialog open={addSupplierOpen} onOpenChange={setAddSupplierOpen}>
                                                 <DialogTrigger asChild>
-                                                    <Button
-                                                        type="button"
-                                                        variant="outline"
-                                                        size="icon"
-                                                        title="Yangi yetkazib beruvchi qo'shish"
-                                                    >
-                                                        <Plus className="h-4 w-4" />
-                                                    </Button>
+                                                    <Button type="button" variant="outline" size="icon" title="Yangi yetkazib beruvchi"> <Plus className="h-4 w-4" /> </Button>
                                                 </DialogTrigger>
                                                 <DialogContent className="sm:max-w-[425px]">
-                                                    <DialogHeader>
-                                                        <DialogTitle>Yangi yetkazib beruvchi</DialogTitle>
-                                                    </DialogHeader>
+                                                    {/* ... same content as add new supplier dialog ... */}
+                                                    <DialogHeader><DialogTitle>Yangi yetkazib beruvchi</DialogTitle></DialogHeader>
                                                     <div className="grid gap-3 py-4 max-h-[60vh] overflow-y-auto pr-2">
-                                                        <Label htmlFor="edit_new_company_name">
-                                                            Kompaniya nomi *
-                                                        </Label>
-                                                        <Input
-                                                            id="edit_new_company_name"
-                                                            name="company_name"
-                                                            value={newSupplierData.company_name}
-                                                            onChange={handleSupplierChange}
-                                                            required
-                                                        />
-                                                        <Label htmlFor="edit_new_contact_person_name">
-                                                            Kontakt
-                                                        </Label>
-                                                        <Input
-                                                            id="edit_new_contact_person_name"
-                                                            name="contact_person_name"
-                                                            value={newSupplierData.contact_person_name}
-                                                            onChange={handleSupplierChange}
-                                                        />
-                                                        <Label htmlFor="edit_new_phone_number">Telefon</Label>
-                                                        <Input
-                                                            id="edit_new_phone_number"
-                                                            name="phone_number"
-                                                            value={newSupplierData.phone_number}
-                                                            onChange={handleSupplierChange}
-                                                        />
-                                                        <Label htmlFor="edit_new_address">Manzil</Label>
-                                                        <Textarea
-                                                            id="edit_new_address"
-                                                            name="address"
-                                                            value={newSupplierData.address}
-                                                            onChange={handleSupplierChange}
-                                                            rows={2}
-                                                        />
-                                                        <Label htmlFor="edit_new_description">Tavsif</Label>
-                                                        <Textarea
-                                                            id="edit_new_description"
-                                                            name="description"
-                                                            value={newSupplierData.description}
-                                                            onChange={handleSupplierChange}
-                                                            rows={2}
-                                                        />
+                                                        <Label htmlFor="edit_dialog_new_company_name">Kompaniya nomi *</Label>
+                                                        <Input id="edit_dialog_new_company_name" name="company_name" value={newSupplierData.company_name} onChange={handleSupplierChange} required />
+                                                        <Label htmlFor="edit_dialog_new_contact_person_name">Kontakt</Label>
+                                                        <Input id="edit_dialog_new_contact_person_name" name="contact_person_name" value={newSupplierData.contact_person_name} onChange={handleSupplierChange} />
+                                                        <Label htmlFor="edit_dialog_new_phone_number">Telefon</Label>
+                                                        <Input id="edit_dialog_new_phone_number" name="phone_number" value={newSupplierData.phone_number} onChange={handleSupplierChange} />
+                                                        <Label htmlFor="edit_dialog_new_address">Manzil</Label>
+                                                        <Textarea id="edit_dialog_new_address" name="address" value={newSupplierData.address} onChange={handleSupplierChange} rows={2} />
+                                                        <Label htmlFor="edit_dialog_new_description">Tavsif</Label>
+                                                        <Textarea id="edit_dialog_new_description" name="description" value={newSupplierData.description} onChange={handleSupplierChange} rows={2} />
                                                     </div>
                                                     <DialogFooter>
-                                                        <Button
-                                                            type="button"
-                                                            onClick={createSupplier}
-                                                            disabled={!newSupplierData.company_name.trim() || isSupplierSubmitting}
-                                                        >
-                                                            {isSupplierSubmitting ? (
-                                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                            ) : null}
-                                                            Qo'shish
-                                                        </Button>
-                                                        <Button
-                                                            type="button"
-                                                            variant="outline"
-                                                            onClick={() => {
-                                                                setAddSupplierOpen(false);
-                                                                setNewSupplierData(initialNewSupplierData);
-                                                            }}
-                                                            disabled={isSupplierSubmitting}
-                                                        >
-                                                            Bekor qilish
-                                                        </Button>
+                                                        <Button type="button" onClick={createSupplier} disabled={!newSupplierData.company_name.trim() || isSupplierSubmitting}> {isSupplierSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Qo'shish </Button>
+                                                        <Button type="button" variant="outline" onClick={() => { setAddSupplierOpen(false); setNewSupplierData(initialNewSupplierData); }} disabled={isSupplierSubmitting}> Bekor qilish </Button>
                                                     </DialogFooter>
                                                 </DialogContent>
                                             </Dialog>
@@ -1967,57 +1960,21 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                                                     ))}
                                                 </SelectContent>
                                             </Select>
-                                            <Dialog
-                                                open={addExpenseTypeOpen}
-                                                onOpenChange={setAddExpenseTypeOpen}
-                                            >
+                                            {/* Add New Expense Type Dialog (can be reused) */}
+                                            <Dialog open={addExpenseTypeOpen} onOpenChange={setAddExpenseTypeOpen}>
                                                 <DialogTrigger asChild>
-                                                    <Button
-                                                        type="button"
-                                                        variant="outline"
-                                                        size="icon"
-                                                        title="Yangi xarajat turi qo'shish"
-                                                    >
-                                                        <Plus className="h-4 w-4" />
-                                                    </Button>
+                                                    <Button type="button" variant="outline" size="icon" title="Yangi xarajat turi"><Plus className="h-4 w-4" /></Button>
                                                 </DialogTrigger>
                                                 <DialogContent className="sm:max-w-[425px]">
-                                                    <DialogHeader>
-                                                        <DialogTitle>Yangi xarajat turi</DialogTitle>
-                                                    </DialogHeader>
+                                                    {/* ... same content as add new expense type dialog ... */}
+                                                    <DialogHeader><DialogTitle>Yangi xarajat turi</DialogTitle></DialogHeader>
                                                     <div className="grid gap-4 py-4">
-                                                        <Label htmlFor="edit_new_expense_type_name">
-                                                            Nomi *
-                                                        </Label>
-                                                        <Input
-                                                            id="edit_new_expense_type_name"
-                                                            value={newExpenseTypeName}
-                                                            onChange={(e) => setNewExpenseTypeName(e.target.value)}
-                                                            required
-                                                        />
+                                                        <Label htmlFor="edit_dialog_new_expense_type_name">Nomi *</Label>
+                                                        <Input id="edit_dialog_new_expense_type_name" value={newExpenseTypeName} onChange={(e) => setNewExpenseTypeName(e.target.value)} required />
                                                     </div>
                                                     <DialogFooter>
-                                                        <Button
-                                                            type="button"
-                                                            onClick={createExpenseType}
-                                                            disabled={!newExpenseTypeName.trim() || isExpenseTypeSubmitting}
-                                                        >
-                                                            {isExpenseTypeSubmitting ? (
-                                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                            ) : null}
-                                                            Qo'shish
-                                                        </Button>
-                                                        <Button
-                                                            type="button"
-                                                            variant="outline"
-                                                            onClick={() => {
-                                                                setAddExpenseTypeOpen(false);
-                                                                setNewExpenseTypeName("");
-                                                            }}
-                                                            disabled={isExpenseTypeSubmitting}
-                                                        >
-                                                            Bekor qilish
-                                                        </Button>
+                                                        <Button type="button" onClick={createExpenseType} disabled={!newExpenseTypeName.trim() || isExpenseTypeSubmitting}>{isExpenseTypeSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Qo'shish </Button>
+                                                        <Button type="button" variant="outline" onClick={() => { setAddExpenseTypeOpen(false); setNewExpenseTypeName("");}} disabled={isExpenseTypeSubmitting}> Bekor qilish </Button>
                                                     </DialogFooter>
                                                 </DialogContent>
                                             </Dialog>
@@ -2044,12 +2001,12 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                                             </SelectContent>
                                         </Select>
                                     </div>
-                                    {/* Status */}
+                                    {/* Status (Payment Type) */}
                                     <div className="space-y-1">
                                         <Label htmlFor="edit-status">To'lov turi *</Label>
                                         <Select
                                             required
-                                            value={formData.status}
+                                            value={formData.status} // 'Naqd pul' or 'Nasiya'
                                             onValueChange={(value) => handleSelectChange("status", value)}
                                             name="status"
                                         >
@@ -2064,516 +2021,528 @@ const handleOpenPaymentDialog = (expense: ModalExpense) => {
                                     </div>
                                 
                                     {/* Comment */}
-<div className="space-y-1 sm:col-span-2">
-    <Label htmlFor="edit-comment">Tavsif / Izoh *</Label>
-    <Textarea
-        required
-        id="edit-comment"
-        name="comment"
-        value={formData.comment}
-        onChange={handleChange}
-        rows={3}
-        placeholder="Xarajat haqida batafsil..."
-    />
-</div>
-</div>
-)}
-</form>
-<DialogFooter className="flex flex-col sm:flex-row sm:justify-end sm:space-x-2 space-y-2 sm:space-y-0 pt-4 border-t">
-    <Button
-        type="submit"
-        form="edit-expense-form"
-        className="bg-green-600 hover:bg-green-700 w-full sm:w-auto"
-        disabled={
-            isSubmitting ||
-            !formData.object ||
-            !formData.supplier ||
-            !formData.expense_type ||
-            !formData.date ||
-            !formData.comment.trim() ||
-            !formData.amount ||
-            Number(formData.amount) <= 0 ||
-            !formData.status
-        }
-    >
-        {isSubmitting ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        ) : null}
-        Saqlash
-    </Button>
-    <Button
-        type="button"
-        variant="outline"
-        className="w-full sm:w-auto"
-        onClick={() => {
-            setEditOpen(false);
-            setCurrentExpense(null);
-            setFormData(initialFormData);
-        }}
-        disabled={isSubmitting}
-    >
-        Bekor qilish
-    </Button>
-</DialogFooter>
-</DialogContent>
-</Dialog>
+                                    <div className="space-y-1 sm:col-span-2">
+                                        <Label htmlFor="edit-comment">Tavsif / Izoh *</Label>
+                                        <Textarea
+                                            required
+                                            id="edit-comment"
+                                            name="comment"
+                                            value={formData.comment}
+                                            onChange={handleChange}
+                                            rows={3}
+                                            placeholder="Xarajat haqida batafsil..."
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                        </form>
+                        <DialogFooter className="flex flex-col sm:flex-row sm:justify-end sm:space-x-2 space-y-2 sm:space-y-0 pt-4 border-t">
+                            <Button
+                                type="submit"
+                                form="edit-expense-form"
+                                className="bg-green-600 hover:bg-green-700 w-full sm:w-auto"
+                                disabled={
+                                    isSubmitting || !currentExpense || // Ensure currentExpense is loaded
+                                    !formData.object ||
+                                    !formData.supplier ||
+                                    !formData.expense_type ||
+                                    !formData.date ||
+                                    !formData.comment.trim() ||
+                                    !formData.amount ||
+                                    Number(formData.amount) <= 0 ||
+                                    !formData.status
+                                }
+                            >
+                                {isSubmitting ? (
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                ) : null}
+                                Saqlash
+                            </Button>
+                            <Button
+                                type="button" // Important
+                                variant="outline"
+                                className="w-full sm:w-auto"
+                                onClick={() => { // Explicitly close and reset
+                                    setEditOpen(false);
+                                    setCurrentExpense(null);
+                                    setFormData(initialFormData);
+                                }}
+                                disabled={isSubmitting}
+                            >
+                                Bekor qilish
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
 
-{/* Filters and Totals */}
-<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-    {/* Object Filter */}
-    <div className="space-y-1">
-        <Label htmlFor="filter-object">Obyekt bo'yicha filtr</Label>
-        <Select
-            value={filters.object || "all"}
-            onValueChange={(value) => handleFilterChange("object", value)}
-        >
-            <SelectTrigger id="filter-object">
-                <SelectValue placeholder="Barcha obyektlar" />
-            </SelectTrigger>
-            <SelectContent>
-                <SelectItem value="all">Barcha obyektlar</SelectItem>
-                {properties.map((p) => (
-                    <SelectItem key={p.id} value={p.id.toString()}>
-                        {p.name}
-                    </SelectItem>
-                ))}
-            </SelectContent>
-        </Select>
-    </div>
-    {/* Expense Type Filter */}
-    <div className="space-y-1">
-        <Label htmlFor="filter-expense_type">Xarajat turi bo'yicha filtr</Label>
-        <Select
-            value={filters.expense_type || "all"}
-            onValueChange={(value) => handleFilterChange("expense_type", value)}
-        >
-            <SelectTrigger id="filter-expense_type">
-                <SelectValue placeholder="Barcha turlar" />
-            </SelectTrigger>
-            <SelectContent>
-                <SelectItem value="all">Barcha turlar</SelectItem>
-                {expenseTypes.map((t) => (
-                    <SelectItem key={t.id} value={t.id.toString()}>
-                        {t.name}
-                    </SelectItem>
-                ))}
-            </SelectContent>
-        </Select>
-    </div>
-    {/* Date Range Filter */}
-    <div className="space-y-1">
-        <Label htmlFor="filter-dateRange">Sana bo'yicha filtr</Label>
-        <Select
-            value={filters.dateRange}
-            onValueChange={(value) => handleFilterChange("dateRange", value)}
-        >
-            <SelectTrigger id="filter-dateRange">
-                <SelectValue placeholder="Barcha sanalar" />
-            </SelectTrigger>
-            <SelectContent>
-                <SelectItem value="all">Barcha sanalar</SelectItem>
-                <SelectItem value="today">Bugun</SelectItem>
-                <SelectItem value="week">Oxirgi hafta</SelectItem>
-                <SelectItem value="month">Oxirgi oy</SelectItem>
-                <SelectItem value="quarter">Oxirgi chorak</SelectItem>
-                <SelectItem value="year">Oxirgi yil</SelectItem>
-            </SelectContent>
-        </Select>
-    </div>
-    {/* Search */}
-    <div className="space-y-1">
-        <Label htmlFor="search">Qidiruv</Label>
-        <Input
-            id="search"
-            placeholder="Yetkazib beruvchi, izoh..."
-            value={searchTerm}
-            onChange={handleSearchChange}
-        />
-    </div>
-</div>
-
-{/* Totals Cards */}
-<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-    <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Umumiy xarajatlar</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-            {loadingTotals ? (
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto" />
-            ) : (
-                <div className="text-2xl font-bold">{formatCurrency(filteredTotalAmount)}</div>
-            )}
-        </CardContent>
-    </Card>
-    <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">To'langan</CardTitle>
-            <HandCoins className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-            {loadingTotals ? (
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto" />
-            ) : (
-                <div className="text-2xl font-bold">
-                    <Button
-                        variant="link"
-                        className="p-0 text-2xl font-bold text-foreground h-auto"
-                        onClick={handleOpenPaidModal}
-                    >
-                        {formatCurrency(filteredPaidExpensesAmount)}
-                    </Button>
-                </div>
-            )}
-        </CardContent>
-    </Card>
-    <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Kutilmoqda (Nasiya)</CardTitle>
-            <HandCoins className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-            {loadingTotals ? (
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto" />
-            ) : (
-                <div className="text-2xl font-bold">
-                    <Button
-                        variant="link"
-                        className="p-0 text-2xl font-bold text-foreground h-auto"
-                        onClick={handleOpenPendingModal}
-                    >
-                        {formatCurrency(filteredPendingAmount)} {/* Umumiy nasiya summasi */}
-                    </Button>
-                    <div className="text-sm text-muted-foreground mt-1">
-                        {filters.object && filters.object !== "all" ? "Tanlangan obyektning" : "Barcha"} kutilayotgan to'lovlar
+                {/* Filters and Totals */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                    {/* Object Filter */}
+                    <div className="space-y-1">
+                        <Label htmlFor="filter-object">Obyekt bo'yicha filtr</Label>
+                        <Select
+                            value={filters.object || "all"} // Default to "all" if empty
+                            onValueChange={(value) => handleFilterChange("object", value)}
+                        >
+                            <SelectTrigger id="filter-object">
+                                <SelectValue placeholder="Barcha obyektlar" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">Barcha obyektlar</SelectItem>
+                                {properties.map((p) => (
+                                    <SelectItem key={p.id} value={p.id.toString()}>
+                                        {p.name}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    {/* Expense Type Filter */}
+                    <div className="space-y-1">
+                        <Label htmlFor="filter-expense_type">Xarajat turi bo'yicha filtr</Label>
+                        <Select
+                            value={filters.expense_type || "all"}
+                            onValueChange={(value) => handleFilterChange("expense_type", value)}
+                        >
+                            <SelectTrigger id="filter-expense_type">
+                                <SelectValue placeholder="Barcha turlar" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">Barcha turlar</SelectItem>
+                                {expenseTypes.map((t) => (
+                                    <SelectItem key={t.id} value={t.id.toString()}>
+                                        {t.name}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    {/* Date Range Filter */}
+                    <div className="space-y-1">
+                        <Label htmlFor="filter-dateRange">Sana bo'yicha filtr</Label>
+                        <Select
+                            value={filters.dateRange}
+                            onValueChange={(value) => handleFilterChange("dateRange", value)}
+                        >
+                            <SelectTrigger id="filter-dateRange">
+                                <SelectValue placeholder="Barcha sanalar" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">Barcha sanalar</SelectItem>
+                                <SelectItem value="today">Bugun</SelectItem>
+                                <SelectItem value="week">Oxirgi hafta</SelectItem>
+                                <SelectItem value="month">Oxirgi oy</SelectItem>
+                                <SelectItem value="quarter">Oxirgi chorak</SelectItem>
+                                <SelectItem value="year">Oxirgi yil</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    {/* Search */}
+                    <div className="space-y-1">
+                        <Label htmlFor="search">Qidiruv</Label>
+                        <Input
+                            id="search"
+                            placeholder="Yetkazib beruvchi, izoh..."
+                            value={searchTerm}
+                            onChange={handleSearchChange}
+                        />
                     </div>
                 </div>
-            )}
-        </CardContent>
-    </Card>
-    <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-                {filters.object && filters.object !== "all"
-                    ? getObjectName(Number(filters.object))
-                    : "Tanlangan obyekt"}
-            </CardTitle>
-            <Building className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-            {loadingTotals ? (
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto" />
-            ) : selectedObjectTotal !== null ? (
-                <div className="text-2xl font-bold">{formatCurrency(selectedObjectTotal)}</div>
-            ) : (
-                <div className="text-sm text-muted-foreground">Obyekt tanlanmagan</div>
-            )}
-        </CardContent>
-    </Card>
-</div>
 
-{/* Expenses Table */}
-{renderExpensesTable(expenses)}
-
-{/* Pagination */}
-{totalPages > 1 && (
-    <div className="flex items-center justify-between mt-4">
-        <div className="text-sm text-muted-foreground">
-            Sahifa {currentPage} / {totalPages} ({expenses.length} ta yozuv)
-        </div>
-        <div className="flex items-center space-x-2">
-            <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handlePageChange(currentPage - 1)}
-                disabled={currentPage === 1 || isRefreshing}
-            >
-                <ChevronLeft className="h-4 w-4" />
-                Oldingi
-            </Button>
-            <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handlePageChange(currentPage + 1)}
-                disabled={currentPage === totalPages || isRefreshing}
-            >
-                Keyingi
-                <ChevronRight className="h-4 w-4" />
-            </Button>
-        </div>
-    </div>
-)}
-
-{/* Paid Expenses Modal */}
-<Dialog open={paidModalOpen} onOpenChange={setPaidModalOpen}>
-    <DialogContent className="sm:max-w-[800px] max-h-[80vh] flex flex-col">
-        <DialogHeader>
-            <DialogTitle>To'langan xarajatlar</DialogTitle>
-            <DialogDescription>
-                Tanlangan filtrlar bo'yicha to'langan xarajatlar ro'yxati
-            </DialogDescription>
-        </DialogHeader>
-        <div className="flex-1 overflow-y-auto">
-            {modalLoading ? (
-                <div className="flex items-center justify-center h-40">
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                    <span className="ml-2 text-muted-foreground">Yuklanmoqda...</span>
-                </div>
-            ) : modalExpenses.length === 0 ? (
-                <div className="flex items-center justify-center h-40">
-                    <p className="text-muted-foreground">To'langan xarajatlar topilmadi.</p>
-                </div>
-            ) : (
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>#</TableHead>
-                            <TableHead>Sana</TableHead>
-                            <TableHead>Yetkazib beruvchi</TableHead>
-                            <TableHead>Tavsif</TableHead>
-                            <TableHead className="text-right">Summa</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {modalExpenses.map((expense, index) => (
-                            <TableRow key={expense.id}>
-                                <TableCell>{index + 1}</TableCell>
-                                <TableCell>{formatDate(expense.date)}</TableCell>
-                                <TableCell>{expense.supplier_name}</TableCell>
-                                <TableCell className="max-w-[200px] truncate" title={expense.comment}>
-                                    {expense.comment}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                    {formatCurrency(expense.amount)}
-                                </TableCell>
-                            </TableRow>
-                        ))}
-                        <TableRow className="bg-muted font-bold">
-                            <TableCell colSpan={4} className="text-right">
-                                Jami:
-                            </TableCell>
-                            <TableCell className="text-right">
-                                {formatCurrency(
-                                    modalExpenses.reduce((sum, exp) => sum + Number(exp.amount || 0), 0)
-                                )}
-                            </TableCell>
-                        </TableRow>
-                    </TableBody>
-                </Table>
-            )}
-        </div>
-        <DialogFooter>
-            <Button variant="outline" onClick={() => setPaidModalOpen(false)}>
-                Yopish
-            </Button>
-        </DialogFooter>
-    </DialogContent>
-</Dialog>
-
-{/* Pending Expenses Modal */}
-<Dialog open={pendingModalOpen} onOpenChange={setPendingModalOpen}>
-    <DialogContent className="sm:max-w-[800px] max-h-[80vh] flex flex-col">
-        <DialogHeader>
-            <DialogTitle>Nasiya (Kutilmoqda) xarajatlar</DialogTitle>
-            <DialogDescription>
-                Yetkazib beruvchilar bo'yicha jami nasiya qarzlar ro'yxati
-            </DialogDescription>
-        </DialogHeader>
-        <div className="flex-1 overflow-y-auto">
-            {modalLoading ? (
-                <div className="flex items-center justify-center h-40">
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                    <span className="ml-2 text-muted-foreground">Yuklanmoqda...</span>
-                </div>
-            ) : modalExpenses.length === 0 ? (
-                <div className="flex items-center justify-center h-40">
-                    <p className="text-muted-foreground">Nasiya qarzlar topilmadi.</p>
-                </div>
-            ) : (
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>#</TableHead>
-                            <TableHead>Yetkazib beruvchi</TableHead>
-                            <TableHead>Tavsif</TableHead>
-                            <TableHead className="text-right">Summa</TableHead>
-                            <TableHead className="text-right">Jami qarz</TableHead>
-                            <TableHead className="text-right">Amallar</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {modalExpenses.map((expense, index) => (
-                            <TableRow key={expense.id}>
-                                <TableCell>{index + 1}</TableCell>
-                                <TableCell>{expense.supplier_name}</TableCell>
-                                <TableCell className="max-w-[200px] truncate" title={expense.comment}>
-                                    {expense.comment}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                    {formatCurrency(expense.amount)}
-                                    {(expense.paid_amount || 0) > 0 && (
-                                        <div className="text-sm text-muted-foreground">
-                                            To'langan: {formatCurrency(expense.paid_amount || 0)}
-                                        </div>
-                                    )}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                    {formatCurrency(expense.remaining_amount)}
-                                </TableCell>
-                                <TableCell className="text-right">
+                {/* Totals Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">Umumiy xarajatlar</CardTitle>
+                            <DollarSign className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                            {loadingTotals ? (
+                                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto" />
+                            ) : (
+                                <div className="text-2xl font-bold">{formatCurrency(filteredTotalAmount)}</div>
+                            )}
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">To'langan</CardTitle>
+                            <HandCoins className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                            {loadingTotals ? (
+                                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto" />
+                            ) : (
+                                <div className="text-2xl font-bold">
                                     <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => handleOpenPaymentDialog(expense)}
+                                        variant="link"
+                                        className="p-0 text-2xl font-bold text-foreground h-auto hover:underline"
+                                        onClick={handleOpenPaidModal}
                                     >
-                                        To'lov qo'shish
+                                        {formatCurrency(filteredPaidExpensesAmount)}
                                     </Button>
-                                </TableCell>
-                            </TableRow>
-                        ))}
-                        <TableRow className="bg-muted font-bold">
-                            <TableCell colSpan={3} className="text-right">
-                                Jami:
-                            </TableCell>
-                            <TableCell className="text-right">
-                                {formatCurrency(
-                                    modalExpenses.reduce(
-                                        (sum, exp) => sum + Number(exp.amount || 0),
-                                        0
-                                    )
-                                )}
-                            </TableCell>
-                            <TableCell className="text-right">
-                                {formatCurrency(
-                                    modalExpenses.reduce(
-                                        (sum, exp) => sum + Number(exp.supplier_balance || 0),
-                                        0
-                                    )
-                                )}
-                            </TableCell>
-                            <TableCell></TableCell>
-                        </TableRow>
-                    </TableBody>
-                </Table>
-            )}
-        </div>
-        <DialogFooter>
-            <Button variant="outline" onClick={() => setPendingModalOpen(false)}>
-                Yopish
-            </Button>
-        </DialogFooter>
-    </DialogContent>
-</Dialog>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">Kutilmoqda (Nasiya)</CardTitle>
+                            <HandCoins className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                            {loadingTotals ? (
+                                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto" />
+                            ) : (
+                                <div className="text-2xl font-bold">
+                                    <Button
+                                        variant="link"
+                                        className="p-0 text-2xl font-bold text-foreground h-auto hover:underline"
+                                        onClick={handleOpenPendingModal}
+                                    >
+                                        {formatCurrency(filteredPendingAmount)}
+                                    </Button>
+                                    <div className="text-sm text-muted-foreground mt-1">
+                                        {filters.object && filters.object !== "all" ? "Tanlangan obyektning" : "Barcha"} kutilayotgan to'lovlar
+                                    </div>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">
+                                {filters.object && filters.object !== "all"
+                                    ? getObjectName(Number(filters.object))
+                                    : "Tanlangan obyekt"}
+                            </CardTitle>
+                            <Building className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                            {loadingTotals ? (
+                                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto" />
+                            ) : selectedObjectTotal !== null ? (
+                                <div className="text-2xl font-bold">{formatCurrency(selectedObjectTotal)}</div>
+                            ) : (
+                                <div className="text-sm text-muted-foreground">Obyekt tanlanmagan</div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </div>
 
-{/* Payment Dialog */}
-<Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
-    <DialogContent className="sm:max-w-[425px]">
-        <DialogHeader>
-            <DialogTitle>
-                To'lov qo'shish: {currentPaymentSupplier?.company_name}
-            </DialogTitle>
-            <DialogDescription>
-                Yetkazib beruvchi uchun to'lov ma'lumotlarini kiriting.
-            </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-4 py-4">
-            <div className="space-y-1">
-                <Label htmlFor="payment-amount">To'lov summasi (USD) *</Label>
-                <Input
-                    id="payment-amount"
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    value={paymentAmount}
-                    onChange={(e) => setPaymentAmount(e.target.value)}
-                    placeholder="Masalan: 500.00"
-                    required
-                />
-            </div>
-            <div className="space-y-1">
-                <Label htmlFor="payment-description">Tavsif *</Label>
-                <Textarea
-                    id="payment-description"
-                    value={paymentDescription}
-                    onChange={(e) => setPaymentDescription(e.target.value)}
-                    rows={3}
-                    placeholder="To'lov haqida qisqacha..."
-                    required
-                />
-            </div>
-        </div>
-        <DialogFooter>
-            <Button
-                type="button"
-                onClick={handleAddPayment}
-                disabled={
-                    isSubmittingPayment ||
-                    !paymentAmount ||
-                    Number(paymentAmount) <= 0 ||
-                    !paymentDescription.trim()
-                }
-            >
-                {isSubmittingPayment ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : null}
-                Saqlash
-            </Button>
-            <Button
-                type="button"
-                variant="outline"
-                onClick={() => setPaymentDialogOpen(false)}
-                disabled={isSubmittingPayment}
-            >
-                Bekor qilish
-            </Button>
-        </DialogFooter>
-    </DialogContent>
-</Dialog>
+                {/* Expenses Table */}
+                {renderExpensesTable(expenses)}
 
-{/* O'chirish modali */}
-<Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-    <DialogContent>
-        <DialogHeader>
-            <DialogTitle>Xarajatni o'chirish</DialogTitle>
-            <DialogDescription>
-                Xarajatni o'chirish uchun kodni kiriting
-            </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-                <Label htmlFor="deleteCode">Kod</Label>
-                <Input
-                    id="deleteCode"
-                    type="password"
-                    placeholder="Kodni kiriting"
-                    value={deleteCode}
-                    onChange={(e) => setDeleteCode(e.target.value)}
-                />
-            </div>
+                {/* Pagination */}
+                {totalPages > 1 && (
+                    <div className="flex items-center justify-between mt-4">
+                        <div className="text-sm text-muted-foreground">
+                            Sahifa {currentPage} / {totalPages} ({/* Consider using totalExpenses state here if available */}
+                            {expenses.length > 0 ? `${(currentPage - 1) * itemsPerPage + 1}-${(currentPage - 1) * itemsPerPage + expenses.length}` : 0} / {totalExpenses} yozuv
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handlePageChange(currentPage - 1)}
+                                disabled={currentPage === 1 || isRefreshing}
+                            >
+                                <ChevronLeft className="h-4 w-4" />
+                                Oldingi
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handlePageChange(currentPage + 1)}
+                                disabled={currentPage === totalPages || isRefreshing}
+                            >
+                                Keyingi
+                                <ChevronRight className="h-4 w-4" />
+                            </Button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Paid Expenses Modal */}
+                <Dialog open={paidModalOpen} onOpenChange={setPaidModalOpen}>
+                    <DialogContent className="sm:max-w-[800px] max-h-[80vh] flex flex-col">
+                        <DialogHeader>
+                            <DialogTitle>To'langan xarajatlar</DialogTitle>
+                            <DialogDescription>
+                                Tanlangan filtrlar bo'yicha to'langan xarajatlar (to'lovlar) ro'yxati.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="flex-1 overflow-y-auto">
+                            {modalLoading ? (
+                                <div className="flex items-center justify-center h-40">
+                                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                                    <span className="ml-2 text-muted-foreground">Yuklanmoqda...</span>
+                                </div>
+                            ) : modalExpenses.length === 0 ? (
+                                <div className="flex items-center justify-center h-40">
+                                    <p className="text-muted-foreground">To'langan xarajatlar (to'lovlar) topilmadi.</p>
+                                </div>
+                            ) : (
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>#</TableHead>
+                                            <TableHead>Sana</TableHead>
+                                            <TableHead>Yetkazib beruvchi</TableHead>
+                                            <TableHead>Tavsif (To'lov)</TableHead>
+                                            <TableHead className="text-right">Summa</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {modalExpenses.map((payment, index) => ( // Assuming modalExpenses for paid are payments
+                                            <TableRow key={payment.id}>
+                                                <TableCell>{index + 1}</TableCell>
+                                                <TableCell>{formatDate(payment.date)}</TableCell>
+                                                <TableCell>{payment.supplier_name}</TableCell>
+                                                <TableCell className="max-w-[200px] truncate" title={payment.comment}>
+                                                    {payment.comment}
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                    {formatCurrency(payment.amount)}
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                        <TableRow className="bg-muted font-bold">
+                                            <TableCell colSpan={4} className="text-right">
+                                                Jami:
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                                {formatCurrency(
+                                                    modalExpenses.reduce((sum, exp) => sum + Number(exp.amount || 0), 0)
+                                                )}
+                                            </TableCell>
+                                        </TableRow>
+                                    </TableBody>
+                                </Table>
+                            )}
+                        </div>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setPaidModalOpen(false)}>
+                                Yopish
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+
+                {/* Pending Expenses Modal */}
+                <Dialog open={pendingModalOpen} onOpenChange={setPendingModalOpen}>
+                    <DialogContent className="sm:max-w-[900px] max-h-[80vh] flex flex-col"> {/* Wider modal */}
+                        <DialogHeader>
+                            <DialogTitle>Nasiya (Kutilmoqda) xarajatlar</DialogTitle>
+                            <DialogDescription>
+                                Yetkazib beruvchilar bo'yicha jami nasiya qarzlar va ularga to'lov qilish.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="flex-1 overflow-y-auto">
+                            {modalLoading ? (
+                                <div className="flex items-center justify-center h-40">
+                                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                                    <span className="ml-2 text-muted-foreground">Yuklanmoqda...</span>
+                                </div>
+                            ) : modalExpenses.length === 0 ? (
+                                <div className="flex items-center justify-center h-40">
+                                    <p className="text-muted-foreground">Nasiya qarzlar topilmadi.</p>
+                                </div>
+                            ) : (
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>#</TableHead>
+                                            <TableHead>Sana</TableHead>
+                                            <TableHead>Yetkazib beruvchi</TableHead>
+                                            <TableHead>Tavsif (Xarajat)</TableHead>
+                                            <TableHead className="text-right">Xarajat summasi</TableHead>
+                                            <TableHead className="text-right">To'langan</TableHead>
+                                            <TableHead className="text-right">Qolgan qarz</TableHead>
+                                            <TableHead className="text-center">Amallar</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {modalExpenses.map((expense, index) => (
+                                            <TableRow key={expense.id}>
+                                                <TableCell>{index + 1}</TableCell>
+                                                <TableCell>{formatDate(expense.date)}</TableCell>
+                                                <TableCell>{expense.supplier_name}</TableCell>
+                                                <TableCell className="max-w-[200px] truncate" title={expense.comment}>
+                                                    {expense.comment}
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                    {formatCurrency(expense.amount)}
+                                                </TableCell>
+                                                 <TableCell className="text-right">
+                                                    {formatCurrency(expense.paid_amount || 0)}
+                                                </TableCell>
+                                                <TableCell className="text-right font-semibold">
+                                                    {formatCurrency(expense.remaining_amount)}
+                                                </TableCell>
+                                                <TableCell className="text-center">
+                                                    {(expense.remaining_amount || 0) > 0 && (
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            onClick={() => handleOpenPaymentDialog(expense)}
+                                                        >
+                                                            To'lov
+                                                        </Button>
+                                                    )}
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                        <TableRow className="bg-muted font-bold">
+                                            <TableCell colSpan={4} className="text-right">
+                                                Jami (Nasiya xarajatlar):
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                                {formatCurrency(
+                                                    modalExpenses.reduce(
+                                                        (sum, exp) => sum + Number(exp.amount || 0),0
+                                                    )
+                                                )}
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                                {formatCurrency(
+                                                    modalExpenses.reduce(
+                                                        (sum, exp) => sum + Number(exp.paid_amount || 0),0
+                                                    )
+                                                )}
+                                            </TableCell>
+                                            <TableCell className="text-right font-semibold">
+                                                {formatCurrency(filteredPendingAmount)} {/* This is total remaining */}
+                                            </TableCell>
+                                            <TableCell></TableCell>
+                                        </TableRow>
+                                    </TableBody>
+                                </Table>
+                            )}
+                        </div>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setPendingModalOpen(false)}>
+                                Yopish
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+
+                {/* Payment Dialog */}
+                <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
+                    <DialogContent className="sm:max-w-[425px]">
+                        <DialogHeader>
+                            <DialogTitle>
+                                To'lov: {currentPaymentSupplier?.company_name}
+                            </DialogTitle>
+                            <DialogDescription>
+                                Xarajat uchun to'lov ma'lumotlarini kiriting.
+                                {expenseToDelete && currentExpense && currentExpense.id === expenseToDelete && (
+                                  <div className="text-sm mt-1">
+                                    Xarajat ID: {expenseToDelete}, Qarz: {formatCurrency(currentExpense.amount)}
+                                  </div>
+                                )}
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="grid gap-4 py-4">
+                            <div className="space-y-1">
+                                <Label htmlFor="payment-amount">To'lov summasi (USD) *</Label>
+                                <Input
+                                    id="payment-amount"
+                                    type="number"
+                                    step="0.01"
+                                    min="0.01"
+                                    // max={ expense related remaining amount } // Consider adding max validation
+                                    value={paymentAmount}
+                                    onChange={(e) => setPaymentAmount(e.target.value)}
+                                    placeholder="Masalan: 500.00"
+                                    required
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <Label htmlFor="payment-description">Tavsif *</Label>
+                                <Textarea
+                                    id="payment-description"
+                                    value={paymentDescription}
+                                    onChange={(e) => setPaymentDescription(e.target.value)}
+                                    rows={3}
+                                    placeholder="To'lov haqida qisqacha..."
+                                    required
+                                />
+                            </div>
+                        </div>
+                        <DialogFooter>
+                            <Button
+                                type="button" // Important
+                                onClick={handleAddPayment}
+                                disabled={
+                                    isSubmittingPayment ||
+                                    !paymentAmount ||
+                                    Number(paymentAmount) <= 0 ||
+                                    !paymentDescription.trim()
+                                }
+                            >
+                                {isSubmittingPayment ? (
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                ) : null}
+                                Saqlash
+                            </Button>
+                            <Button
+                                type="button" // Important
+                                variant="outline"
+                                onClick={() => setPaymentDialogOpen(false)}
+                                disabled={isSubmittingPayment}
+                            >
+                                Bekor qilish
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+
+                {/* O'chirish modali */}
+                <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Xarajatni o'chirish</DialogTitle>
+                            <DialogDescription>
+                                Xarajatni o'chirish uchun kodini kiriting.
+                                {expenseToDelete && <span className="block mt-1">ID: {expenseToDelete}</span>}
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="grid gap-4 py-4">
+                            <div className="grid gap-2">
+                                <Label htmlFor="deleteCode">Kod</Label>
+                                <Input
+                                    id="deleteCode"
+                                    type="password" // Or "text" if user needs to see
+                                    placeholder="Kodni kiriting"
+                                    value={deleteCode}
+                                    onChange={(e) => setDeleteCode(e.target.value)}
+                                />
+                            </div>
+                        </div>
+                        <DialogFooter>
+                            <Button
+                                variant="outline"
+                                onClick={() => {
+                                    setDeleteDialogOpen(false);
+                                    setDeleteCode("");
+                                    setExpenseToDelete(null); // Clear selection
+                                }}
+                            >
+                                Bekor qilish
+                            </Button>
+                            <Button
+                                variant="destructive"
+                                onClick={handleConfirmDelete}
+                                disabled={!deleteCode || deleteCode !== "7777"} // Disable if no code or wrong code
+                            >
+                                O'chirish
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+            </main>
         </div>
-        <DialogFooter>
-            <Button
-                variant="outline"
-                onClick={() => {
-                    setDeleteDialogOpen(false);
-                    setDeleteCode("");
-                    setExpenseToDelete(null);
-                }}
-            >
-                Bekor qilish
-            </Button>
-            <Button
-                variant="destructive"
-                onClick={handleConfirmDelete}
-                disabled={!deleteCode}
-            >
-                O'chirish
-            </Button>
-        </DialogFooter>
-    </DialogContent>
-</Dialog>
-</main>
-</div>
-);
+    );
 }

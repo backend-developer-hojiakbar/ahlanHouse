@@ -368,7 +368,9 @@ const QarzdorlarPageComponent = () => {
         user.fio && user.fio.includes('(Qarzdor)')
       );
       setUsers(debtorUsers);
-      // Dastlabki umumiy summani hisoblash
+      // Dastlabki umumiy summani hisoblashsdbjbsdbsdbsd
+       // Dastlabki umumiy summani hisoblashsdbjbsdbsdbsd
+        // Dastlabki umumiy summani hisoblashsdbjbsdbsdbsd
       const initialTotal = debtorUsers.reduce((sum, user) => {
         const balance = typeof user.balance === 'string' ? parseFloat(user.balance) : user.balance;
         return sum + (isNaN(balance) ? 0 : balance);
@@ -377,7 +379,7 @@ const QarzdorlarPageComponent = () => {
       setLoading(false);
     } catch (error) {
       console.error("Error fetching users:", error);
-      toast.error("Ma'lumotlarni yuklashda xatolik yuz berdi");
+      toast.error("Ma'lumotlarni yuklashda xatolik yuz berdii");
     }
   };
 
