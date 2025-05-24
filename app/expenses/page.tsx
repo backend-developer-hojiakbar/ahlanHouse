@@ -27,7 +27,6 @@ import {
     ChevronRight,
     HandCoins,
     ArrowUpDown,
-    // ChevronsUpDown, // Agar Accordion uchun alohida ikon kerak bo'lmasa, olib tashlash mumkin
 } from "lucide-react";
 import {
     Select,
@@ -152,6 +151,11 @@ interface Property { id: number; name: string; }
 interface Supplier { id: number; company_name: string; balance?: string; contact_person_name?: string; phone_number?: string; address?: string; description?: string; }
 interface ExpenseType { id: number; name: string; }
 
+interface CurrentUser {
+    fio: string;
+    user_type: 'admin' | 'sotuvchi' | 'buxgalter' | 'mijoz' | string;
+}
+
 // --- Constants ---
 const API_BASE_URL = "http://api.ahlan.uz";
 const initialFormData = {
@@ -180,6 +184,7 @@ export default function ExpensesPage() {
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
     const [expenseTypes, setExpenseTypes] = useState<ExpenseType[]>([]);
     const [accessToken, setAccessToken] = useState<string | null>(null);
+    const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
 
     const [loading, setLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -224,7 +229,7 @@ export default function ExpensesPage() {
     const [formData, setFormData] = useState(initialFormData);
     const [newExpenseTypeName, setNewExpenseTypeName] = useState("");
     const [newSupplierData, setNewSupplierData] = useState(initialNewSupplierData);
-    
+
     const [paymentAmount, setPaymentAmount] = useState("");
     const [paymentDescription, setPaymentDescription] = useState("");
     const [currentPaymentSupplier, setCurrentPaymentSupplier] = useState<Supplier | null>(null);
@@ -236,6 +241,18 @@ export default function ExpensesPage() {
         const token = localStorage.getItem("access_token");
         if (token) {
             setAccessToken(token);
+            const userTypeFromStorage = localStorage.getItem("user_type");
+            const userFioFromStorage = localStorage.getItem("user_fio");
+
+            if (userTypeFromStorage && userFioFromStorage) {
+                setCurrentUser({
+                    user_type: userTypeFromStorage as CurrentUser['user_type'],
+                    fio: userFioFromStorage,
+                });
+            } else {
+                console.warn("Foydalanuvchi user_type yoki fio localStorage da topilmadi. Cheklovlar ishlamasligi mumkin. Iltimos, login qiling.");
+                setCurrentUser(null);
+            }
         } else {
             toast.error("Iltimos tizimga kiring");
             router.push("/login");
@@ -253,7 +270,7 @@ export default function ExpensesPage() {
 
     const fetchApiData = useCallback(
         async (endpoint: string, setter: Function | null, errorMsg: string, queryParams?: URLSearchParams) => {
-            if (!accessToken) return { results: [], count: 0};
+            if (!accessToken) return { results: [], count: 0 };
             try {
                 const url = queryParams ? `${API_BASE_URL}${endpoint}?${queryParams.toString()}` : `${API_BASE_URL}${endpoint}`;
                 const response = await fetch(url, { method: "GET", headers: getAuthHeaders() });
@@ -262,13 +279,13 @@ export default function ExpensesPage() {
                     throw new Error(`${errorMsg} (Status: ${response.status}): ${errorData.detail || JSON.stringify(errorData)}`);
                 }
                 const data = await response.json();
-                if(setter) setter(data.results || data);
+                if (setter) setter(data.results || data);
                 return data;
             } catch (error: any) {
                 console.error(`Error fetching ${endpoint}:`, error);
                 toast.error(error.message || errorMsg);
-                if(setter) setter([]);
-                throw error; 
+                if (setter) setter([]);
+                throw error;
             }
         },
         [accessToken, getAuthHeaders]
@@ -283,7 +300,7 @@ export default function ExpensesPage() {
                 fetchApiData("/expense-types/?page_size=1000", setExpenseTypes, "Xarajat turlari yuklanmadi"),
             ]);
         } catch (error) {
-            console.error("Error fetching initial data sets", error)
+            console.error("Error fetching initial data sets", error);
         }
     }, [accessToken, fetchApiData]);
 
@@ -298,8 +315,10 @@ export default function ExpensesPage() {
         if (filters.dateRange && filters.dateRange !== "all") {
             const today = new Date(); let startDate = new Date(today);
             switch (filters.dateRange) {
-                case "today": startDate.setHours(0,0,0,0); break; case "week": startDate.setDate(today.getDate() - 7); break;
-                case "month": startDate.setMonth(today.getMonth() - 1); break; case "quarter": startDate.setMonth(today.getMonth() - 3); break;
+                case "today": startDate.setHours(0, 0, 0, 0); break;
+                case "week": startDate.setDate(today.getDate() - 7); break;
+                case "month": startDate.setMonth(today.getMonth() - 1); break;
+                case "quarter": startDate.setMonth(today.getMonth() - 3); break;
                 case "year": startDate.setFullYear(today.getFullYear() - 1); break;
             }
             if (startDate <= today) {
@@ -308,14 +327,14 @@ export default function ExpensesPage() {
             }
         }
         if (debouncedSearchTerm) baseQueryParams.append("search", debouncedSearchTerm);
-        
+
         const tableQueryParams = new URLSearchParams(baseQueryParams);
         tableQueryParams.append("ordering", sortOrder === "desc" ? "-id" : "id");
         tableQueryParams.append("page", currentPage.toString());
         tableQueryParams.append("page_size", itemsPerPage.toString());
 
         const totalsQueryParams = new URLSearchParams(baseQueryParams);
-        totalsQueryParams.append("page_size", "10000"); 
+        totalsQueryParams.append("page_size", "10000");
 
         try {
             const [tableDataResponse, allFilteredExpensesData, allPaidExpensesData] = await Promise.all([
@@ -327,7 +346,7 @@ export default function ExpensesPage() {
                     return q;
                 })())
             ]);
-            
+
             const currentTableExpenses: Expense[] = tableDataResponse.results || [];
             setExpenses(currentTableExpenses);
             setTotalPages(Math.ceil((tableDataResponse.count || 0) / itemsPerPage));
@@ -335,7 +354,7 @@ export default function ExpensesPage() {
             currentTableExpenses.forEach((exp: Expense) => {
                 if (exp.status === "To‘langan") clearVirtualPaymentForExpense(exp.id);
             });
-            
+
             const allExpensesForTotal: Expense[] = allFilteredExpensesData.results || [];
             const calculatedFilteredTotal = allExpensesForTotal.reduce((sum, exp) => sum + Number(exp.amount || 0), 0);
             setFilteredTotalAmount(calculatedFilteredTotal);
@@ -374,51 +393,39 @@ export default function ExpensesPage() {
             const queryParams = new URLSearchParams();
             if (filters.object && filters.object !== "all") queryParams.append("object", filters.object);
             if (filters.expense_type && filters.expense_type !== "all") queryParams.append("expense_type", filters.expense_type);
-            // ...date logic for queryParams ...
             if (debouncedSearchTerm) queryParams.append("search", debouncedSearchTerm);
             queryParams.append("status", "To‘langan");
             queryParams.append("page_size", "1000");
             queryParams.append("ordering", "-date,-id");
-
             await fetchApiData("/expenses/", setModalPaidExpenses, "To'langan xarajatlar modal uchun yuklanmadi", queryParams);
-        } catch (error: any) {
-           // toast is handled by fetchApiData
-        } finally {
-            setModalLoading(false);
-        }
+        } catch (error: any) { /* Handled by fetchApiData */ }
+        finally { setModalLoading(false); }
     }, [accessToken, filters, debouncedSearchTerm, fetchApiData]);
 
     const fetchPendingModalExpenses = useCallback(async (openModalAfterFetch = true) => {
         if (!accessToken) return;
         if (openModalAfterFetch) setModalLoading(true);
         setSupplierDebtGroups([]);
-
         try {
             const queryParams = new URLSearchParams();
             queryParams.append("status", "Kutilmoqda");
             queryParams.append("page_size", "10000");
             if (filters.object && filters.object !== "all") queryParams.append("object", filters.object);
             if (filters.expense_type && filters.expense_type !== "all") queryParams.append("expense_type", filters.expense_type);
-             // ...date logic for queryParams ...
             if (debouncedSearchTerm) queryParams.append("search", debouncedSearchTerm);
             queryParams.append("ordering", "date,id");
-
             const expensesData = await fetchApiData("/expenses/", null, "Kutilayotgan xarajatlar yuklanmadi", queryParams);
             const pendingRawExpenses: Expense[] = expensesData.results || [];
-            
             const groups: Record<number, SupplierDebtGroup> = {};
             let totalOverallFilteredPendingDebt = 0;
-
             for (const rawExpense of pendingRawExpenses) {
                 const totalExpenseAmount = Number(rawExpense.amount);
                 const virtualPaid = getVirtualPaymentForExpense(rawExpense.id);
                 const calculatedRemaining = totalExpenseAmount - virtualPaid;
-
-                if (calculatedRemaining <= 0.009 && rawExpense.status === "Kutilmoqda") { 
-                    clearVirtualPaymentForExpense(rawExpense.id); 
-                    continue; 
+                if (calculatedRemaining <= 0.009 && rawExpense.status === "Kutilmoqda") {
+                    clearVirtualPaymentForExpense(rawExpense.id);
+                    continue;
                 }
-
                 const modalExpenseItem: ModalExpense = {
                     id: rawExpense.id,
                     total_expense_amount: totalExpenseAmount,
@@ -432,7 +439,6 @@ export default function ExpensesPage() {
                     virtual_paid_amount: virtualPaid,
                     calculated_remaining_debt: calculatedRemaining,
                 };
-
                 if (!groups[rawExpense.supplier]) {
                     groups[rawExpense.supplier] = {
                         supplier_id: rawExpense.supplier,
@@ -445,19 +451,13 @@ export default function ExpensesPage() {
                 groups[rawExpense.supplier].total_remaining_debt_for_supplier += calculatedRemaining;
                 totalOverallFilteredPendingDebt += calculatedRemaining;
             }
-            
             const groupedData = Object.values(groups)
                 .filter(group => group.total_remaining_debt_for_supplier > 0.009)
                 .sort((a, b) => a.supplier_name.localeCompare(b.supplier_name));
-            
             setSupplierDebtGroups(groupedData);
             setFilteredPendingAmount(totalOverallFilteredPendingDebt);
-
-        } catch (error: any) {
-            setFilteredPendingAmount(0);
-        } finally {
-            if (openModalAfterFetch) setModalLoading(false);
-        }
+        } catch (error: any) { setFilteredPendingAmount(0); }
+        finally { if (openModalAfterFetch) setModalLoading(false); }
     }, [accessToken, suppliers, properties, expenseTypes, filters, debouncedSearchTerm, fetchApiData]);
 
     useEffect(() => {
@@ -466,20 +466,23 @@ export default function ExpensesPage() {
                 fetchExpensesAndFilteredTotals();
             }).catch(err => console.error("Initial data load failed, cannot fetch expenses.", err));
         }
-    }, [accessToken, fetchInitialData]); 
+    }, [accessToken, fetchInitialData, fetchExpensesAndFilteredTotals]);
 
     useEffect(() => {
-         // This useEffect will run when filters, currentPage, etc. change,
-         // assuming accessToken is already set and initial data (properties, etc.) has been loaded or loading is false.
-        if (accessToken && (properties.length > 0 || suppliers.length > 0 || expenseTypes.length > 0 || !loading)) {
-            fetchExpensesAndFilteredTotals();
+        // Bu useEffect faqat filtrlar, sahifa, qidiruv yoki saralash o'zgarganda ma'lumotlarni qayta yuklaydi.
+        // accessToken yoki boshqa boshlang'ich ma'lumotlar o'zgarishiga bog'liq emas.
+        if (accessToken) { // Ensure token exists before re-fetching
+             fetchExpensesAndFilteredTotals();
         }
-    }, [filters, currentPage, debouncedSearchTerm, sortOrder]); // Removed accessToken and initial data arrays and loading, they are handled by the first useEffect
-    
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [filters, currentPage, debouncedSearchTerm, sortOrder]); // accessToken olib tashlandi, chunki u faqat birinchi yuklashda muhim.
+
     useEffect(() => {
-        const params = new URLSearchParams(window.location.search);
-        if (currentPage === 1) params.delete("page"); else params.set("page", currentPage.toString());
-        window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
+        if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            if (currentPage === 1) params.delete("page"); else params.set("page", currentPage.toString());
+            window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
+        }
     }, [currentPage]);
 
     const createSupplierPaymentAPI = async (supplierId: number, amount: string, description: string) => {
@@ -488,7 +491,7 @@ export default function ExpensesPage() {
             method: "POST", headers: getAuthHeaders(), body: JSON.stringify(paymentData),
         });
         if (!response.ok) {
-            const err = await response.json().catch(()=>({detail: "To'lov server xatosi"}));
+            const err = await response.json().catch(() => ({ detail: "To'lov server xatosi" }));
             throw new Error(`To'lov yozilmadi (${response.status}): ${err.detail || JSON.stringify(err)}`);
         }
         return await response.json();
@@ -499,7 +502,7 @@ export default function ExpensesPage() {
             method: "PUT", headers: getAuthHeaders(), body: JSON.stringify(dataToUpdate),
         });
         if (!response.ok) {
-            const err = await response.json().catch(()=>({detail: "Xarajatni yangilash server xatosi"}));
+            const err = await response.json().catch(() => ({ detail: "Xarajatni yangilash server xatosi" }));
             throw new Error(`Xarajat (ID: ${expenseId}) yangilanmadi (${response.status}): ${err.detail || JSON.stringify(err)}`);
         }
         return await response.json();
@@ -511,36 +514,34 @@ export default function ExpensesPage() {
         try {
             const expenseStatus = formData.status === "Naqd pul" ? "To‘langan" : "Kutilmoqda";
             const apiPayload = { ...expenseData, status: expenseStatus };
-            
             const response = await fetch(`${API_BASE_URL}/expenses/`, {
                 method: "POST", headers: getAuthHeaders(), body: JSON.stringify(apiPayload),
             });
-            if (!response.ok) { 
-                const err = await response.json().catch(()=>({detail: "Xarajat qo'shishda server xatosi"}));
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({ detail: "Xarajat qo'shishda server xatosi" }));
                 throw new Error(`Xarajat qo'shilmadi (${response.status}): ${err.detail || JSON.stringify(err)}`);
             }
             const newExpense: Expense = await response.json();
-            
             if (expenseStatus === "To‘langan") {
                 try {
                     await createSupplierPaymentAPI(expenseData.supplier, expenseData.amount, `Xarajat ID: ${newExpense.id} uchun (${expenseData.comment})`);
-                } catch (paymentError: any) { toast.error(`Xarajat qo'shildi, lekin to'lov yozishda xato: ${paymentError.message}`);}
+                } catch (paymentError: any) { toast.error(`Xarajat qo'shildi, lekin to'lov yozishda xato: ${paymentError.message}`); }
                 clearVirtualPaymentForExpense(newExpense.id);
             }
             toast.success("Xarajat muvaffaqiyatli qo'shildi");
             setOpen(false); setFormData(initialFormData);
             setCurrentPage(1);
             await fetchExpensesAndFilteredTotals();
-        } catch (error: any) { toast.error(error.message);
-        } finally { setIsSubmitting(false); }
+        } catch (error: any) { toast.error(error.message); }
+        finally { setIsSubmitting(false); }
     };
 
     const fetchExpenseById = async (id: number) => {
         if (!accessToken) return;
         setEditOpen(true); setCurrentExpense(null); setFormData(initialFormData);
         try {
-            const data: Expense = await fetchApiData(`/expenses/${id}/`, setCurrentExpense, `Xarajat (ID: ${id}) olinmadi`);
-            // setCurrentExpense is called by setter in fetchApiData
+            const data: Expense = await fetchApiData(`/expenses/${id}/`, null, `Xarajat (ID: ${id}) olinmadi`);
+            setCurrentExpense(data);
             setFormData({
                 object: data.object?.toString() || "", supplier: data.supplier?.toString() || "",
                 amount: data.amount || "0", expense_type: data.expense_type?.toString() || "",
@@ -550,7 +551,7 @@ export default function ExpensesPage() {
             });
         } catch (error: any) { setEditOpen(false); }
     };
-    
+
     const updateExpense = async (id: number, expenseDataFromForm: any, action: "save") => {
         if (!accessToken || !currentExpense) { toast.error("Xatolik: Joriy xarajat topilmadi."); return; }
         setIsSubmitting(true);
@@ -558,41 +559,36 @@ export default function ExpensesPage() {
         try {
             const newStatusChoice = formData.status;
             const backendStatus = newStatusChoice === "Naqd pul" ? "To‘langan" : "Kutilmoqda";
-            
             const dataToSendToBackend = {
-                object: Number(expenseDataFromForm.object),
-                supplier: Number(expenseDataFromForm.supplier),
-                amount: expenseDataFromForm.amount,
-                expense_type: Number(expenseDataFromForm.expense_type),
-                date: expenseDataFromForm.date,
-                comment: expenseDataFromForm.comment.trim(),
+                object: Number(expenseDataFromForm.object), supplier: Number(expenseDataFromForm.supplier),
+                amount: expenseDataFromForm.amount, expense_type: Number(expenseDataFromForm.expense_type),
+                date: expenseDataFromForm.date, comment: expenseDataFromForm.comment.trim(),
                 status: backendStatus,
             };
-            
             await updateExpenseAPI(id, dataToSendToBackend);
-
-            if (backendStatus === "To‘langan") {
-                if (originalStatus === "Kutilmoqda") {
-                    try {
-                        await createSupplierPaymentAPI(
-                            Number(expenseDataFromForm.supplier),
-                            expenseDataFromForm.amount,
-                            `Xarajat ID: ${id} uchun to'lov (tahrirlash orqali) - ${expenseDataFromForm.comment}`
-                        );
-                    } catch (paymentError: any) { toast.error(`Xarajat yangilandi, lekin to'lov yozishda xato: ${paymentError.message}`); }
-                }
-                clearVirtualPaymentForExpense(id);
+            if (backendStatus === "To‘langan" && originalStatus === "Kutilmoqda") {
+                try {
+                    await createSupplierPaymentAPI(
+                        Number(expenseDataFromForm.supplier), expenseDataFromForm.amount,
+                        `Xarajat ID: ${id} uchun to'lov (tahrirlash orqali) - ${expenseDataFromForm.comment}`
+                    );
+                } catch (paymentError: any) { toast.error(`Xarajat yangilandi, lekin to'lov yozishda xato: ${paymentError.message}`); }
             }
+            if (backendStatus === "To‘langan") { clearVirtualPaymentForExpense(id); }
             toast.success("Xarajat muvaffaqiyatli yangilandi");
             if (action === "save") { setEditOpen(false); setCurrentExpense(null); setFormData(initialFormData); }
             await fetchExpensesAndFilteredTotals();
-        } catch (error: any) { toast.error(error.message);
-        } finally { setIsSubmitting(false); }
+        } catch (error: any) { toast.error(error.message); }
+        finally { setIsSubmitting(false); }
     };
 
     const deleteExpense = async (id: number) => { setExpenseToDelete(id); setDeleteCode(""); setDeleteDialogOpen(true); };
-    const handleConfirmDelete = async () => { 
-        if (!accessToken || !expenseToDelete || deleteCode !== "7777") { toast.error("Noto'g'ri kod"); return; }
+    const handleConfirmDelete = async () => {
+        if (!accessToken || !expenseToDelete || deleteCode !== "7777") {
+            toast.error("Noto'g'ri kod yoki xatolik.");
+            if (deleteCode !== "7777" && expenseToDelete) toast.error("O'chirish kodi noto'g'ri!");
+            return;
+        }
         try {
             const response = await fetch(`${API_BASE_URL}/expenses/${expenseToDelete}/`, { method: "DELETE", headers: getAuthHeaders() });
             if (response.status === 204 || response.ok) {
@@ -600,8 +596,8 @@ export default function ExpensesPage() {
                 toast.success("Xarajat muvaffaqiyatli o'chirildi");
                 setDeleteDialogOpen(false); setDeleteCode(""); setExpenseToDelete(null);
                 await fetchExpensesAndFilteredTotals();
-            } else { 
-                const err = await response.json().catch(()=>({detail: "O'chirishda server xatosi"}));
+            } else {
+                const err = await response.json().catch(() => ({ detail: "O'chirishda server xatosi" }));
                 throw new Error(`O'chirishda xatolik (${response.status}): ${err.detail || JSON.stringify(err)}`);
             }
         } catch (error: any) { toast.error(error.message); }
@@ -611,9 +607,11 @@ export default function ExpensesPage() {
         if (!accessToken || !newExpenseTypeName.trim()) { toast.error("Xarajat turi nomi kiritilishi shart"); return; }
         setIsExpenseTypeSubmitting(true);
         try {
-            const response = await fetch(`${API_BASE_URL}/expense-types/`, { method: "POST", headers: getAuthHeaders(), body: JSON.stringify({ name: newExpenseTypeName.trim() }) });
+            const response = await fetch(`${API_BASE_URL}/expense-types/`, {
+                method: "POST", headers: getAuthHeaders(), body: JSON.stringify({ name: newExpenseTypeName.trim() })
+            });
             if (!response.ok) {
-                 const err = await response.json().catch(()=>({detail: "Xarajat turi qo'shishda server xatosi"}));
+                const err = await response.json().catch(() => ({ detail: "Xarajat turi qo'shishda server xatosi" }));
                 throw new Error(`Xarajat turi qo'shilmadi (${response.status}): ${err.detail || JSON.stringify(err)}`);
             }
             const newType: ExpenseType = await response.json();
@@ -621,14 +619,12 @@ export default function ExpensesPage() {
             setFormData((prev) => ({ ...prev, expense_type: newType.id.toString() }));
             setNewExpenseTypeName(""); setAddExpenseTypeOpen(false);
             toast.success(`"${newType.name}" xarajat turi qo'shildi`);
-        } catch (error: any) { toast.error(error.message); } finally { setIsExpenseTypeSubmitting(false); }
+        } catch (error: any) { toast.error(error.message); }
+        finally { setIsExpenseTypeSubmitting(false); }
     };
-    
+
     const createSupplier = async () => {
-        if (!accessToken || !newSupplierData.company_name.trim()) {
-            toast.error("Kompaniya nomi kiritilishi shart");
-            return;
-        }
+        if (!accessToken || !newSupplierData.company_name.trim()) { toast.error("Kompaniya nomi kiritilishi shart"); return; }
         setIsSupplierSubmitting(true);
         try {
             const supplierDataToSubmit = {
@@ -638,46 +634,22 @@ export default function ExpensesPage() {
                 address: newSupplierData.address?.trim() || null,
                 description: newSupplierData.description?.trim() || null,
             };
-    
             const response = await fetch(`${API_BASE_URL}/suppliers/`, {
-                method: "POST",
-                headers: getAuthHeaders(),
-                body: JSON.stringify(supplierDataToSubmit),
+                method: "POST", headers: getAuthHeaders(), body: JSON.stringify(supplierDataToSubmit),
             });
-    
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
-                const errorMessages = Object.entries(errorData)
-                    .map(([k, v])  => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`)
-                    .join("; ");
+                const errorMessages = Object.entries(errorData).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`).join("; ");
                 throw new Error(`Yetkazib beruvchi qo'shishda xatolik (${response.status}): ${errorMessages || "Server xatosi"}`);
             }
             const newSupplier: Supplier = await response.json();
-    
-            setSuppliers((prevSuppliers) => {
-                const updatedSuppliers = [...prevSuppliers, newSupplier];
-                updatedSuppliers.sort((a, b) => a.company_name.localeCompare(b.company_name));
-                return updatedSuppliers;
-            });
-    
-            setFormData((prevFormData) => ({
-                ...prevFormData,
-                supplier: newSupplier.id.toString(),
-            }));
-            
+            setSuppliers((prevSuppliers) => [...prevSuppliers, newSupplier].sort((a, b) => a.company_name.localeCompare(b.company_name)));
+            setFormData((prevFormData) => ({ ...prevFormData, supplier: newSupplier.id.toString(), }));
             toast.success(`"${newSupplier.company_name}" yetkazib beruvchi qo'shildi`);
-            setNewSupplierData(initialNewSupplierData); 
-            setAddSupplierOpen(false); 
-    
-            // Optionally re-fetch all initial data if other parts of supplier info are needed immediately elsewhere
-            // fetchInitialData().catch(err => console.error("Error re-fetching initial data after supplier add:", err));
-    
-        } catch (error: any) {
-            toast.error(error.message);
-        } finally {
-            setIsSupplierSubmitting(false);
-        }
-    };    
+            setNewSupplierData(initialNewSupplierData); setAddSupplierOpen(false);
+        } catch (error: any) { toast.error(error.message); }
+        finally { setIsSupplierSubmitting(false); }
+    };
 
     const handleAddPayment = async () => {
         if (!accessToken || !currentPaymentSupplier || !paymentAmount || Number(paymentAmount) <= 0 || !paymentDescription.trim()) {
@@ -685,45 +657,28 @@ export default function ExpensesPage() {
         }
         setIsSubmittingPayment(true);
         try {
-            await createSupplierPaymentAPI(
-                currentPaymentSupplier.id,
-                paymentAmount,
-                `${paymentDescription} (Umumiy qarz uchun)`
-            );
-            
-            toast(`${currentPaymentSupplier.company_name} uchun to'lov yozildi. Xarajatlar taqsimlanmoqda...`, {
-                icon: 'ℹ️', // Using a generic toast with an icon
-            });
-
-            const pendingExpensesResp = await fetchApiData(
-                "/expenses/", null, "Yetkazib beruvchining nasiyalari olinmadi",
+            await createSupplierPaymentAPI(currentPaymentSupplier.id, paymentAmount, `${paymentDescription} (Umumiy qarz uchun)`);
+            toast(`${currentPaymentSupplier.company_name} uchun to'lov yozildi. Xarajatlar taqsimlanmoqda...`, { icon: 'ℹ️' });
+            const pendingExpensesResp = await fetchApiData("/expenses/", null, "Yetkazib beruvchining nasiyalari olinmadi",
                 new URLSearchParams({
-                    supplier: currentPaymentSupplier.id.toString(),
-                    status: "Kutilmoqda",
-                    ordering: "date,id",
-                    page_size: "1000" 
+                    supplier: currentPaymentSupplier.id.toString(), status: "Kutilmoqda",
+                    ordering: "date,id", page_size: "1000"
                 })
             );
             const pendingExpensesForSupplier: Expense[] = pendingExpensesResp.results || [];
-            
             let paymentAmountToDistribute = Number(paymentAmount);
             const updatePromises: Promise<any>[] = [];
-
             for (const expense of pendingExpensesForSupplier) {
                 if (paymentAmountToDistribute <= 0.009) break;
-
                 const expenseTotalAmount = Number(expense.amount);
                 const currentVirtualPaid = getVirtualPaymentForExpense(expense.id);
                 const debtRemainingOnThisExpense = Math.max(0, expenseTotalAmount - currentVirtualPaid);
-
-                if (debtRemainingOnThisExpense <= 0.009) continue; 
-
+                if (debtRemainingOnThisExpense <= 0.009) continue;
                 let paymentAppliedToThisExpense = 0;
-                
                 if (paymentAmountToDistribute >= debtRemainingOnThisExpense) {
                     paymentAppliedToThisExpense = debtRemainingOnThisExpense;
-                    clearVirtualPaymentForExpense(expense.id); 
-                    const expenseUpdatePayload = { ...expense, status: "To‘langan" }; 
+                    clearVirtualPaymentForExpense(expense.id);
+                    const expenseUpdatePayload = { ...expense, status: "To‘langan" };
                     delete (expenseUpdatePayload as any).supplier_name; delete (expenseUpdatePayload as any).expense_type_name; delete (expenseUpdatePayload as any).object_name;
                     updatePromises.push(updateExpenseAPI(expense.id, expenseUpdatePayload));
                 } else {
@@ -732,30 +687,22 @@ export default function ExpensesPage() {
                 }
                 paymentAmountToDistribute -= paymentAppliedToThisExpense;
             }
-
             if (updatePromises.length > 0) {
                 await Promise.all(updatePromises);
                 toast.success("Tegishli xarajatlar statuslari yangilandi.");
-            } else if (Number(paymentAmount) > 0 && pendingExpensesForSupplier.length > 0 && pendingExpensesForSupplier.some(e => (Number(e.amount) - getVirtualPaymentForExpense(e.id)) > 0.009) ) {
-                 toast.success("To'lov qabul qilindi, nasiyalar qisman qoplandi (localStorage'da).");
-            } else {
-                toast.success("To'lov muvaffaqiyatli qayd etildi.");
-            }
-
+            } else if (Number(paymentAmount) > 0 && pendingExpensesForSupplier.length > 0 && pendingExpensesForSupplier.some(e => (Number(e.amount) - getVirtualPaymentForExpense(e.id)) > 0.009)) {
+                toast.success("To'lov qabul qilindi, nasiyalar qisman qoplandi (localStorage'da).");
+            } else { toast.success("To'lov muvaffaqiyatli qayd etildi."); }
             setPaymentDialogOpen(false); setPaymentAmount(""); setPaymentDescription(""); setCurrentPaymentSupplier(null);
             await fetchExpensesAndFilteredTotals();
             if (pendingModalOpen) await fetchPendingModalExpenses(true); else await fetchPendingModalExpenses(false);
             if (paidModalOpen) await fetchPaidModalExpenses();
-
         } catch (error: any) {
             console.error("To'lov jarayonida xatolik:", error);
             toast.error(error.message || "To'lovda noma'lum xatolik");
-        } finally {
-            setIsSubmittingPayment(false);
-        }
+        } finally { setIsSubmittingPayment(false); }
     };
 
-    // --- Event Handlers ---
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
     const handleSupplierChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setNewSupplierData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
     const handleSelectChange = (name: string, value: string) => setFormData((prev) => ({ ...prev, [name]: value }));
@@ -764,18 +711,15 @@ export default function ExpensesPage() {
     const handleOpenEditDialog = (expenseId: number) => fetchExpenseById(expenseId);
     const handlePageChange = (page: number) => { if (page >= 1 && page <= totalPages) setCurrentPage(page); };
     const handleSortToggle = () => { setSortOrder((prev) => (prev === "desc" ? "asc" : "desc")); setCurrentPage(1); };
-    
     const handleOpenPaidModal = () => { setPaidModalOpen(true); fetchPaidModalExpenses(); };
     const handleOpenPendingModal = () => { setPendingModalOpen(true); fetchPendingModalExpenses(true); };
-
     const handleOpenSupplierPaymentDialog = (supplierGroup: SupplierDebtGroup) => {
         setCurrentPaymentSupplier({ id: supplierGroup.supplier_id, company_name: supplierGroup.supplier_name });
         setPaymentAmount(supplierGroup.total_remaining_debt_for_supplier.toFixed(2));
         setPaymentDescription(`To'lov: ${supplierGroup.supplier_name} uchun umumiy qarzga`);
         setPaymentDialogOpen(true);
     };
-
-    const validateFormData = (): boolean => { 
+    const validateFormData = (): boolean => {
         const errors: string[] = [];
         if (!formData.object) errors.push(`"Obyekt" tanlanishi shart.`);
         if (!formData.supplier) errors.push(`"Yetkazib beruvchi" tanlanishi shart.`);
@@ -788,7 +732,6 @@ export default function ExpensesPage() {
         if (errors.length > 0) { toast.error(errors.join("\n")); return false; }
         return true;
     };
-
     const handleSubmit = (e: React.FormEvent, action: "save" | "saveAndAdd" | "saveAndContinue") => {
         e.preventDefault(); if (!validateFormData()) return;
         const expensePayload = {
@@ -826,14 +769,43 @@ export default function ExpensesPage() {
         catch (e) { console.warn("Date formatting error:", e, "Original:", dateString); return dateString; }
     }, [isClient]);
     const getObjectName = useCallback((objectId: number | undefined) => {
-        if(!objectId && objectId !== 0) return "-"; // Handle undefined, allow 0 if it's a valid ID for something
-        return properties.find((p) => p.id === objectId)?.name || `Obyekt ID: ${objectId}`
+        if (!objectId && objectId !== 0) return "-";
+        return properties.find((p) => p.id === objectId)?.name || `Obyekt ID: ${objectId}`;
     }, [properties]);
 
+    // --- O'ZGARTIRILGAN: Funksiya nomi va logikasi ---
+    // Bu funksiya endi faqat "sezgir" amallar (tahrirlash/o'chirish) uchun ishlatiladi.
+    const canPerformSensitiveActions = useCallback((user: CurrentUser | null): boolean => {
+        if (!user) {
+            return false; // Agar foydalanuvchi ma'lumoti yo'q bo'lsa, ruxsat yo'q
+        }
+        const isRestrictedRole = user.user_type === 'sotuvchi' || user.user_type === 'buxgalter';
+        const hasSardorInFio = user.fio.toLowerCase().includes('sardor');
+
+        // Agar rol cheklangan BO'LSA YOKI ismda "Sardor" BO'LSA -> RUXSAT YO'Q (sezgir amallar uchun)
+        if (isRestrictedRole || hasSardorInFio) {
+            return false;
+        }
+        // Aks holda (rol cheklanmagan VA ismda "Sardor" YO'Q bo'lsa) -> RUXSAT BOR (sezgir amallar uchun)
+        return true;
+    }, []);
+    // --- END ---
+
     function renderExpensesTable(expensesToRender: Expense[]) {
-        const isLoading = loading && !isRefreshing;
-        if (isLoading) { return (<div className="flex items-center justify-center h-[200px] border rounded-md"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /><p className="ml-2 text-muted-foreground">Jadval yuklanmoqda...</p></div>); }
-        if (expensesToRender.length === 0 && !isLoading) { return (<div className="flex items-center justify-center h-[200px] border rounded-md"><p className="text-muted-foreground text-center">{searchTerm || filters.object || filters.expense_type || filters.dateRange !== "all" ? "Filtr yoki qidiruvga mos xarajatlar topilmadi." : "Hozircha xarajatlar mavjud emas."}</p></div>); }
+        const isLoadingCondition = loading && !isRefreshing;
+        if (isLoadingCondition && !expensesToRender.length && isClient) {
+            return (<div className="flex items-center justify-center h-[200px] border rounded-md"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /><p className="ml-2 text-muted-foreground">Jadval yuklanmoqda...</p></div>);
+        }
+        if (isLoadingCondition && !expensesToRender.length && !isClient) {
+             return (<div className="flex items-center justify-center h-[200px] border rounded-md"><p className="ml-2 text-muted-foreground">Jadval yuklanmoqda...</p></div>);
+        }
+        if (expensesToRender.length === 0 && !isLoadingCondition) {
+            return (<div className="flex items-center justify-center h-[200px] border rounded-md"><p className="text-muted-foreground text-center">{searchTerm || filters.object || filters.expense_type || filters.dateRange !== "all" ? "Filtr yoki qidiruvga mos xarajatlar topilmadi." : "Hozircha xarajatlar mavjud emas."}</p></div>);
+        }
+
+        // O'ZGARTIRILGAN: Bu o'zgaruvchi endi faqat tahrirlash/o'chirish uchun
+        const showSensitiveActionButtons = canPerformSensitiveActions(currentUser);
+
         return (
             <div className="rounded-md border overflow-x-auto relative">
                 <Table>
@@ -843,48 +815,51 @@ export default function ExpensesPage() {
                             <TableHead className="w-[120px]">Sana</TableHead><TableHead>Obyekt</TableHead>
                             <TableHead>Yetkazib beruvchi</TableHead><TableHead>Tavsif</TableHead>
                             <TableHead>Turi</TableHead><TableHead>Status</TableHead>
-                            <TableHead className="text-right w-[150px]">Summa</TableHead><TableHead className="text-right w-[100px]">Amallar</TableHead>
+                            <TableHead className="text-right w-[150px]">Summa</TableHead>
+                            {/* "Amallar" ustuni faqat sezgir amallarga ruxsat bo'lsa ko'rsatiladi */}
+                            {showSensitiveActionButtons && <TableHead className="text-right w-[100px]">Amallar</TableHead>}
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {expensesToRender.map((expense, index) => {
-                             const rowNumber = sortOrder === "desc" ? (totalExpenses - (currentPage - 1) * itemsPerPage - index) : ((currentPage - 1) * itemsPerPage + index + 1);
-                             const virtualPaidForThis = expense.status === "Kutilmoqda" ? getVirtualPaymentForExpense(expense.id) : 0;
-                             const expenseAmountNumber = Number(expense.amount);
-                             const remainingVirtualDebt = expenseAmountNumber - virtualPaidForThis;
-                             
-                             let displayAmountText = formatCurrency(expense.amount);
-                             let titleText = "";
-                             if (expense.status === "Kutilmoqda" && virtualPaidForThis > 0 && remainingVirtualDebt > 0.009) {
-                                 displayAmountText = `${formatCurrency(expense.amount)} (Qarz: ${formatCurrency(remainingVirtualDebt)})`;
-                                 titleText = `Jami: ${formatCurrency(expense.amount)}, To'langan (virtual): ${formatCurrency(virtualPaidForThis)}`;
-                             }
-
-
-                             return (
-                            <TableRow key={expense.id} className="hover:bg-muted/50">
-                                <TableCell className="font-medium">{rowNumber}</TableCell>
-                                <TableCell>{formatDate(expense.date)}</TableCell>
-                                <TableCell>{getObjectName(expense.object)}</TableCell>
-                                <TableCell>{expense.supplier_name || `Yetk. ID: ${expense.supplier}`}</TableCell>
-                                <TableCell className="max-w-[250px] truncate" title={expense.comment}>{expense.comment || "-"}</TableCell>
-                                <TableCell><Badge variant="outline" className={`whitespace-nowrap ${getExpenseTypeStyle(expense.expense_type_name)}`}>{expense.expense_type_name || `ID: ${expense.expense_type}`}</Badge></TableCell>
-                                <TableCell><Badge variant={expense.status === "To‘langan" ? "default" : "secondary"} className={`whitespace-nowrap ${expense.status === "To‘langan" ? "bg-green-100 text-green-800" : expense.status === "Kutilmoqda" ? (virtualPaidForThis > 0 && remainingVirtualDebt > 0.009 ? "bg-orange-100 text-orange-800" : "bg-yellow-100 text-yellow-800") : "bg-gray-100 text-gray-800"}`}>{expense.status === "Kutilmoqda" && virtualPaidForThis > 0 && remainingVirtualDebt > 0.009 ? "Qisman To'langan" : expense.status}</Badge></TableCell>
-                                <TableCell className="text-right font-semibold" title={titleText}>
-                                    {displayAmountText}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                    <div className="flex justify-end space-x-1">
-                                        <Button variant="ghost" size="icon" onClick={() => handleOpenEditDialog(expense.id)} title="Tahrirlash"><Edit className="h-4 w-4" /></Button>
-                                        <Button variant="ghost" size="icon" onClick={() => deleteExpense(expense.id)} title="O'chirish"><Trash2 className="h-4 w-4 text-red-500 hover:text-red-700" /></Button>
-                                    </div>
-                                </TableCell>
-                            </TableRow>
-                        )})}
+                            const rowNumber = sortOrder === "desc" ? (totalExpenses - (currentPage - 1) * itemsPerPage - index) : ((currentPage - 1) * itemsPerPage + index + 1);
+                            const virtualPaidForThis = expense.status === "Kutilmoqda" ? getVirtualPaymentForExpense(expense.id) : 0;
+                            const expenseAmountNumber = Number(expense.amount);
+                            const remainingVirtualDebt = expenseAmountNumber - virtualPaidForThis;
+                            let displayAmountText = formatCurrency(expense.amount);
+                            let titleText = "";
+                            if (expense.status === "Kutilmoqda" && virtualPaidForThis > 0 && remainingVirtualDebt > 0.009) {
+                                displayAmountText = `${formatCurrency(expense.amount)} (Qarz: ${formatCurrency(remainingVirtualDebt)})`;
+                                titleText = `Jami: ${formatCurrency(expense.amount)}, To'langan (virtual): ${formatCurrency(virtualPaidForThis)}`;
+                            }
+                            return (
+                                <TableRow key={expense.id} className="hover:bg-muted/50">
+                                    <TableCell className="font-medium">{rowNumber}</TableCell>
+                                    <TableCell>{formatDate(expense.date)}</TableCell>
+                                    <TableCell>{getObjectName(expense.object)}</TableCell>
+                                    <TableCell>{expense.supplier_name || `Yetk. ID: ${expense.supplier}`}</TableCell>
+                                    <TableCell className="max-w-[250px] truncate" title={expense.comment}>{expense.comment || "-"}</TableCell>
+                                    <TableCell><Badge variant="outline" className={`whitespace-nowrap ${getExpenseTypeStyle(expense.expense_type_name)}`}>{expense.expense_type_name || `ID: ${expense.expense_type}`}</Badge></TableCell>
+                                    <TableCell><Badge variant={expense.status === "To‘langan" ? "default" : "secondary"} className={`whitespace-nowrap ${expense.status === "To‘langan" ? "bg-green-100 text-green-800" : expense.status === "Kutilmoqda" ? (virtualPaidForThis > 0 && remainingVirtualDebt > 0.009 ? "bg-orange-100 text-orange-800" : "bg-yellow-100 text-yellow-800") : "bg-gray-100 text-gray-800"}`}>{expense.status === "Kutilmoqda" && virtualPaidForThis > 0 && remainingVirtualDebt > 0.009 ? "Qisman To'langan" : expense.status}</Badge></TableCell>
+                                    <TableCell className="text-right font-semibold" title={titleText}>
+                                        {displayAmountText}
+                                    </TableCell>
+                                    {/* Tahrirlash/O'chirish tugmalari faqat ruxsat bo'lsa ko'rsatiladi */}
+                                    {showSensitiveActionButtons && (
+                                        <TableCell className="text-right">
+                                            <div className="flex justify-end space-x-1">
+                                                <Button variant="ghost" size="icon" onClick={() => handleOpenEditDialog(expense.id)} title="Tahrirlash"><Edit className="h-4 w-4" /></Button>
+                                                <Button variant="ghost" size="icon" onClick={() => deleteExpense(expense.id)} title="O'chirish"><Trash2 className="h-4 w-4 text-red-500 hover:text-red-700" /></Button>
+                                            </div>
+                                        </TableCell>
+                                    )}
+                                </TableRow>
+                            )
+                        })}
                         <TableRow className="bg-muted hover:bg-muted font-bold sticky bottom-0">
-                            <TableCell colSpan={7} className="text-right">Jami (Sahifada):</TableCell>
+                            <TableCell colSpan={showSensitiveActionButtons ? 7 : 7} className="text-right">Jami (Sahifada):</TableCell>
                             <TableCell className="text-right">{formatCurrency(expensesToRender.reduce((sum, exp) => sum + Number(exp.amount || 0), 0))}</TableCell>
-                            <TableCell></TableCell>
+                            {showSensitiveActionButtons && <TableCell></TableCell>}
                         </TableRow>
                     </TableBody>
                 </Table>
@@ -892,10 +867,9 @@ export default function ExpensesPage() {
         );
     }
 
-    // --- JSX ---
     return (
         <div className="flex min-h-screen w-full flex-col bg-muted/40">
-            <Toaster position="top-center" toastOptions={{duration: 4000}} />
+            <Toaster position="top-center" toastOptions={{ duration: 4000 }} />
             <header className="border-b sticky top-0 bg-background z-10">
                 <div className="flex h-16 items-center px-4 container mx-auto">
                     <MainNav className="mx-6" />
@@ -906,37 +880,38 @@ export default function ExpensesPage() {
             <main className="flex-1 space-y-4 p-4 md:p-8 pt-6 container mx-auto">
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between space-y-2 md:space-y-0 mb-6">
                     <h2 className="text-3xl font-bold tracking-tight">Xarajatlar</h2>
-                    <Dialog open={open} onOpenChange={(isOpen) => { setOpen(isOpen); if (isOpen) { setFormData(initialFormData); setCurrentExpense(null); }}}>
+                    {/* Yangi xarajat qo'shish tugmasi hamma uchun ko'rinadi */}
+                    <Dialog open={open} onOpenChange={(isOpen) => { setOpen(isOpen); if (isOpen) { setFormData(initialFormData); setCurrentExpense(null); } }}>
                         <DialogTrigger asChild><Button size="sm" disabled={!accessToken || loading}><Plus className="mr-2 h-4 w-4" /> Yangi xarajat</Button></DialogTrigger>
                         <DialogContent className="sm:max-w-[600px] max-h-[90vh] flex flex-col">
-                           <DialogHeader><DialogTitle>Yangi xarajat qo'shish</DialogTitle><DialogDescription>Xarajat ma'lumotlarini kiriting. "Naqd pul" tanlansa, xarajat "To‘langan" bo'ladi.</DialogDescription></DialogHeader>
+                            <DialogHeader><DialogTitle>Yangi xarajat qo'shish</DialogTitle><DialogDescription>Xarajat ma'lumotlarini kiriting. "Naqd pul" tanlansa, xarajat "To‘langan" bo'ladi.</DialogDescription></DialogHeader>
                             <form id="add-expense-form" onSubmit={(e) => handleSubmit(e, "save")} className="flex-1 overflow-y-auto pr-4 pl-1 -mr-2">
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3 py-4">
                                     <div className="space-y-1"><Label htmlFor="amount">Summa (USD) *</Label><Input required id="amount" name="amount" type="number" step="0.01" min="0.01" value={formData.amount} onChange={handleChange} placeholder="1500.50" /></div>
-                                    <div className="space-y-1"><Label htmlFor="date">Xarajat sanasi *</Label><Input required id="date" name="date" type="date" value={formData.date} onChange={handleChange} max={new Date().toISOString().split("T")[0]}/></div>
+                                    <div className="space-y-1"><Label htmlFor="date">Xarajat sanasi *</Label><Input required id="date" name="date" type="date" value={formData.date} onChange={handleChange} max={new Date().toISOString().split("T")[0]} /></div>
                                     <div className="space-y-1"><Label htmlFor="supplier">Yetkazib beruvchi *</Label><div className="flex items-center space-x-2">
-                                        <Select required value={formData.supplier} onValueChange={(v) => handleSelectChange("supplier",v)} name="supplier"><SelectTrigger id="supplier" className="flex-1"><SelectValue placeholder="Tanlang..." /></SelectTrigger><SelectContent>{suppliers.map(s=><SelectItem key={s.id} value={s.id.toString()}>{s.company_name}</SelectItem>)}</SelectContent></Select>
+                                        <Select required value={formData.supplier} onValueChange={(v) => handleSelectChange("supplier", v)} name="supplier"><SelectTrigger id="supplier" className="flex-1"><SelectValue placeholder="Tanlang..." /></SelectTrigger><SelectContent>{suppliers.map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.company_name}</SelectItem>)}</SelectContent></Select>
                                         <Dialog open={addSupplierOpen} onOpenChange={setAddSupplierOpen}><DialogTrigger asChild><Button type="button" variant="outline" size="icon" title="Yangi yetkazib beruvchi"><Plus className="h-4 w-4" /></Button></DialogTrigger>
-                                        <DialogContent className="sm:max-w-[425px]"><DialogHeader><DialogTitle>Yangi yetkazib beruvchi</DialogTitle></DialogHeader><div className="grid gap-3 py-4 max-h-[60vh] overflow-y-auto pr-2">
-                                            <Label htmlFor="new_company_name">Kompaniya nomi *</Label><Input id="new_company_name" name="company_name" value={newSupplierData.company_name} onChange={handleSupplierChange} required />
-                                            <Label htmlFor="new_contact_person_name">Kontakt</Label><Input id="new_contact_person_name" name="contact_person_name" value={newSupplierData.contact_person_name} onChange={handleSupplierChange} />
-                                            <Label htmlFor="new_phone_number">Telefon</Label><Input id="new_phone_number" name="phone_number" value={newSupplierData.phone_number} onChange={handleSupplierChange} />
-                                            <Label htmlFor="new_address">Manzil</Label><Textarea id="new_address" name="address" value={newSupplierData.address} onChange={handleSupplierChange} rows={2}/>
-                                            <Label htmlFor="new_description">Tavsif</Label><Textarea id="new_description" name="description" value={newSupplierData.description} onChange={handleSupplierChange} rows={2}/>
-                                        </div><DialogFooter><Button type="button" onClick={createSupplier} disabled={!newSupplierData.company_name.trim() || isSupplierSubmitting}>{isSupplierSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>}Qo'shish</Button><Button type="button" variant="outline" onClick={()=>{setAddSupplierOpen(false); setNewSupplierData(initialNewSupplierData);}} disabled={isSupplierSubmitting}>Bekor qilish</Button></DialogFooter></DialogContent></Dialog>
+                                            <DialogContent className="sm:max-w-[425px]"><DialogHeader><DialogTitle>Yangi yetkazib beruvchi</DialogTitle></DialogHeader><div className="grid gap-3 py-4 max-h-[60vh] overflow-y-auto pr-2">
+                                                <Label htmlFor="new_company_name">Kompaniya nomi *</Label><Input id="new_company_name" name="company_name" value={newSupplierData.company_name} onChange={handleSupplierChange} required />
+                                                <Label htmlFor="new_contact_person_name">Kontakt</Label><Input id="new_contact_person_name" name="contact_person_name" value={newSupplierData.contact_person_name} onChange={handleSupplierChange} />
+                                                <Label htmlFor="new_phone_number">Telefon</Label><Input id="new_phone_number" name="phone_number" value={newSupplierData.phone_number} onChange={handleSupplierChange} />
+                                                <Label htmlFor="new_address">Manzil</Label><Textarea id="new_address" name="address" value={newSupplierData.address} onChange={handleSupplierChange} rows={2} />
+                                                <Label htmlFor="new_description">Tavsif</Label><Textarea id="new_description" name="description" value={newSupplierData.description} onChange={handleSupplierChange} rows={2} />
+                                            </div><DialogFooter><Button type="button" onClick={createSupplier} disabled={!newSupplierData.company_name.trim() || isSupplierSubmitting}>{isSupplierSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Qo'shish</Button><Button type="button" variant="outline" onClick={() => { setAddSupplierOpen(false); setNewSupplierData(initialNewSupplierData); }} disabled={isSupplierSubmitting}>Bekor qilish</Button></DialogFooter></DialogContent></Dialog>
                                     </div></div>
                                     <div className="space-y-1"><Label htmlFor="expense_type">Xarajat turi *</Label><div className="flex items-center space-x-2">
-                                        <Select required value={formData.expense_type} onValueChange={(v) => handleSelectChange("expense_type",v)} name="expense_type"><SelectTrigger id="expense_type" className="flex-1"><SelectValue placeholder="Tanlang..." /></SelectTrigger><SelectContent>{expenseTypes.map(t=><SelectItem key={t.id} value={t.id.toString()}>{t.name}</SelectItem>)}</SelectContent></Select>
+                                        <Select required value={formData.expense_type} onValueChange={(v) => handleSelectChange("expense_type", v)} name="expense_type"><SelectTrigger id="expense_type" className="flex-1"><SelectValue placeholder="Tanlang..." /></SelectTrigger><SelectContent>{expenseTypes.map(t => <SelectItem key={t.id} value={t.id.toString()}>{t.name}</SelectItem>)}</SelectContent></Select>
                                         <Dialog open={addExpenseTypeOpen} onOpenChange={setAddExpenseTypeOpen}><DialogTrigger asChild><Button type="button" variant="outline" size="icon" title="Yangi xarajat turi"><Plus className="h-4 w-4" /></Button></DialogTrigger>
-                                        <DialogContent className="sm:max-w-[425px]"><DialogHeader><DialogTitle>Yangi xarajat turi</DialogTitle></DialogHeader><div className="grid gap-4 py-4"><Label htmlFor="new_expense_type_name">Nomi *</Label><Input id="new_expense_type_name" value={newExpenseTypeName} onChange={(e)=>setNewExpenseTypeName(e.target.value)} required/></div><DialogFooter><Button type="button" onClick={createExpenseType} disabled={!newExpenseTypeName.trim()||isExpenseTypeSubmitting}>{isExpenseTypeSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>}Qo'shish</Button><Button type="button" variant="outline" onClick={()=>{setAddExpenseTypeOpen(false); setNewExpenseTypeName("");}} disabled={isExpenseTypeSubmitting}>Bekor qilish</Button></DialogFooter></DialogContent></Dialog>
+                                            <DialogContent className="sm:max-w-[425px]"><DialogHeader><DialogTitle>Yangi xarajat turi</DialogTitle></DialogHeader><div className="grid gap-4 py-4"><Label htmlFor="new_expense_type_name">Nomi *</Label><Input id="new_expense_type_name" value={newExpenseTypeName} onChange={(e) => setNewExpenseTypeName(e.target.value)} required /></div><DialogFooter><Button type="button" onClick={createExpenseType} disabled={!newExpenseTypeName.trim() || isExpenseTypeSubmitting}>{isExpenseTypeSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Qo'shish</Button><Button type="button" variant="outline" onClick={() => { setAddExpenseTypeOpen(false); setNewExpenseTypeName(""); }} disabled={isExpenseTypeSubmitting}>Bekor qilish</Button></DialogFooter></DialogContent></Dialog>
                                     </div></div>
-                                    <div className="space-y-1"><Label htmlFor="object">Obyekt *</Label><Select required value={formData.object} onValueChange={(v)=>handleSelectChange("object",v)} name="object"><SelectTrigger id="object"><SelectValue placeholder="Tanlang..." /></SelectTrigger><SelectContent>{properties.map(p=><SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}</SelectContent></Select></div>
-                                    <div className="space-y-1"><Label htmlFor="status">To'lov turi *</Label><Select required value={formData.status} onValueChange={(v)=>handleSelectChange("status",v)} name="status"><SelectTrigger id="status"><SelectValue placeholder="Tanlang..." /></SelectTrigger><SelectContent><SelectItem value="Naqd pul">Naqd pul</SelectItem><SelectItem value="Nasiya">Nasiya</SelectItem></SelectContent></Select></div>
-                                    <div className="space-y-1 sm:col-span-2"><Label htmlFor="comment">Tavsif / Izoh *</Label><Textarea required id="comment" name="comment" value={formData.comment} onChange={handleChange} rows={3} placeholder="Xarajat haqida batafsil..."/></div>
+                                    <div className="space-y-1"><Label htmlFor="object">Obyekt *</Label><Select required value={formData.object} onValueChange={(v) => handleSelectChange("object", v)} name="object"><SelectTrigger id="object"><SelectValue placeholder="Tanlang..." /></SelectTrigger><SelectContent>{properties.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}</SelectContent></Select></div>
+                                    <div className="space-y-1"><Label htmlFor="status">To'lov turi *</Label><Select required value={formData.status} onValueChange={(v) => handleSelectChange("status", v)} name="status"><SelectTrigger id="status"><SelectValue placeholder="Tanlang..." /></SelectTrigger><SelectContent><SelectItem value="Naqd pul">Naqd pul</SelectItem><SelectItem value="Nasiya">Nasiya</SelectItem></SelectContent></Select></div>
+                                    <div className="space-y-1 sm:col-span-2"><Label htmlFor="comment">Tavsif / Izoh *</Label><Textarea required id="comment" name="comment" value={formData.comment} onChange={handleChange} rows={3} placeholder="Xarajat haqida batafsil..." /></div>
                                 </div>
                             </form>
                             <DialogFooter className="flex flex-col sm:flex-row sm:justify-end sm:space-x-2 space-y-2 sm:space-y-0 pt-4 border-t">
-                                <Button type="submit" form="add-expense-form" className="bg-green-600 hover:bg-green-700 w-full sm:w-auto" disabled={isSubmitting || !formData.object || !formData.supplier || !formData.expense_type || !formData.date || !formData.comment.trim() || !formData.amount || Number(formData.amount) <= 0 || !formData.status }>{isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Saqlash</Button>
+                                <Button type="submit" form="add-expense-form" className="bg-green-600 hover:bg-green-700 w-full sm:w-auto" disabled={isSubmitting || !formData.object || !formData.supplier || !formData.expense_type || !formData.date || !formData.comment.trim() || !formData.amount || Number(formData.amount) <= 0 || !formData.status}>{isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Saqlash</Button>
                                 <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setOpen(false)} disabled={isSubmitting}>Bekor qilish</Button>
                             </DialogFooter>
                         </DialogContent>
@@ -948,43 +923,40 @@ export default function ExpensesPage() {
                         <DialogHeader><DialogTitle>Xarajatni tahrirlash (ID: {currentExpense?.id || "Yuklanmoqda..."})</DialogTitle><DialogDescription>Xarajat ma'lumotlarini yangilang.</DialogDescription></DialogHeader>
                         <form id="edit-expense-form" onSubmit={(e) => handleEditSubmit(e, "save")} className="flex-1 overflow-y-auto pr-4 pl-1 -mr-2">
                             {!currentExpense && editOpen ? <div className="flex justify-center items-center h-40"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /><span className="ml-2 text-muted-foreground">Yuklanmoqda...</span></div> : (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3 py-4">
-                                {/* ... All form fields for edit expense ... */}
-                                <div className="space-y-1"><Label htmlFor="edit-amount">Summa (USD) *</Label><Input required id="edit-amount" name="amount" type="number" step="0.01" min="0.01" value={formData.amount} onChange={handleChange} /></div>
-                                <div className="space-y-1"><Label htmlFor="edit-date">Xarajat sanasi *</Label><Input required id="edit-date" name="date" type="date" value={formData.date} onChange={handleChange} max={new Date().toISOString().split("T")[0]}/></div>
-                                <div className="space-y-1"><Label htmlFor="edit-supplier">Yetkazib beruvchi *</Label><div className="flex items-center space-x-2">
-                                    <Select required value={formData.supplier} onValueChange={(v)=>handleSelectChange("supplier",v)} name="supplier"><SelectTrigger id="edit-supplier" className="flex-1"><SelectValue /></SelectTrigger><SelectContent>{suppliers.map(s=><SelectItem key={s.id} value={s.id.toString()}>{s.company_name}</SelectItem>)}</SelectContent></Select>
-                                    {/* Add New Supplier for edit dialog can be reused */}
-                                </div></div>
-                                <div className="space-y-1"><Label htmlFor="edit-expense_type">Xarajat turi *</Label><div className="flex items-center space-x-2">
-                                    <Select required value={formData.expense_type} onValueChange={(v)=>handleSelectChange("expense_type",v)} name="expense_type"><SelectTrigger id="edit-expense_type" className="flex-1"><SelectValue /></SelectTrigger><SelectContent>{expenseTypes.map(t=><SelectItem key={t.id} value={t.id.toString()}>{t.name}</SelectItem>)}</SelectContent></Select>
-                                    {/* Add New Expense Type for edit dialog can be reused */}
-                                </div></div>
-                                <div className="space-y-1"><Label htmlFor="edit-object">Obyekt *</Label><Select required value={formData.object} onValueChange={(v)=>handleSelectChange("object",v)} name="object"><SelectTrigger id="edit-object"><SelectValue /></SelectTrigger><SelectContent>{properties.map(p=><SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}</SelectContent></Select></div>
-                                <div className="space-y-1"><Label htmlFor="edit-status">To'lov turi *</Label><Select required value={formData.status} onValueChange={(v)=>handleSelectChange("status",v)} name="status"><SelectTrigger id="edit-status"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Naqd pul">Naqd pul</SelectItem><SelectItem value="Nasiya">Nasiya</SelectItem></SelectContent></Select></div>
-                                <div className="space-y-1 sm:col-span-2"><Label htmlFor="edit-comment">Tavsif / Izoh *</Label><Textarea required id="edit-comment" name="comment" value={formData.comment} onChange={handleChange} rows={3}/></div>
-                            </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3 py-4">
+                                    <div className="space-y-1"><Label htmlFor="edit-amount">Summa (USD) *</Label><Input required id="edit-amount" name="amount" type="number" step="0.01" min="0.01" value={formData.amount} onChange={handleChange} /></div>
+                                    <div className="space-y-1"><Label htmlFor="edit-date">Xarajat sanasi *</Label><Input required id="edit-date" name="date" type="date" value={formData.date} onChange={handleChange} max={new Date().toISOString().split("T")[0]} /></div>
+                                    <div className="space-y-1"><Label htmlFor="edit-supplier">Yetkazib beruvchi *</Label><div className="flex items-center space-x-2">
+                                        <Select required value={formData.supplier} onValueChange={(v) => handleSelectChange("supplier", v)} name="supplier"><SelectTrigger id="edit-supplier" className="flex-1"><SelectValue /></SelectTrigger><SelectContent>{suppliers.map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.company_name}</SelectItem>)}</SelectContent></Select>
+                                    </div></div>
+                                    <div className="space-y-1"><Label htmlFor="edit-expense_type">Xarajat turi *</Label><div className="flex items-center space-x-2">
+                                        <Select required value={formData.expense_type} onValueChange={(v) => handleSelectChange("expense_type", v)} name="expense_type"><SelectTrigger id="edit-expense_type" className="flex-1"><SelectValue /></SelectTrigger><SelectContent>{expenseTypes.map(t => <SelectItem key={t.id} value={t.id.toString()}>{t.name}</SelectItem>)}</SelectContent></Select>
+                                    </div></div>
+                                    <div className="space-y-1"><Label htmlFor="edit-object">Obyekt *</Label><Select required value={formData.object} onValueChange={(v) => handleSelectChange("object", v)} name="object"><SelectTrigger id="edit-object"><SelectValue /></SelectTrigger><SelectContent>{properties.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}</SelectContent></Select></div>
+                                    <div className="space-y-1"><Label htmlFor="edit-status">To'lov turi *</Label><Select required value={formData.status} onValueChange={(v) => handleSelectChange("status", v)} name="status"><SelectTrigger id="edit-status"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Naqd pul">Naqd pul</SelectItem><SelectItem value="Nasiya">Nasiya</SelectItem></SelectContent></Select></div>
+                                    <div className="space-y-1 sm:col-span-2"><Label htmlFor="edit-comment">Tavsif / Izoh *</Label><Textarea required id="edit-comment" name="comment" value={formData.comment} onChange={handleChange} rows={3} /></div>
+                                </div>
                             )}
                         </form>
                         <DialogFooter className="flex flex-col sm:flex-row sm:justify-end sm:space-x-2 space-y-2 sm:space-y-0 pt-4 border-t">
-                            <Button type="submit" form="edit-expense-form" className="bg-green-600 hover:bg-green-700 w-full sm:w-auto" disabled={isSubmitting || !currentExpense || !formData.object || !formData.supplier || !formData.expense_type || !formData.date || !formData.comment.trim() || !formData.amount || Number(formData.amount) <= 0 || !formData.status}>{isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>}Saqlash</Button>
-                            <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => {setEditOpen(false); setCurrentExpense(null); setFormData(initialFormData);}} disabled={isSubmitting}>Bekor qilish</Button>
+                            <Button type="submit" form="edit-expense-form" className="bg-green-600 hover:bg-green-700 w-full sm:w-auto" disabled={isSubmitting || !currentExpense || !formData.object || !formData.supplier || !formData.expense_type || !formData.date || !formData.comment.trim() || !formData.amount || Number(formData.amount) <= 0 || !formData.status}>{isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Saqlash</Button>
+                            <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => { setEditOpen(false); setCurrentExpense(null); setFormData(initialFormData); }} disabled={isSubmitting}>Bekor qilish</Button>
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>
-                
+
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                    <div className="space-y-1"><Label htmlFor="filter-object">Obyekt bo'yicha filtr</Label><Select value={filters.object||"all"} onValueChange={(v)=>handleFilterChange("object",v)}><SelectTrigger id="filter-object"><SelectValue placeholder="Barcha obyektlar"/></SelectTrigger><SelectContent><SelectItem value="all">Barcha obyektlar</SelectItem>{properties.map(p=><SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}</SelectContent></Select></div>
-                    <div className="space-y-1"><Label htmlFor="filter-expense_type">Xarajat turi bo'yicha filtr</Label><Select value={filters.expense_type||"all"} onValueChange={(v)=>handleFilterChange("expense_type",v)}><SelectTrigger id="filter-expense_type"><SelectValue placeholder="Barcha turlar"/></SelectTrigger><SelectContent><SelectItem value="all">Barcha turlar</SelectItem>{expenseTypes.map(t=><SelectItem key={t.id} value={t.id.toString()}>{t.name}</SelectItem>)}</SelectContent></Select></div>
-                    <div className="space-y-1"><Label htmlFor="filter-dateRange">Sana bo'yicha filtr</Label><Select value={filters.dateRange} onValueChange={(v)=>handleFilterChange("dateRange",v)}><SelectTrigger id="filter-dateRange"><SelectValue placeholder="Barcha sanalar"/></SelectTrigger><SelectContent><SelectItem value="all">Barcha sanalar</SelectItem><SelectItem value="today">Bugun</SelectItem><SelectItem value="week">Oxirgi hafta</SelectItem><SelectItem value="month">Oxirgi oy</SelectItem><SelectItem value="quarter">Oxirgi chorak</SelectItem><SelectItem value="year">Oxirgi yil</SelectItem></SelectContent></Select></div>
-                    <div className="space-y-1"><Label htmlFor="search">Qidiruv</Label><Input id="search" placeholder="Yetkazib beruvchi, izoh..." value={searchTerm} onChange={handleSearchChange}/></div>
+                    <div className="space-y-1"><Label htmlFor="filter-object">Obyekt bo'yicha filtr</Label><Select value={filters.object || "all"} onValueChange={(v) => handleFilterChange("object", v)}><SelectTrigger id="filter-object"><SelectValue placeholder="Barcha obyektlar" /></SelectTrigger><SelectContent><SelectItem value="all">Barcha obyektlar</SelectItem>{properties.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}</SelectContent></Select></div>
+                    <div className="space-y-1"><Label htmlFor="filter-expense_type">Xarajat turi bo'yicha filtr</Label><Select value={filters.expense_type || "all"} onValueChange={(v) => handleFilterChange("expense_type", v)}><SelectTrigger id="filter-expense_type"><SelectValue placeholder="Barcha turlar" /></SelectTrigger><SelectContent><SelectItem value="all">Barcha turlar</SelectItem>{expenseTypes.map(t => <SelectItem key={t.id} value={t.id.toString()}>{t.name}</SelectItem>)}</SelectContent></Select></div>
+                    <div className="space-y-1"><Label htmlFor="filter-dateRange">Sana bo'yicha filtr</Label><Select value={filters.dateRange} onValueChange={(v) => handleFilterChange("dateRange", v)}><SelectTrigger id="filter-dateRange"><SelectValue placeholder="Barcha sanalar" /></SelectTrigger><SelectContent><SelectItem value="all">Barcha sanalar</SelectItem><SelectItem value="today">Bugun</SelectItem><SelectItem value="week">Oxirgi hafta</SelectItem><SelectItem value="month">Oxirgi oy</SelectItem><SelectItem value="quarter">Oxirgi chorak</SelectItem><SelectItem value="year">Oxirgi yil</SelectItem></SelectContent></Select></div>
+                    <div className="space-y-1"><Label htmlFor="search">Qidiruv</Label><Input id="search" placeholder="Yetkazib beruvchi, izoh..." value={searchTerm} onChange={handleSearchChange} /></div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                    <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Umumiy xarajatlar</CardTitle><DollarSign className="h-4 w-4 text-muted-foreground"/></CardHeader><CardContent>{loadingTotals ? <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto"/> : <div className="text-2xl font-bold">{formatCurrency(filteredTotalAmount)}</div>}</CardContent></Card>
-                    <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">To'langan xarajatlar</CardTitle><HandCoins className="h-4 w-4 text-muted-foreground"/></CardHeader><CardContent>{loadingTotals ? <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto"/> : <div className="text-2xl font-bold"><Button variant="link" className="p-0 text-2xl font-bold text-foreground h-auto hover:underline" onClick={handleOpenPaidModal}>{formatCurrency(filteredPaidExpensesAmount)}</Button></div>}</CardContent></Card>
-                    <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Kutilmoqda (Jami Nasiya)</CardTitle><HandCoins className="h-4 w-4 text-muted-foreground"/></CardHeader><CardContent>{loadingTotals ? <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto"/> : <div className="text-2xl font-bold"><Button variant="link" className="p-0 text-2xl font-bold text-foreground h-auto hover:underline" onClick={handleOpenPendingModal}>{formatCurrency(filteredPendingAmount)}</Button><div className="text-sm text-muted-foreground mt-1">{filters.object && filters.object !== "all" ? "Tanlangan obyektning" : "Barcha"} kutilayotgan to'lovlar</div></div>}</CardContent></Card>
-                    <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">{filters.object && filters.object !== "all" && properties.find(p=>p.id === Number(filters.object)) ? properties.find(p=>p.id === Number(filters.object))?.name : "Tanlangan obyekt"}</CardTitle><Building className="h-4 w-4 text-muted-foreground"/></CardHeader><CardContent>{loadingTotals ? <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto"/> : selectedObjectTotal !== null ? <div className="text-2xl font-bold">{formatCurrency(selectedObjectTotal)}</div> : <div className="text-sm text-muted-foreground">Obyekt tanlanmagan</div>}</CardContent></Card>
+                    <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Umumiy xarajatlar</CardTitle><DollarSign className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent>{loadingTotals ? <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto" /> : <div className="text-2xl font-bold">{formatCurrency(filteredTotalAmount)}</div>}</CardContent></Card>
+                    <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">To'langan xarajatlar</CardTitle><HandCoins className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent>{loadingTotals ? <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto" /> : <div className="text-2xl font-bold"><Button variant="link" className="p-0 text-2xl font-bold text-foreground h-auto hover:underline" onClick={handleOpenPaidModal}>{formatCurrency(filteredPaidExpensesAmount)}</Button></div>}</CardContent></Card>
+                    <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">Kutilmoqda (Jami Nasiya)</CardTitle><HandCoins className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent>{loadingTotals ? <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto" /> : <div className="text-2xl font-bold"><Button variant="link" className="p-0 text-2xl font-bold text-foreground h-auto hover:underline" onClick={handleOpenPendingModal}>{formatCurrency(filteredPendingAmount)}</Button><div className="text-sm text-muted-foreground mt-1">{filters.object && filters.object !== "all" ? "Tanlangan obyektning" : "Barcha"} kutilayotgan to'lovlar</div></div>}</CardContent></Card>
+                    <Card><CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2"><CardTitle className="text-sm font-medium">{filters.object && filters.object !== "all" && properties.find(p => p.id === Number(filters.object)) ? properties.find(p => p.id === Number(filters.object))?.name : "Tanlangan obyekt"}</CardTitle><Building className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent>{loadingTotals ? <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto" /> : selectedObjectTotal !== null ? <div className="text-2xl font-bold">{formatCurrency(selectedObjectTotal)}</div> : <div className="text-sm text-muted-foreground">Obyekt tanlanmagan</div>}</CardContent></Card>
                 </div>
 
                 {renderExpensesTable(expenses)}
@@ -993,8 +965,8 @@ export default function ExpensesPage() {
                     <div className="flex items-center justify-between mt-4">
                         <div className="text-sm text-muted-foreground">Sahifa {currentPage} / {totalPages} ({totalExpenses > 0 ? `${(currentPage - 1) * itemsPerPage + 1}-${Math.min(currentPage * itemsPerPage, totalExpenses)}` : 0} / {totalExpenses} yozuv)</div>
                         <div className="flex items-center space-x-2">
-                            <Button variant="outline" size="sm" onClick={()=>handlePageChange(currentPage - 1)} disabled={currentPage === 1 || isRefreshing}><ChevronLeft className="h-4 w-4"/>Oldingi</Button>
-                            <Button variant="outline" size="sm" onClick={()=>handlePageChange(currentPage + 1)} disabled={currentPage === totalPages || isRefreshing}>Keyingi<ChevronRight className="h-4 w-4"/></Button>
+                            <Button variant="outline" size="sm" onClick={() => handlePageChange(currentPage - 1)} disabled={currentPage === 1 || isRefreshing}><ChevronLeft className="h-4 w-4" />Oldingi</Button>
+                            <Button variant="outline" size="sm" onClick={() => handlePageChange(currentPage + 1)} disabled={currentPage === totalPages || isRefreshing}>Keyingi<ChevronRight className="h-4 w-4" /></Button>
                         </div>
                     </div>
                 )}
@@ -1003,23 +975,23 @@ export default function ExpensesPage() {
                     <DialogContent className="sm:max-w-[800px] max-h-[80vh] flex flex-col">
                         <DialogHeader><DialogTitle>To'langan xarajatlar</DialogTitle><DialogDescription>Tanlangan filtrlar bo'yicha to'langan xarajatlar ro'yxati.</DialogDescription></DialogHeader>
                         <div className="flex-1 overflow-y-auto">
-                            {modalLoading ? <div className="flex items-center justify-center h-40"><Loader2 className="h-6 w-6 animate-spin"/><span className="ml-2">Yuklanmoqda...</span></div>
-                            : modalPaidExpenses.length === 0 ? <div className="flex items-center justify-center h-40"><p>To'langan xarajatlar topilmadi.</p></div>
-                            : (<Table>
-                                <TableHeader><TableRow><TableHead>#</TableHead><TableHead>Sana</TableHead><TableHead>Yetkazib beruvchi</TableHead><TableHead>Obyekt</TableHead><TableHead>Tavsif</TableHead><TableHead className="text-right">Summa</TableHead></TableRow></TableHeader>
-                                <TableBody>
-                                    {modalPaidExpenses.map((expense, index) => (
-                                    <TableRow key={expense.id}>
-                                        <TableCell>{index + 1}</TableCell><TableCell>{formatDate(expense.date)}</TableCell>
-                                        <TableCell>{expense.supplier_name}</TableCell><TableCell>{getObjectName(expense.object)}</TableCell>
-                                        <TableCell className="max-w-[200px] truncate" title={expense.comment}>{expense.comment}</TableCell>
-                                        <TableCell className="text-right">{formatCurrency(expense.amount)}</TableCell>
-                                    </TableRow>))}
-                                    <TableRow className="bg-muted font-bold"><TableCell colSpan={5} className="text-right">Jami:</TableCell><TableCell className="text-right">{formatCurrency(modalPaidExpenses.reduce((sum,exp)=>sum+Number(exp.amount||0),0))}</TableCell></TableRow>
-                                </TableBody>
-                            </Table>)}
+                            {modalLoading ? <div className="flex items-center justify-center h-40"><Loader2 className="h-6 w-6 animate-spin" /><span className="ml-2">Yuklanmoqda...</span></div>
+                                : modalPaidExpenses.length === 0 ? <div className="flex items-center justify-center h-40"><p>To'langan xarajatlar topilmadi.</p></div>
+                                    : (<Table>
+                                        <TableHeader><TableRow><TableHead>#</TableHead><TableHead>Sana</TableHead><TableHead>Yetkazib beruvchi</TableHead><TableHead>Obyekt</TableHead><TableHead>Tavsif</TableHead><TableHead className="text-right">Summa</TableHead></TableRow></TableHeader>
+                                        <TableBody>
+                                            {modalPaidExpenses.map((expense, index) => (
+                                                <TableRow key={expense.id}>
+                                                    <TableCell>{index + 1}</TableCell><TableCell>{formatDate(expense.date)}</TableCell>
+                                                    <TableCell>{expense.supplier_name}</TableCell><TableCell>{getObjectName(expense.object)}</TableCell>
+                                                    <TableCell className="max-w-[200px] truncate" title={expense.comment}>{expense.comment}</TableCell>
+                                                    <TableCell className="text-right">{formatCurrency(expense.amount)}</TableCell>
+                                                </TableRow>))}
+                                            <TableRow className="bg-muted font-bold"><TableCell colSpan={5} className="text-right">Jami:</TableCell><TableCell className="text-right">{formatCurrency(modalPaidExpenses.reduce((sum, exp) => sum + Number(exp.amount || 0), 0))}</TableCell></TableRow>
+                                        </TableBody>
+                                    </Table>)}
                         </div>
-                        <DialogFooter><Button variant="outline" onClick={()=>setPaidModalOpen(false)}>Yopish</Button></DialogFooter>
+                        <DialogFooter><Button variant="outline" onClick={() => setPaidModalOpen(false)}>Yopish</Button></DialogFooter>
                     </DialogContent>
                 </Dialog>
 
@@ -1027,47 +999,50 @@ export default function ExpensesPage() {
                     <DialogContent className="sm:max-w-[1000px] max-h-[85vh] flex flex-col">
                         <DialogHeader><DialogTitle>Nasiya (Kutilmoqda) xarajatlar</DialogTitle><DialogDescription>Yetkazib beruvchilar bo'yicha jami nasiya qarzlar va ularga to'lov qilish.</DialogDescription></DialogHeader>
                         <div className="flex-1 overflow-y-auto pr-2">
-                            {modalLoading ? ( <div className="flex items-center justify-center h-40"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /><span className="ml-2 text-muted-foreground">Yuklanmoqda...</span></div> )
-                            : supplierDebtGroups.length === 0 ? ( <div className="flex items-center justify-center h-40"><p className="text-muted-foreground">Nasiya qarzlar topilmadi.</p></div> )
-                            : ( <Accordion type="single" collapsible className="w-full" value={activeAccordionItem} onValueChange={setActiveAccordionItem}>
-                                    {supplierDebtGroups.map((group) => (
-                                        <AccordionItem value={`supplier-${group.supplier_id}`} key={group.supplier_id} className="border-b">
-                                            <AccordionTrigger className="hover:no-underline [&[data-state=open]>svg]:rotate-180 py-3">
-                                                <div className="flex justify-between items-center w-full pr-4">
-                                                    <span className="font-semibold text-base">{group.supplier_name}</span>
-                                                    <div className="flex items-center space-x-4">
-                                                        <Badge variant="outline" className="text-sm px-3 py-1"> Qarz: {formatCurrency(group.total_remaining_debt_for_supplier)} </Badge>
-                                                        <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleOpenSupplierPaymentDialog(group); }} disabled={group.total_remaining_debt_for_supplier <= 0.009}> To'lov qilish </Button>
+                            {modalLoading ? (<div className="flex items-center justify-center h-40"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /><span className="ml-2 text-muted-foreground">Yuklanmoqda...</span></div>)
+                                : supplierDebtGroups.length === 0 ? (<div className="flex items-center justify-center h-40"><p className="text-muted-foreground">Nasiya qarzlar topilmadi.</p></div>)
+                                    : (<Accordion type="single" collapsible className="w-full" value={activeAccordionItem} onValueChange={setActiveAccordionItem}>
+                                        {supplierDebtGroups.map((group) => (
+                                            <AccordionItem value={`supplier-${group.supplier_id}`} key={group.supplier_id} className="border-b">
+                                                <AccordionTrigger className="hover:no-underline [&[data-state=open]>svg]:rotate-180 py-3">
+                                                    <div className="flex justify-between items-center w-full pr-4">
+                                                        <span className="font-semibold text-base">{group.supplier_name}</span>
+                                                        <div className="flex items-center space-x-4">
+                                                            <Badge variant="outline" className="text-sm px-3 py-1"> Qarz: {formatCurrency(group.total_remaining_debt_for_supplier)} </Badge>
+                                                            {/* To'lov qilish tugmasi ham sezgir amallarga ruxsat bo'lsa ko'rsatiladi */}
+                                                            {canPerformSensitiveActions(currentUser) && (
+                                                                <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleOpenSupplierPaymentDialog(group); }} disabled={group.total_remaining_debt_for_supplier <= 0.009}> To'lov qilish </Button>
+                                                            )}
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            </AccordionTrigger>
-                                            <AccordionContent className="pt-2 pb-4">
-                                                <p className="text-sm text-muted-foreground mb-2 ml-1">Shu yetkazib beruvchining nasiya xarajatlari:</p>
-                                                {group.expenses.length > 0 ? (
-                                                <Table size="sm">
-                                                    <TableHeader><TableRow>
-                                                        <TableHead className="w-[50px]">#</TableHead><TableHead className="w-[100px]">Sana</TableHead>
-                                                        <TableHead>Tavsif (Xarajat)</TableHead><TableHead className="text-right w-[120px]">Xarajat sum.</TableHead>
-                                                        <TableHead className="text-right w-[120px]">To'langan (virtual)</TableHead><TableHead className="text-right w-[120px]">Qolgan qarz</TableHead>
-                                                    </TableRow></TableHeader>
-                                                    <TableBody>
-                                                        {group.expenses.map((item, index) => (
-                                                            <TableRow key={item.id}>
-                                                                <TableCell>{index + 1}</TableCell><TableCell>{formatDate(item.date)}</TableCell>
-                                                                <TableCell className="max-w-[250px] truncate" title={item.comment}>{item.comment}</TableCell>
-                                                                <TableCell className="text-right">{formatCurrency(item.total_expense_amount)}</TableCell>
-                                                                <TableCell className="text-right">{formatCurrency(item.virtual_paid_amount)}</TableCell>
-                                                                <TableCell className="text-right font-semibold">{formatCurrency(item.calculated_remaining_debt)}</TableCell>
-                                                            </TableRow>))}
-                                                    </TableBody>
-                                                </Table>
-                                                ) : (<p className="text-sm text-muted-foreground text-center py-4">Bu yetkazib beruvchi uchun qoldiq nasiya xarajatlar yo'q.</p>)}
-                                            </AccordionContent>
-                                        </AccordionItem>))}
-                                </Accordion>)}
-                             {supplierDebtGroups.length > 0 && !modalLoading && ( <div className="mt-4 pt-3 border-t text-right font-bold"> Jami Nasiya Qarz (Filtrlangan): {formatCurrency(filteredPendingAmount)} </div>)}
+                                                </AccordionTrigger>
+                                                <AccordionContent className="pt-2 pb-4">
+                                                    <p className="text-sm text-muted-foreground mb-2 ml-1">Shu yetkazib beruvchining nasiya xarajatlari:</p>
+                                                    {group.expenses.length > 0 ? (
+                                                        <Table size="sm">
+                                                            <TableHeader><TableRow>
+                                                                <TableHead className="w-[50px]">#</TableHead><TableHead className="w-[100px]">Sana</TableHead>
+                                                                <TableHead>Tavsif (Xarajat)</TableHead><TableHead className="text-right w-[120px]">Xarajat sum.</TableHead>
+                                                                <TableHead className="text-right w-[120px]">To'langan (virtual)</TableHead><TableHead className="text-right w-[120px]">Qolgan qarz</TableHead>
+                                                            </TableRow></TableHeader>
+                                                            <TableBody>
+                                                                {group.expenses.map((item, index) => (
+                                                                    <TableRow key={item.id}>
+                                                                        <TableCell>{index + 1}</TableCell><TableCell>{formatDate(item.date)}</TableCell>
+                                                                        <TableCell className="max-w-[250px] truncate" title={item.comment}>{item.comment}</TableCell>
+                                                                        <TableCell className="text-right">{formatCurrency(item.total_expense_amount)}</TableCell>
+                                                                        <TableCell className="text-right">{formatCurrency(item.virtual_paid_amount)}</TableCell>
+                                                                        <TableCell className="text-right font-semibold">{formatCurrency(item.calculated_remaining_debt)}</TableCell>
+                                                                    </TableRow>))}
+                                                            </TableBody>
+                                                        </Table>
+                                                    ) : (<p className="text-sm text-muted-foreground text-center py-4">Bu yetkazib beruvchi uchun qoldiq nasiya xarajatlar yo'q.</p>)}
+                                                </AccordionContent>
+                                            </AccordionItem>))}
+                                    </Accordion>)}
+                            {supplierDebtGroups.length > 0 && !modalLoading && (<div className="mt-4 pt-3 border-t text-right font-bold"> Jami Nasiya Qarz (Filtrlangan): {formatCurrency(filteredPendingAmount)} </div>)}
                         </div>
-                        <DialogFooter className="mt-auto pt-4"><Button variant="outline" onClick={() => {setPendingModalOpen(false); setActiveAccordionItem(undefined);}}>Yopish</Button></DialogFooter>
+                        <DialogFooter className="mt-auto pt-4"><Button variant="outline" onClick={() => { setPendingModalOpen(false); setActiveAccordionItem(undefined); }}>Yopish</Button></DialogFooter>
                     </DialogContent>
                 </Dialog>
 
@@ -1078,8 +1053,8 @@ export default function ExpensesPage() {
                                 {currentPaymentSupplier && paymentAmount && <div className="text-sm mt-1">Hozirgi qarz: {formatCurrency(paymentAmount)}</div>}
                             </DialogDescription></DialogHeader>
                         <div className="grid gap-4 py-4">
-                            <div className="space-y-1"><Label htmlFor="payment-amount">To'lov summasi (USD) *</Label><Input id="payment-amount" type="number" step="0.01" min="0.01" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} placeholder="Masalan: 500.00" required/></div>
-                            <div className="space-y-1"><Label htmlFor="payment-description">Tavsif *</Label><Textarea id="payment-description" value={paymentDescription} onChange={(e) => setPaymentDescription(e.target.value)} rows={3} placeholder="To'lov haqida qisqacha..." required/></div>
+                            <div className="space-y-1"><Label htmlFor="payment-amount">To'lov summasi (USD) *</Label><Input id="payment-amount" type="number" step="0.01" min="0.01" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} placeholder="Masalan: 500.00" required /></div>
+                            <div className="space-y-1"><Label htmlFor="payment-description">Tavsif *</Label><Textarea id="payment-description" value={paymentDescription} onChange={(e) => setPaymentDescription(e.target.value)} rows={3} placeholder="To'lov haqida qisqacha..." required /></div>
                         </div>
                         <DialogFooter>
                             <Button type="button" onClick={handleAddPayment} disabled={isSubmittingPayment || !paymentAmount || Number(paymentAmount) <= 0 || !paymentDescription.trim()}>{isSubmittingPayment && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Saqlash</Button>
@@ -1089,7 +1064,7 @@ export default function ExpensesPage() {
                 </Dialog>
 
                 <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-                    <DialogContent><DialogHeader><DialogTitle>Xarajatni o'chirish</DialogTitle><DialogDescription>O'chirish uchun kodni kiriting. {expenseToDelete && <span className="block mt-1">ID: {expenseToDelete}</span>}</DialogDescription></DialogHeader><div className="grid gap-4 py-4"><div className="grid gap-2"><Label htmlFor="deleteCode">Kod</Label><Input id="deleteCode" type="password" placeholder="Kodni kiriting" value={deleteCode} onChange={(e)=>setDeleteCode(e.target.value)}/></div></div><DialogFooter><Button variant="outline" onClick={()=>{setDeleteDialogOpen(false); setDeleteCode(""); setExpenseToDelete(null);}}>Bekor qilish</Button><Button variant="destructive" onClick={handleConfirmDelete} disabled={!deleteCode || deleteCode !== "7777"}>O'chirish</Button></DialogFooter></DialogContent>
+                    <DialogContent><DialogHeader><DialogTitle>Xarajatni o'chirish</DialogTitle><DialogDescription>O'chirish uchun kodni kiriting. {expenseToDelete && <span className="block mt-1">ID: {expenseToDelete}</span>}</DialogDescription></DialogHeader><div className="grid gap-4 py-4"><div className="grid gap-2"><Label htmlFor="deleteCode">Kod</Label><Input id="deleteCode" type="password" placeholder="Kodni kiriting" value={deleteCode} onChange={(e) => setDeleteCode(e.target.value)} /></div></div><DialogFooter><Button variant="outline" onClick={() => { setDeleteDialogOpen(false); setDeleteCode(""); setExpenseToDelete(null); }}>Bekor qilish</Button><Button variant="destructive" onClick={handleConfirmDelete} disabled={!deleteCode || deleteCode !== "7777"}>O'chirish</Button></DialogFooter></DialogContent>
                 </Dialog>
             </main>
         </div>

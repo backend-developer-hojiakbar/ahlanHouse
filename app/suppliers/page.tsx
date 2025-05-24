@@ -22,7 +22,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { toast } from "@/hooks/use-toast";
+import { toast } from "@/hooks/use-toast"; // shadcn/ui toast
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { format } from "date-fns";
 
@@ -57,14 +57,28 @@ interface Expense {
   id: number;
   supplier: number;
   amount: string;
-  description: string;
+  description: string; // Backendda 'comment' bo'lishi mumkin, moslashtiring
   created_at: string;
   expense_type: number;
+  // Quyidagilar ExpensesPage dan olingan, kerak bo'lsa
+  // date: string;
+  // supplier_name: string;
+  // comment: string;
+  // expense_type_name: string;
+  // object: number;
+  // object_name?: string;
+  // status: string;
 }
 
 interface ExpenseType {
   id: number;
   name: string;
+}
+
+// Foydalanuvchi ma'lumotlari uchun interfeys (ExpensesPage dan)
+interface CurrentUser {
+  fio: string;
+  user_type: 'admin' | 'sotuvchi' | 'buxgalter' | 'mijoz' | string;
 }
 
 const SuppliersPage = () => {
@@ -83,7 +97,8 @@ const SuppliersPage = () => {
     balance: "0.00",
   });
   const [accessToken, setAccessToken] = useState<string | null>(null);
-  const [userType, setUserType] = useState<string | null>(null);
+  // const [userType, setUserType] = useState<string | null>(null); // O'ZGARTIRILDI
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null); // QO'SHILDI
 
   // Balans qo'shish modali uchun state'lar
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
@@ -118,19 +133,7 @@ const SuppliersPage = () => {
   const EXPENSES_API_URL = `${API_BASE_URL}/expenses/`;
   const EXPENSE_TYPES_API_URL = `${API_BASE_URL}/expense-types/`;
 
-  // Access token olish
-  const getUserType = () => {
-    try {
-      const token = localStorage.getItem("access_token");
-      if (!token) return null;
-      const payload = JSON.parse(atob(token.split(".")[1]));
-      return payload.user_type || null;
-    } catch (error) {
-      console.error("Error getting user type:", error);
-      return null;
-    }
-  };
-
+  // Foydalanuvchi ma'lumotlarini olish va cheklov funksiyasi
   useEffect(() => {
     if (typeof window !== "undefined") {
       const token = localStorage.getItem("access_token");
@@ -143,10 +146,39 @@ const SuppliersPage = () => {
         router.push("/login");
       } else {
         setAccessToken(token);
-        setUserType(getUserType());
+        const userTypeFromStorage = localStorage.getItem("user_type");
+        const userFioFromStorage = localStorage.getItem("user_fio");
+
+        if (userTypeFromStorage && userFioFromStorage) {
+          setCurrentUser({
+            user_type: userTypeFromStorage as CurrentUser['user_type'],
+            fio: userFioFromStorage,
+          });
+        } else {
+          console.warn("Foydalanuvchi user_type yoki fio localStorage da topilmadi. Cheklovlar ishlamasligi mumkin.");
+          setCurrentUser(null);
+          // Agar ma'lumot topilmasa, login'ga yo'naltirish mumkin
+          // toast({ title: "Xatolik", description: "Foydalanuvchi ma'lumotlari topilmadi. Iltimos, qayta kiring.", variant: "destructive" });
+          // router.push("/login");
+        }
       }
     }
   }, [router]);
+
+  // Sezgir amallar uchun ruxsatni tekshirish funksiyasi (ExpensesPage dan)
+  const canPerformSensitiveActions = useCallback((user: CurrentUser | null): boolean => {
+    if (!user) {
+      return false; // Agar foydalanuvchi ma'lumoti yo'q bo'lsa, ruxsat yo'q
+    }
+    const isRestrictedRole = user.user_type === 'sotuvchi' || user.user_type === 'buxgalter';
+    const hasSardorInFio = user.fio.toLowerCase().includes('sardor');
+
+    if (isRestrictedRole || hasSardorInFio) {
+      return false; // Ruxsat yo'q
+    }
+    return true; // Ruxsat bor (admin va boshqa cheklanmaganlar uchun)
+  }, []);
+
 
   // Autentifikatsiya sarlavhalari
   const getAuthHeaders = useCallback(() => {
@@ -178,11 +210,10 @@ const SuppliersPage = () => {
     try {
       const headers = getAuthHeaders();
       if (!headers["Authorization"]) {
-        router.push("/login");
+        // router.push("/login"); // getAuthHeaders ichida allaqachon bor
         return;
       }
 
-      // Avval birinchi so'rovni yuborib, umumiy yetkazib beruvchilar sonini olamiz
       const initialResponse = await fetch(`${SUPPLIERS_API_URL}?page=1`, {
         method: "GET",
         headers: headers,
@@ -191,6 +222,7 @@ const SuppliersPage = () => {
       if (initialResponse.status === 401) {
         localStorage.removeItem("access_token");
         setAccessToken(null);
+        setCurrentUser(null); // Foydalanuvchini tozalash
         toast({
           title: "Sessiya muddati tugagan",
           description: "Iltimos, tizimga qaytadan kiring.",
@@ -203,21 +235,20 @@ const SuppliersPage = () => {
       if (!initialResponse.ok) throw new Error(`Ma'lumotlarni olishda xatolik: ${initialResponse.statusText}`);
       
       const initialData = await initialResponse.json();
-      const totalCount = initialData.count; // Umumiy yetkazib beruvchilar soni
+      const totalCount = initialData.count; 
 
-      // Agar birinchi sahifada hamma ma'lumotlar bo'lsa, shuni ishlatamiz
-      if (totalCount <= initialData.results.length) {
-        setSuppliers(initialData.results);
+      if (totalCount <= (initialData.results?.length || 0)) {
+        setSuppliers(initialData.results || []);
+        setLoading(false); // Return qilganda finally bloki ishlamaydi
         return;
       }
 
-      // Agar ko'proq ma'lumot bo'lsa, barcha ma'lumotlarni bir so'rovda olamiz
       const allDataResponse = await fetch(`${SUPPLIERS_API_URL}?page_size=${totalCount}`, {
         method: "GET",
         headers: headers,
       });
 
-      if (!allDataResponse.ok) throw new Error(`Ma'lumotlarni olishda xatolik: ${allDataResponse.statusText}`);
+      if (!allDataResponse.ok) throw new Error(`Barcha ma'lumotlarni olishda xatolik: ${allDataResponse.statusText}`);
       
       const allData = await allDataResponse.json();
 
@@ -231,7 +262,7 @@ const SuppliersPage = () => {
     } catch (error) {
       console.error("Xatolik:", error);
       setSuppliers([]);
-      if ((error as Error).message !== "Avtorizatsiya tokeni mavjud emas.") {
+      if ((error as Error).message && !(error as Error).message.includes("Avtorizatsiya tokeni mavjud emas.")) {
         toast({ title: "Xatolik", description: (error as Error).message || "Ma'lumotlarni yuklashda muammo yuz berdi", variant: "destructive" });
       }
     } finally {
@@ -240,8 +271,10 @@ const SuppliersPage = () => {
   }, [accessToken, router, getAuthHeaders]);
 
   useEffect(() => {
-    fetchSuppliers();
-  }, [fetchSuppliers]);
+    if(accessToken) { // Token mavjud bo'lsagina yuklash
+        fetchSuppliers();
+    }
+  }, [accessToken, fetchSuppliers]); // accessToken ni dependency ga qo'shdik
 
   // Xarajat turlarini olish uchun useEffect
   useEffect(() => {
@@ -268,8 +301,9 @@ const SuppliersPage = () => {
         console.error("Xarajat turlarini yuklashda xatolik:", error);
       }
     };
-
-    fetchExpenseTypes();
+    if(accessToken) { // Token mavjud bo'lsagina yuklash
+        fetchExpenseTypes();
+    }
   }, [accessToken, getAuthHeaders]);
 
   // Formadagi o'zgarishlarni boshqarish
@@ -287,6 +321,13 @@ const SuppliersPage = () => {
   // Yetkazib beruvchi qo'shish yoki tahrirlash (POST yoki PUT)
   const handleSubmit = async (e: React.FormEvent, action: "save" | "saveAndAdd" | "saveAndContinue") => {
     e.preventDefault();
+    // Yangi qo'shishda yoki tahrirlashda ruxsatni tekshirish
+    if (editId && !canPerformSensitiveActions(currentUser)) {
+        toast({ title: "Ruxsat yo'q", description: "Bu amalni bajarish uchun sizda ruxsat yo'q.", variant: "destructive" });
+        return;
+    }
+    // Yangi qo'shish uchun cheklov yo'q, shuning uchun editId bo'lmaganda tekshirilmaydi
+
     const headers = getAuthHeaders();
     if (!headers["Authorization"]) {
       toast({ title: "Xatolik", description: "Avtorizatsiya tokeni topilmadi.", variant: "destructive" });
@@ -304,6 +345,7 @@ const SuppliersPage = () => {
       if (response.status === 401) {
         localStorage.removeItem("access_token");
         setAccessToken(null);
+        setCurrentUser(null);
         toast({ title: "Sessiya muddati tugagan", description: "Iltimos, tizimga qaytadan kiring.", variant: "destructive" });
         router.push("/login");
         return;
@@ -341,8 +383,9 @@ const SuppliersPage = () => {
         });
         setEditId(null);
       } else if (action === "saveAndContinue" && editId) {
+        // Ma'lumotlar allaqachon yangilangan, forma o'sha holatda qoladi
         toast({ title: "Ma'lumotlar saqlandi", description: "Tahrirni davom ettirishingiz mumkin." });
-      } else if (action === "saveAndContinue" && !editId) {
+      } else if (action === "saveAndContinue" && !editId) { // Bu aslida saveAndAdd bilan bir xil, lekin id ni saqlab qoladi
         setFormData({
           company_name: updatedSupplier.company_name,
           contact_person_name: updatedSupplier.contact_person_name,
@@ -352,8 +395,10 @@ const SuppliersPage = () => {
           balance: updatedSupplier.balance,
         });
         setEditId(updatedSupplier.id);
+        setOpen(true); // Dialogni ochiq qoldirish
         toast({ title: "Ma'lumotlar saqlandi", description: "Endi tahrirlashingiz mumkin." });
       }
+
     } catch (error) {
       console.error("Xatolik:", error);
       toast({ title: "Xatolik", description: (error as Error).message || "Ma'lumotlarni saqlashda muammo yuz berdi", variant: "destructive" });
@@ -368,6 +413,10 @@ const SuppliersPage = () => {
 
   // Yetkazib beruvchini o'chirish (DELETE)
   const handleDelete = async (id: number) => {
+    if (!canPerformSensitiveActions(currentUser)) {
+        toast({ title: "Ruxsat yo'q", description: "Bu amalni bajarish uchun sizda ruxsat yo'q.", variant: "destructive" });
+        return;
+    }
     setDeletingId(id);
     setDeleteCode("");
     setDeleteError("");
@@ -377,6 +426,11 @@ const SuppliersPage = () => {
   // O'chirish kodini tekshirish va o'chirish
   const confirmDelete = async () => {
     if (!deletingId) return;
+    if (!canPerformSensitiveActions(currentUser)) { // Double check
+        toast({ title: "Ruxsat yo'q", description: "Bu amalni bajarish uchun sizda ruxsat yo'q.", variant: "destructive" });
+        setDeleteDialogOpen(false);
+        return;
+    }
     
     if (deleteCode !== "7777") {
       setDeleteError("Noto'g'ri kod kiritildi!");
@@ -398,12 +452,13 @@ const SuppliersPage = () => {
       if (response.status === 401) {
         localStorage.removeItem("access_token");
         setAccessToken(null);
+        setCurrentUser(null);
         toast({ title: "Sessiya muddati tugagan", description: "Iltimos, tizimga qaytadan kiring.", variant: "destructive" });
         router.push("/login");
         return;
       }
 
-      if (!response.ok && response.status !== 204) {
+      if (!response.ok && response.status !== 204) { // 204 No Content ham OK
         const errorData = await response.json().catch(() => ({}));
         console.error("O'chirish xatosi:", errorData);
         throw new Error(`O'chirishda xatolik: ${response.statusText} ${JSON.stringify(errorData)}`);
@@ -419,6 +474,10 @@ const SuppliersPage = () => {
 
   // Tahrirlash uchun formani to'ldirish
   const handleEdit = (supplier: Supplier) => {
+    if (!canPerformSensitiveActions(currentUser)) {
+        toast({ title: "Ruxsat yo'q", description: "Bu amalni bajarish uchun sizda ruxsat yo'q.", variant: "destructive" });
+        return;
+    }
     setEditId(supplier.id);
     setFormData({
       company_name: supplier.company_name,
@@ -447,6 +506,7 @@ const SuppliersPage = () => {
 
   // Balans qo'shish modalini ochish
   const openPaymentModal = (supplier: Supplier) => {
+    // Balans qo'shish uchun cheklov yo'q
     setPayingSupplierId(supplier.id);
     setPayingSupplierName(supplier.company_name);
     setPaymentFormData({ amount: "", description: "" });
@@ -466,6 +526,7 @@ const SuppliersPage = () => {
   const handlePaymentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!payingSupplierId || paymentSubmitting) return;
+    // Balans qo'shish uchun cheklov yo'q
 
     const headers = getAuthHeaders();
     if (!headers["Authorization"]) {
@@ -477,15 +538,15 @@ const SuppliersPage = () => {
 
     try {
       const amountValue = parseFloat(paymentFormData.amount);
-      if (isNaN(amountValue)) {
-        throw new Error("Summa noto'g'ri kiritilgan.");
+      if (isNaN(amountValue) || amountValue <=0) { // <=0 tekshiruvi qo'shildi
+        throw new Error("Summa musbat raqam bo'lishi kerak.");
       }
 
       const payload = {
         supplier: payingSupplierId,
         amount: paymentFormData.amount,
-        payment_type: "naqd",
-        description: paymentFormData.description,
+        payment_type: "naqd", // yoki boshqa tur kerak bo'lsa
+        description: paymentFormData.description.trim(),
       };
 
       const response = await fetch(PAYMENTS_API_URL, {
@@ -497,9 +558,10 @@ const SuppliersPage = () => {
       if (response.status === 401) {
         localStorage.removeItem("access_token");
         setAccessToken(null);
+        setCurrentUser(null);
         toast({ title: "Sessiya muddati tugagan", description: "Iltimos, tizimga qaytadan kiring.", variant: "destructive" });
         router.push("/login");
-        resetPaymentForm();
+        resetPaymentForm(); // Tozalash
         return;
       }
 
@@ -510,11 +572,11 @@ const SuppliersPage = () => {
         throw new Error(`To'lovni saqlashda xatolik: ${response.statusText}. ${errorMessages || ''}`);
       }
 
-      await response.json();
+      await response.json(); // Javobni o'qish (kerak bo'lsa)
 
       toast({ title: "Muvaffaqiyat", description: "Balans muvaffaqiyatli yangilandi." });
       resetPaymentForm();
-      fetchSuppliers();
+      fetchSuppliers(); // Yetkazib beruvchilar ro'yxatini yangilash
 
     } catch (error) {
       console.error("To'lov xatosi:", error);
@@ -526,7 +588,7 @@ const SuppliersPage = () => {
 
   // Qidiruv bo'yicha filtrlangan va tartiblangan yetkazib beruvchilar
   const filteredSuppliers = suppliers
-    .sort((a, b) => a.id - b.id) // ID bo'yicha o'sish tartibida saralash
+    .sort((a, b) => b.id - a.id) // ID bo'yicha kamayish tartibida saralash (yangilari tepada)
     .filter((supplier) =>
       [
         supplier.company_name,
@@ -541,8 +603,8 @@ const SuppliersPage = () => {
     );
 
   // Balansni formatlash
-  const formatBalance = (balance: string) => {
-    const balanceNum = parseFloat(balance);
+  const formatBalance = (balance: string | number | null | undefined) => {
+    const balanceNum = parseFloat(String(balance ?? 0));
     if (isNaN(balanceNum)) {
       return <span className="text-muted-foreground">N/A</span>;
     }
@@ -564,6 +626,7 @@ const SuppliersPage = () => {
   // Xarajatlar va to'lovlarni olish uchun funksiya
   const fetchSupplierTransactions = async (supplier: Supplier) => {
     setTransactionsLoading(true);
+    setPayingSupplierId(supplier.id); // Loader ko'rsatish uchun
     try {
       const headers = getAuthHeaders();
       if (!headers["Authorization"]) {
@@ -575,22 +638,21 @@ const SuppliersPage = () => {
         return;
       }
 
-      // Parallel so'rovlar
       const [paymentsResponse, expensesResponse] = await Promise.all([
         fetch(
-          `${PAYMENTS_API_URL}?supplier=${supplier.id}&page_size=1000`,
+          `${PAYMENTS_API_URL}?supplier=${supplier.id}&page_size=1000&ordering=-created_at`, // Saralash qo'shildi
           { headers: headers }
         ),
         fetch(
-          `${EXPENSES_API_URL}?supplier=${supplier.id}&page_size=1000`,
+          `${EXPENSES_API_URL}?supplier=${supplier.id}&page_size=1000&ordering=-date,-id`, // Saralash qo'shildi (ExpensesPage dagi kabi)
           { headers: headers }
         )
       ]);
 
-      // 401 xatolikni tekshirish
       if (paymentsResponse.status === 401 || expensesResponse.status === 401) {
         localStorage.removeItem("access_token");
         setAccessToken(null);
+        setCurrentUser(null);
         toast({
           title: "Sessiya muddati tugagan",
           description: "Iltimos, tizimga qaytadan kiring.",
@@ -600,16 +662,13 @@ const SuppliersPage = () => {
         return;
       }
 
-      // Xatoliklarni tekshirish
       if (!paymentsResponse.ok) {
-        const errorData = await paymentsResponse.json().catch(() => ({}));
-        console.error("To'lovlar xatosi:", errorData);
-        throw new Error("To'lovlarni yuklashda xatolik yuz berdi");
+        const errorData = await paymentsResponse.json().catch(() => ({detail: "To'lovlar server xatosi"}));
+        throw new Error(`To'lovlarni yuklashda xatolik: ${errorData.detail || paymentsResponse.statusText}`);
       }
       if (!expensesResponse.ok) {
-        const errorData = await expensesResponse.json().catch(() => ({}));
-        console.error("Xarajatlar xatosi:", errorData);
-        throw new Error("Xarajatlarni yuklashda xatolik yuz berdi");
+         const errorData = await expensesResponse.json().catch(() => ({detail: "Xarajatlar server xatosi"}));
+        throw new Error(`Xarajatlarni yuklashda xatolik: ${errorData.detail || expensesResponse.statusText}`);
       }
 
       const [paymentsData, expensesData] = await Promise.all([
@@ -617,7 +676,6 @@ const SuppliersPage = () => {
         expensesResponse.json()
       ]);
 
-      // Ma'lumotlarni state'ga saqlash va modalni ochish
       setSelectedSupplierTransactions({
         supplier,
         payments: paymentsData.results || [],
@@ -634,39 +692,41 @@ const SuppliersPage = () => {
       });
     } finally {
       setTransactionsLoading(false);
+      setPayingSupplierId(null); // Loader uchun tozalash
     }
   };
 
   // Xarajat turi nomini topish funksiyasi
-  const getExpenseTypeName = (typeId: number): string => {
+  const getExpenseTypeName = (typeId: number | undefined): string => {
+    if (typeId === undefined) return "Noma'lum";
     const foundType = expenseTypes.find(type => type.id === typeId);
-    return foundType ? foundType.name : "Noma'lum";
+    return foundType ? foundType.name : `ID: ${typeId}`;
   };
 
   // Sanani formatlash uchun funksiya
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString: string | undefined) => {
+    if (!dateString) return "Noma'lum sana";
     try {
       return format(new Date(dateString), "dd.MM.yyyy HH:mm");
     } catch {
-      return "Noma'lum sana";
+      return dateString; // Agar formatlashda xato bo'lsa, asl qiymatni qaytarish
     }
   };
 
-  // Render
   return (
-    <div className="flex min-h-screen flex-col">
-      <div className="border-b sticky top-0 bg-background z-10">
-        <div className="flex h-16 items-center px-4">
+    <div className="flex min-h-screen w-full flex-col bg-muted/40">
+      <header className="border-b sticky top-0 bg-background z-20"> {/* z-index oshirildi */}
+        <div className="flex h-16 items-center px-4 container mx-auto">
           <MainNav className="mx-6" />
           <div className="ml-auto flex items-center space-x-4">
             <Search />
             <UserNav />
           </div>
         </div>
-      </div>
+      </header>
 
-      <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
-        <div className="flex items-center justify-between space-y-2 flex-wrap gap-2">
+      <main className="flex-1 space-y-4 p-4 md:p-8 pt-6 container mx-auto">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between space-y-2 md:space-y-0 mb-6">
           <h2 className="text-3xl font-bold tracking-tight">Yetkazib beruvchilar</h2>
           <Dialog open={open} onOpenChange={(isOpen) => {
             setOpen(isOpen);
@@ -675,12 +735,16 @@ const SuppliersPage = () => {
             }
           }}>
             <DialogTrigger asChild>
-              <Button onClick={() => { setEditId(null); setFormData({ company_name: "", contact_person_name: "", phone_number: "", address: "", description: "", balance: "0.00" }); setOpen(true); }}>
+              <Button onClick={() => { 
+                setEditId(null); 
+                setFormData({ company_name: "", contact_person_name: "", phone_number: "", address: "", description: "", balance: "0.00" }); 
+                setOpen(true); 
+              }}>
                 <Plus className="mr-2 h-4 w-4" />
                 Yangi yetkazib beruvchi
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[600px]">
+            <DialogContent className="sm:max-w-[600px] max-h-[90vh] flex flex-col">
               <DialogHeader>
                 <DialogTitle>
                   {editId ? "Yetkazib beruvchini tahrirlash" : "Yangi yetkazib beruvchi"}
@@ -689,8 +753,8 @@ const SuppliersPage = () => {
                   Yetkazib beruvchi ma'lumotlarini kiriting yoki yangilang. Majburiy maydonlar (*) bilan belgilangan.
                 </DialogDescription>
               </DialogHeader>
-              <form onSubmit={(e) => handleSubmit(e, editId ? "saveAndContinue" : "saveAndAdd")}>
-                <div className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto px-2 -mx-2">
+              <form onSubmit={(e) => handleSubmit(e, editId ? "save" : "saveAndAdd")} className="flex-1 overflow-y-auto pr-4 pl-1 -mr-2"> {/* action o'zgartirildi */}
+                <div className="grid gap-4 py-4">
                   <div className="space-y-1.5">
                     <Label htmlFor="company_name">Kompaniya nomi *</Label>
                     <Input id="company_name" name="company_name" value={formData.company_name} onChange={handleChange} required />
@@ -713,39 +777,42 @@ const SuppliersPage = () => {
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="balance">Balans ($)</Label>
-                    <Input id="balance" name="balance" type="number" step="0.01" value={formData.balance} onChange={handleChange} readOnly={!editId} title={!editId ? "Balans faqat To'lov qo'shish orqali o'zgaradi" : ""} />
+                    <Input id="balance" name="balance" type="number" step="0.01" value={formData.balance} onChange={handleChange} 
+                           readOnly // Balans faqat to'lov orqali o'zgaradi
+                           title="Balans faqat 'Balans to'ldirish' orqali o'zgaradi" 
+                    />
                   </div>
                 </div>
-                <DialogFooter>
+              <DialogFooter className="flex flex-col sm:flex-row sm:justify-end sm:space-x-2 space-y-2 sm:space-y-0 pt-4 border-t">
                   <Button type="button" variant="outline" onClick={resetForm}>Bekor qilish</Button>
                   <Button
-                    type="submit"
+                    type="submit" // Asosiy saqlash tugmasi
                     className="bg-green-600 hover:bg-green-700 text-white"
                     disabled={!formData.company_name || !formData.contact_person_name || !formData.phone_number || !formData.address || paymentSubmitting}
                   >
+                    {paymentSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     {editId ? "Saqlash" : "Qo'shish"}
-                    {paymentSubmitting && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
                   </Button>
-                  {!editId && (
+                 {!editId && ( // Faqat yangi qo'shishda ko'rinadi
                     <Button
-                      type="button"
-                      variant="secondary"
+                      type="button" // Buni alohida handle qilish kerak yoki onSubmitda actionni o'zgartirish
                       onClick={(e) => handleSubmit(e, "saveAndAdd")}
+                      variant="secondary"
                       disabled={!formData.company_name || !formData.contact_person_name || !formData.phone_number || !formData.address || paymentSubmitting}
                     >
+                      {paymentSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                       Saqlash va Yana Qo'shish
-                      {paymentSubmitting && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
                     </Button>
                   )}
-                  {editId && (
+                   {editId && ( // Faqat tahrirda ko'rinadi
                     <Button
                       type="button"
-                      variant="secondary"
                       onClick={(e) => handleSubmit(e, "saveAndContinue")}
+                      variant="secondary"
                       disabled={!formData.company_name || !formData.contact_person_name || !formData.phone_number || !formData.address || paymentSubmitting}
                     >
+                       {paymentSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                       Saqlash va Tahrirni Davom Ettirish
-                      {paymentSubmitting && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
                     </Button>
                   )}
                 </DialogFooter>
@@ -754,10 +821,9 @@ const SuppliersPage = () => {
           </Dialog>
         </div>
 
-        <Tabs defaultValue="suppliers" value={activeTab} onValueChange={setActiveTab}>
-          <TabsList>
-            <TabsTrigger value="suppliers">Yetkazib beruvchilar</TabsTrigger>
-            {/* <TabsTrigger value="transactions">Xarajatlar va To'lovlar</TabsTrigger> */}
+        <Tabs defaultValue="suppliers" value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-1 mb-4"> {/* Faqat bitta tab */}
+            <TabsTrigger value="suppliers">Yetkazib beruvchilar Ro'yxati</TabsTrigger>
           </TabsList>
 
           <TabsContent value="suppliers">
@@ -784,50 +850,47 @@ const SuppliersPage = () => {
                       <p className="ml-3 text-muted-foreground">Yetkazib beruvchilar yuklanmoqda...</p>
                     </div>
                   ) : (
-                    <div className="rounded-md border overflow-x-auto">
+                    <div className="rounded-md border overflow-x-auto relative">
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead className="w-[60px]">№</TableHead>
+                            <TableHead className="w-[50px]">ID</TableHead>
                             <TableHead>Kompaniya nomi</TableHead>
                             <TableHead>Aloqa shaxsi</TableHead>
                             <TableHead>Telefon</TableHead>
-                            <TableHead>Balans</TableHead>
-                            <TableHead className="text-right sticky right-0 bg-background z-[1]">Amallar</TableHead>
+                            <TableHead className="text-right">Balans</TableHead>
+                            <TableHead className="text-right w-[200px] sticky right-0 bg-background z-[1]">Amallar</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {filteredSuppliers.length > 0 ? (
-                            filteredSuppliers.map((supplier, index) => (
+                            filteredSuppliers.map((supplier) => (
                               <TableRow key={supplier.id}>
-                                <TableCell className="font-medium">{index + 1}</TableCell>
+                                <TableCell className="font-medium">{supplier.id}</TableCell>
                                 <TableCell>{supplier.company_name}</TableCell>
                                 <TableCell>{supplier.contact_person_name}</TableCell>
                                 <TableCell>{supplier.phone_number}</TableCell>
-                                <TableCell>{formatBalance(supplier.balance)}</TableCell>
-                                <TableCell className="text-right sticky right-0 bg-background z-[1]">
-                                  <div className="flex justify-end space-x-1 md:space-x-2">
+                                <TableCell className="text-right">{formatBalance(supplier.balance)}</TableCell>
+                                <TableCell className="text-right sticky right-0 bg-card z-[1]"> {/* bg-card yaxshiroq ko'rinishi uchun */}
+                                  <div className="flex justify-end space-x-1">
                                     <Button
                                       variant="ghost"
                                       size="icon"
                                       title="Xarajatlar va to'lovlarni ko'rish"
                                       onClick={() => fetchSupplierTransactions(supplier)}
-                                      disabled={transactionsLoading}
+                                      disabled={transactionsLoading && payingSupplierId === supplier.id}
                                     >
-                                      <Eye className="h-4 w-4 text-blue-600" />
-                                      {transactionsLoading && payingSupplierId === supplier.id && (
-                                        <Loader2 className="ml-2 h-4 w-4 animate-spin" />
-                                      )}
+                                      {transactionsLoading && payingSupplierId === supplier.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4 text-blue-500" />}
                                     </Button>
                                     <Button
                                       variant="ghost"
                                       size="icon"
-                                      title="Balans qo'shish/ayirish"
+                                      title="Balans to'ldirish"
                                       onClick={() => openPaymentModal(supplier)}
                                     >
-                                      <CreditCard className="h-4 w-4 text-blue-600" />
+                                      <CreditCard className="h-4 w-4 text-green-500" />
                                     </Button>
-                                    {userType === 'admin' && (
+                                    {canPerformSensitiveActions(currentUser) && (
                                       <>
                                         <Button
                                           variant="ghost"
@@ -835,16 +898,15 @@ const SuppliersPage = () => {
                                           title="Tahrirlash"
                                           onClick={() => handleEdit(supplier)}
                                         >
-                                          <Edit className="h-4 w-4" />
+                                          <Edit className="h-4 w-4 text-yellow-500" />
                                         </Button>
                                         <Button
                                           variant="ghost"
                                           size="icon"
-                                          className="text-red-600 hover:text-red-700"
                                           title="O'chirish"
                                           onClick={() => handleDelete(supplier.id)}
                                         >
-                                          <Trash className="h-4 w-4" />
+                                          <Trash className="h-4 w-4 text-red-500 hover:text-red-600" />
                                         </Button>
                                       </>
                                     )}
@@ -854,89 +916,8 @@ const SuppliersPage = () => {
                             ))
                           ) : (
                             <TableRow>
-                              <TableCell colSpan={6} className="h-24 text-center">
+                              <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                                 {searchTerm ? "Qidiruv natijasi bo'yicha yetkazib beruvchi topilmadi." : "Hozircha yetkazib beruvchilar mavjud emas."}
-                              </TableCell>
-                            </TableRow>
-                          )}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="transactions">
-            <Card>
-              <CardContent className="p-4 md:p-6">
-                <div className="space-y-4">
-                  <div className="flex items-center space-x-2">
-                    <Input
-                      placeholder="Kompaniya, shaxs, telefon bo'yicha qidirish..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="max-w-sm"
-                    />
-                    {searchTerm && (
-                      <Button variant="outline" size="sm" onClick={() => setSearchTerm("")}>
-                        Tozalash
-                      </Button>
-                    )}
-                  </div>
-
-                  {loading ? (
-                    <div className="flex items-center justify-center h-[400px]">
-                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                      <p className="ml-3 text-muted-foreground">
-                        Yetkazib beruvchilar yuklanmoqda...
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="rounded-md border overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-[60px]">№</TableHead>
-                            <TableHead>Kompaniya nomi</TableHead>
-                            <TableHead>Aloqa shaxsi</TableHead>
-                            <TableHead>Telefon</TableHead>
-                            <TableHead>Balans</TableHead>
-                            <TableHead className="text-right">Amallar</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {filteredSuppliers.length > 0 ? (
-                            filteredSuppliers.map((supplier, index) => (
-                              <TableRow key={supplier.id}>
-                                <TableCell>{index + 1}</TableCell>
-                                <TableCell>{supplier.company_name}</TableCell>
-                                <TableCell>{supplier.contact_person_name}</TableCell>
-                                <TableCell>{supplier.phone_number}</TableCell>
-                                <TableCell>{formatBalance(supplier.balance)}</TableCell>
-                                <TableCell className="text-right">
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => fetchSupplierTransactions(supplier)}
-                                    disabled={transactionsLoading}
-                                  >
-                                    {transactionsLoading ? (
-                                      <Loader2 className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                      "Ko'rish"
-                                    )}
-                                  </Button>
-                                </TableCell>
-                              </TableRow>
-                            ))
-                          ) : (
-                            <TableRow>
-                              <TableCell colSpan={6} className="h-24 text-center">
-                                {searchTerm
-                                  ? "Qidiruv natijasi bo'yicha yetkazib beruvchi topilmadi."
-                                  : "Hozircha yetkazib beruvchilar mavjud emas."}
                               </TableCell>
                             </TableRow>
                           )}
@@ -956,67 +937,61 @@ const SuppliersPage = () => {
           onOpenChange={(isOpen) => {
             if (!isOpen) {
               setTransactionsModalOpen(false);
-              setSelectedSupplierTransactions({
-                supplier: null,
-                payments: [],
-                expenses: []
-              });
+              setSelectedSupplierTransactions({ supplier: null, payments: [], expenses: [] });
+            } else {
+                setTransactionsModalOpen(true);
             }
-            setTransactionsModalOpen(isOpen);
           }}
         >
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col">
             <DialogHeader>
               <DialogTitle>
-                {selectedSupplierTransactions.supplier?.company_name} - Xarajatlar va To'lovlar
+                {selectedSupplierTransactions.supplier?.company_name || "Yuklanmoqda..."} - Operatsiyalar
               </DialogTitle>
-              <DialogDescription>
-                Balans: {formatBalance(selectedSupplierTransactions.supplier?.balance || "0")}
-              </DialogDescription>
+              {selectedSupplierTransactions.supplier && 
+                <DialogDescription>
+                  Joriy balans: {formatBalance(selectedSupplierTransactions.supplier.balance)}
+                </DialogDescription>
+              }
             </DialogHeader>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {transactionsLoading && !selectedSupplierTransactions.supplier ? (
+                 <div className="flex items-center justify-center h-60"><Loader2 className="h-8 w-8 animate-spin" /> <span className="ml-2">Ma'lumotlar yuklanmoqda...</span></div>
+            ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1 overflow-y-auto py-4 pr-2">
               {/* Xarajatlar */}
-              <div className="border rounded-lg p-4">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-semibold text-lg">Xarajatlar</h3>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-lg">Xarajatlar (Nasiyalar)</h3>
                   <div className="text-sm text-muted-foreground">
                     Jami: {formatBalance(
                       selectedSupplierTransactions.expenses
                         .reduce((sum, expense) => sum + parseFloat(expense.amount), 0)
-                        .toString()
                     )}
                   </div>
                 </div>
-                <div className="rounded-md border overflow-x-auto max-h-[400px]">
+                <div className="rounded-md border max-h-[400px] overflow-y-auto">
                   <Table>
-                    <TableHeader>
+                    <TableHeader className="sticky top-0 bg-muted">
                       <TableRow>
-                        <TableHead className="w-[60px]">№</TableHead>
+                        <TableHead className="w-[100px]">Sana</TableHead>
                         <TableHead>Turi</TableHead>
-                        <TableHead>Summa</TableHead>
-                        <TableHead>Tavsif</TableHead>
+                        <TableHead className="text-right">Summa</TableHead>
+                        <TableHead>Izoh</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {selectedSupplierTransactions.expenses.length > 0 ? (
-                        selectedSupplierTransactions.expenses
-                          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-                          .map((expense, index) => (
-                            <TableRow key={expense.id}>
-                              <TableCell>{index + 1}</TableCell>
-                              <TableCell>
-                                <span className="capitalize">
-                                  {getExpenseTypeName(expense.expense_type)}
-                                </span>
-                              </TableCell>
-                              <TableCell>{formatBalance(expense.amount)}</TableCell>
-                              <TableCell>{expense.description || "-"}</TableCell>
+                        selectedSupplierTransactions.expenses.map((expense) => (
+                            <TableRow key={`exp-${expense.id}`}>
+                              <TableCell>{formatDate((expense as any).date || expense.created_at)}</TableCell> {/* date yoki created_at */}
+                              <TableCell>{getExpenseTypeName(expense.expense_type)}</TableCell>
+                              <TableCell className="text-right">{formatBalance(expense.amount)}</TableCell>
+                              <TableCell className="max-w-[150px] truncate" title={(expense as any).comment || expense.description}>{(expense as any).comment || expense.description || "-"}</TableCell>
                             </TableRow>
                           ))
                       ) : (
                         <TableRow>
-                          <TableCell colSpan={4} className="h-24 text-center">
+                          <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
                             Xarajatlar mavjud emas
                           </TableCell>
                         </TableRow>
@@ -1027,46 +1002,39 @@ const SuppliersPage = () => {
               </div>
 
               {/* To'lovlar */}
-              <div className="border rounded-lg p-4">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-semibold text-lg">To'lovlar</h3>
-                  <div className="text-sm text-muted-foreground">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-lg">To'lovlar (Kirimlar)</h3>
+                   <div className="text-sm text-muted-foreground">
                     Jami: {formatBalance(
                       selectedSupplierTransactions.payments
                         .reduce((sum, payment) => sum + parseFloat(payment.amount), 0)
-                        .toString()
                     )}
                   </div>
                 </div>
-                <div className="rounded-md border overflow-x-auto max-h-[400px]">
+                <div className="rounded-md border max-h-[400px] overflow-y-auto">
                   <Table>
-                    <TableHeader>
+                    <TableHeader className="sticky top-0 bg-muted">
                       <TableRow>
-                        <TableHead className="w-[60px]">№</TableHead>
-                        <TableHead>Summa</TableHead>
+                        <TableHead className="w-[100px]">Sana</TableHead>
                         <TableHead>Turi</TableHead>
-                        <TableHead>Tavsif</TableHead>
+                        <TableHead className="text-right">Summa</TableHead>
+                        <TableHead>Izoh</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {selectedSupplierTransactions.payments.length > 0 ? (
-                        selectedSupplierTransactions.payments
-                          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-                          .map((payment, index) => (
-                            <TableRow key={payment.id}>
-                              <TableCell>{index + 1}</TableCell>
-                              <TableCell>{formatBalance(payment.amount)}</TableCell>
-                              <TableCell>
-                                <span className="capitalize">
-                                  {payment.payment_type === "naqd" ? "Naqd" : payment.payment_type}
-                                </span>
-                              </TableCell>
-                              <TableCell>{payment.description || "-"}</TableCell>
+                        selectedSupplierTransactions.payments.map((payment) => (
+                            <TableRow key={`pay-${payment.id}`}>
+                              <TableCell>{formatDate(payment.created_at)}</TableCell>
+                              <TableCell className="capitalize">{payment.payment_type === "naqd" ? "Naqd" : payment.payment_type}</TableCell>
+                              <TableCell className="text-right">{formatBalance(payment.amount)}</TableCell>
+                              <TableCell className="max-w-[150px] truncate" title={payment.description}>{payment.description || "-"}</TableCell>
                             </TableRow>
                           ))
                       ) : (
                         <TableRow>
-                          <TableCell colSpan={4} className="h-24 text-center">
+                          <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
                             To'lovlar mavjud emas
                           </TableCell>
                         </TableRow>
@@ -1076,8 +1044,8 @@ const SuppliersPage = () => {
                 </div>
               </div>
             </div>
-
-            <DialogFooter className="mt-4">
+            )}
+            <DialogFooter className="mt-auto pt-4">
               <Button variant="outline" onClick={() => setTransactionsModalOpen(false)}>
                 Yopish
               </Button>
@@ -1088,43 +1056,34 @@ const SuppliersPage = () => {
         {/* O'chirish tasdiqlash modali */}
         <Dialog open={deleteDialogOpen} onOpenChange={(isOpen) => {
           if (!isOpen) {
-            setDeleteDialogOpen(false);
-            setDeleteCode("");
-            setDeleteError("");
-            setDeletingId(null);
+            setDeleteDialogOpen(false); setDeleteCode(""); setDeleteError(""); setDeletingId(null);
+          } else {
+            setDeleteDialogOpen(true);
           }
         }}>
-          <DialogContent>
+          <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
               <DialogTitle>O'chirishni tasdiqlang</DialogTitle>
               <DialogDescription>
-                {suppliers.find(s => s.id === deletingId)?.company_name || ""} ni o'chirish uchun maxsus kodni kiriting
+                Yetkazib beruvchi "{suppliers.find(s => s.id === deletingId)?.company_name || ""}"ni o'chirish uchun "7777" kodini kiriting.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label>Maxsus kod</Label>
+            <div className="grid gap-4 py-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="delete_code">Maxsus kod</Label>
                 <Input
+                  id="delete_code"
                   type="password"
                   placeholder="Kodni kiriting"
                   value={deleteCode}
-                  onChange={(e) => {
-                    setDeleteCode(e.target.value);
-                    setDeleteError("");
-                  }}
+                  onChange={(e) => { setDeleteCode(e.target.value); setDeleteError(""); }}
                 />
-                {deleteError && (
-                  <p className="text-sm text-red-500">{deleteError}</p>
-                )}
+                {deleteError && <p className="text-sm text-red-500 pt-1">{deleteError}</p>}
               </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>Bekor qilish</Button>
-              <Button
-                variant="destructive"
-                onClick={confirmDelete}
-                disabled={!deleteCode}
-              >
+              <Button variant="destructive" onClick={confirmDelete} disabled={deleteCode !== "7777"}>
                 O'chirish
               </Button>
             </DialogFooter>
@@ -1132,68 +1091,43 @@ const SuppliersPage = () => {
         </Dialog>
 
         {/* Balans qo'shish Modal */}
-        <Dialog
-          open={paymentModalOpen}
-          onOpenChange={(isOpen) => {
-            setPaymentModalOpen(isOpen);
-            if (!isOpen) {
-              setPayingSupplierId(null);
-              setPayingSupplierName("");
-              setPaymentFormData({ amount: "", description: "" });
-              setPaymentSubmitting(false);
-            }
-          }}
-        >
-          <DialogContent>
+        <Dialog open={paymentModalOpen} onOpenChange={(isOpen) => {
+            if (!isOpen) { resetPaymentForm(); } else { setPaymentModalOpen(true); }
+          }}>
+          <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
               <DialogTitle>Balans to'ldirish: {payingSupplierName}</DialogTitle>
-              <DialogDescription>
-                Yetkazib beruvchiga to'lov qilish uchun ma'lumotlarni kiriting.
-              </DialogDescription>
+              <DialogDescription>Yetkazib beruvchiga to'lov qilish uchun ma'lumotlarni kiriting.</DialogDescription>
             </DialogHeader>
             <form onSubmit={handlePaymentSubmit}>
               <div className="grid gap-4 py-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="payment_amount">Summa ($)</Label>
-                  <Input
-                    id="payment_amount"
-                    name="amount"
-                    type="number"
-                    step="0.01"
-                    value={paymentFormData.amount}
-                    onChange={handlePaymentFormChange}
-                    required
-                    min="0.01"
-                    placeholder="Misol: 500.00"
-                  />
+                  <Label htmlFor="payment_amount">Summa ($) *</Label>
+                  <Input id="payment_amount" name="amount" type="number" step="0.01" value={paymentFormData.amount} onChange={handlePaymentFormChange} required min="0.01" placeholder="Misol: 500.00"/>
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="payment_description">Tavsif</Label>
-                  <Textarea
-                    id="payment_description"
-                    name="description"
-                    value={paymentFormData.description}
-                    onChange={handlePaymentFormChange}
-                    placeholder="To'lov sababi (ixtiyoriy)"
-                  />
+                  <Label htmlFor="payment_description">Tavsif *</Label>
+                  <Textarea id="payment_description" name="description" value={paymentFormData.description} onChange={handlePaymentFormChange} placeholder="To'lov sababi..." required rows={3}/>
                 </div>
               </div>
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setPaymentModalOpen(false)} disabled={paymentSubmitting}>
+                <Button type="button" variant="outline" onClick={resetPaymentForm} disabled={paymentSubmitting}>
                   Bekor qilish
                 </Button>
-                <Button type="submit" disabled={!paymentFormData.amount || parseFloat(paymentFormData.amount) <= 0 || paymentSubmitting}>
-                  {paymentSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                <Button type="submit" disabled={!paymentFormData.amount || parseFloat(paymentFormData.amount) <= 0 || !paymentFormData.description.trim() || paymentSubmitting}>
+                  {paymentSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   To'lovni Qo'shish
                 </Button>
               </DialogFooter>
             </form>
           </DialogContent>
         </Dialog>
-      </div>
+      </main>
 
-      <footer className="border-t py-4 px-4 text-center text-sm text-muted-foreground mt-auto">
-        Version 1.0 | Barcha huquqlar ximoyalangan | Ushbu Dastur CDCGroup tomonidan yaratilgan | CraDev Company tomonidan qo'llab quvvatlanadi | since 2019
+      <footer className="border-t py-4 text-center text-sm text-muted-foreground mt-auto bg-background">
+        <div className="container mx-auto">
+            Version 1.1 | Barcha huquqlar himoyalangan | Ahlan Group LLC © {new Date().getFullYear()}
+        </div>
       </footer>
     </div>
   );
