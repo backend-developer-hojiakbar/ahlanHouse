@@ -55,7 +55,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { format } from "date-fns";
 import toast, { Toaster } from "react-hot-toast";
 
-// --- localStorage Helpers ---
 const VIRTUAL_PAYMENTS_STORAGE_KEY = "ahlan_expenses_virtual_paid_amounts";
 type VirtualPayments = { [expenseId: string]: number };
 
@@ -99,9 +98,7 @@ const clearVirtualPaymentForExpense = (expenseId: number): void => {
         localStorage.setItem(VIRTUAL_PAYMENTS_STORAGE_KEY, JSON.stringify(payments));
     }
 };
-// --- End localStorage Helpers ---
 
-// --- Debounce Hook ---
 function useDebounce<T>(value: T, delay: number): T {
     const [debouncedValue, setDebouncedValue] = useState<T>(value);
     useEffect(() => {
@@ -111,7 +108,6 @@ function useDebounce<T>(value: T, delay: number): T {
     return debouncedValue;
 }
 
-// --- Interfaces ---
 interface Expense {
     id: number;
     amount: string;
@@ -156,7 +152,6 @@ interface CurrentUser {
     user_type: 'admin' | 'sotuvchi' | 'buxgalter' | 'mijoz' | string;
 }
 
-// --- Constants ---
 const API_BASE_URL = "http://api.ahlan.uz";
 const initialFormData = {
     object: "",
@@ -176,7 +171,6 @@ const initialNewSupplierData = {
 };
 const itemsPerPage = 25;
 
-// --- Component ---
 export default function ExpensesPage() {
     const router = useRouter();
     const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -250,7 +244,7 @@ export default function ExpensesPage() {
                     fio: userFioFromStorage,
                 });
             } else {
-                console.warn("Foydalanuvchi user_type yoki fio localStorage da topilmadi. Cheklovlar ishlamasligi mumkin. Iltimos, login qiling.");
+                console.warn("Foydalanuvchi ma'lumotlari topilmadi.");
                 setCurrentUser(null);
             }
         } else {
@@ -268,23 +262,46 @@ export default function ExpensesPage() {
         };
     }, [accessToken]);
 
+    const fetchAllPaginatedData = useCallback(async (endpoint: string, queryParams: URLSearchParams): Promise<Expense[]> => {
+        if (!accessToken) return [];
+        
+        let allResults: Expense[] = [];
+        let nextUrl: string | null = `${API_BASE_URL}${endpoint}?${queryParams.toString()}`;
+
+        while (nextUrl) {
+            try {
+                const response = await fetch(nextUrl, { method: "GET", headers: getAuthHeaders() });
+                if (!response.ok) {
+                    console.error("Paginated fetch error", await response.text());
+                    toast.error("Ma'lumotlarni to'liq yuklashda xatolik yuz berdi.");
+                    break;
+                }
+                const pageData = await response.json();
+                allResults = allResults.concat(pageData.results || []);
+                nextUrl = pageData.next;
+            } catch (error: any) {
+                console.error("Paginated fetch failed", error);
+                toast.error("Ma'lumotlarni to'liq yuklashda uzilish.");
+                nextUrl = null;
+            }
+        }
+        return allResults;
+    }, [accessToken, getAuthHeaders]);
+
     const fetchApiData = useCallback(
-        async (endpoint: string, setter: Function | null, errorMsg: string, queryParams?: URLSearchParams) => {
+        async (endpoint: string, queryParams?: URLSearchParams) => {
             if (!accessToken) return { results: [], count: 0 };
             try {
                 const url = queryParams ? `${API_BASE_URL}${endpoint}?${queryParams.toString()}` : `${API_BASE_URL}${endpoint}`;
                 const response = await fetch(url, { method: "GET", headers: getAuthHeaders() });
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ detail: `Serverdan javob o'qilmadi (Status: ${response.status})` }));
-                    throw new Error(`${errorMsg} (Status: ${response.status}): ${errorData.detail || JSON.stringify(errorData)}`);
+                    const errorData = await response.json().catch(() => ({ detail: `Server xatosi (Status: ${response.status})` }));
+                    throw new Error(`Ma'lumot yuklanmadi (Status: ${response.status}): ${errorData.detail || JSON.stringify(errorData)}`);
                 }
-                const data = await response.json();
-                if (setter) setter(data.results || data);
-                return data;
+                return await response.json();
             } catch (error: any) {
                 console.error(`Error fetching ${endpoint}:`, error);
-                toast.error(error.message || errorMsg);
-                if (setter) setter([]);
+                toast.error(error.message || "Ma'lumot yuklashda xatolik");
                 throw error;
             }
         },
@@ -295,12 +312,12 @@ export default function ExpensesPage() {
         if (!accessToken) return;
         try {
             await Promise.all([
-                fetchApiData("/objects/?page_size=1000", setProperties, "Obyektlar yuklanmadi"),
-                fetchApiData("/suppliers/?page_size=1000", setSuppliers, "Yetkazib beruvchilar yuklanmadi"),
-                fetchApiData("/expense-types/?page_size=1000", setExpenseTypes, "Xarajat turlari yuklanmadi"),
+                fetchApiData("/objects/?page_size=1000").then(data => setProperties(data.results || data)),
+                fetchApiData("/suppliers/?page_size=1000").then(data => setSuppliers(data.results || data)),
+                fetchApiData("/expense-types/?page_size=1000").then(data => setExpenseTypes(data.results || data)),
             ]);
         } catch (error) {
-            console.error("Error fetching initial data sets", error);
+            console.error("Boshlang'ich ma'lumotlarni yuklashda xatolik", error);
         }
     }, [accessToken, fetchApiData]);
 
@@ -333,157 +350,154 @@ export default function ExpensesPage() {
         tableQueryParams.append("page", currentPage.toString());
         tableQueryParams.append("page_size", itemsPerPage.toString());
 
-        const totalsQueryParams = new URLSearchParams(baseQueryParams);
-        totalsQueryParams.append("page_size", "10000");
-
         try {
-            const [tableDataResponse, allFilteredExpensesData, allPaidExpensesData] = await Promise.all([
-                fetchApiData("/expenses/", null, "Xarajatlar jadvali yuklanmadi", tableQueryParams),
-                fetchApiData("/expenses/", null, "Jami xarajatlar yuklanmadi", new URLSearchParams(totalsQueryParams)),
-                fetchApiData("/expenses/", null, "To'langan xarajatlar summasi yuklanmadi", (() => {
-                    const q = new URLSearchParams(totalsQueryParams);
-                    q.append("status", "To‘langan");
-                    return q;
-                })())
+            const [tableDataResponse, allExpensesForTotals] = await Promise.all([
+                fetchApiData("/expenses/", tableQueryParams),
+                fetchAllPaginatedData("/expenses/", baseQueryParams)
             ]);
-
-            const currentTableExpenses: Expense[] = tableDataResponse.results || [];
-            setExpenses(currentTableExpenses);
+            
+            setExpenses(tableDataResponse.results || []);
             setTotalPages(Math.ceil((tableDataResponse.count || 0) / itemsPerPage));
             setTotalExpenses(tableDataResponse.count || 0);
-            currentTableExpenses.forEach((exp: Expense) => {
-                if (exp.status === "To‘langan") clearVirtualPaymentForExpense(exp.id);
-            });
 
-            const allExpensesForTotal: Expense[] = allFilteredExpensesData.results || [];
-            const calculatedFilteredTotal = allExpensesForTotal.reduce((sum, exp) => sum + Number(exp.amount || 0), 0);
-            setFilteredTotalAmount(calculatedFilteredTotal);
+            let totalAmount = 0;
+            let paidAmount = 0;
+            let pendingDebt = 0;
+            let objectTotal = 0;
+            const objectIdNum = Number(filters.object);
 
-            const paidExpensesForTotal: Expense[] = allPaidExpensesData.results || [];
-            const calculatedFilteredPaid = paidExpensesForTotal.reduce((sum, exp) => sum + Number(exp.amount || 0), 0);
-            setFilteredPaidExpensesAmount(calculatedFilteredPaid);
-            paidExpensesForTotal.forEach(exp => clearVirtualPaymentForExpense(exp.id));
+            for (const exp of allExpensesForTotals) {
+                const amount = Number(exp.amount || 0);
+                totalAmount += amount;
+
+                if (filters.object && filters.object !== "all" && exp.object === objectIdNum) {
+                    objectTotal += amount;
+                }
+
+                if (exp.status === 'To‘langan') {
+                    paidAmount += amount;
+                    if (isClient) clearVirtualPaymentForExpense(exp.id);
+                } else if (exp.status === 'Kutilmoqda') {
+                    const virtualPaid = isClient ? getVirtualPaymentForExpense(exp.id) : 0;
+                    const remaining = amount - virtualPaid;
+                    if (remaining > 0.009) {
+                        pendingDebt += remaining;
+                    } else {
+                        if (isClient) clearVirtualPaymentForExpense(exp.id);
+                    }
+                }
+            }
+
+            setFilteredTotalAmount(totalAmount);
+            setFilteredPaidExpensesAmount(paidAmount);
+            setFilteredPendingAmount(pendingDebt);
 
             if (filters.object && filters.object !== "all") {
-                const objectIdNum = Number(filters.object);
-                const objectTotal = allExpensesForTotal
-                    .filter(exp => exp.object === objectIdNum)
-                    .reduce((sum, exp) => sum + Number(exp.amount || 0), 0);
                 setSelectedObjectTotal(objectTotal);
             } else {
                 setSelectedObjectTotal(null);
             }
 
         } catch (error) {
-            console.error("Xarajatlar va jami summalarni yuklashda umumiy xatolik:", error);
+            console.error("Xarajatlarni yuklashda umumiy xatolik:", error);
             setExpenses([]); setTotalPages(1); setTotalExpenses(0);
-            setFilteredTotalAmount(0); setFilteredPaidExpensesAmount(0); setSelectedObjectTotal(null);
+            setFilteredTotalAmount(0); setFilteredPaidExpensesAmount(0); setFilteredPendingAmount(0); setSelectedObjectTotal(null);
         } finally {
             setLoadingTotals(false);
             setIsRefreshing(false);
             setLoading(false);
-            if (accessToken) fetchPendingModalExpenses(false);
         }
-    }, [accessToken, filters, currentPage, debouncedSearchTerm, sortOrder, fetchApiData]);
-
-    const fetchPaidModalExpenses = useCallback(async () => {
-        if (!accessToken) return;
+    }, [accessToken, filters, currentPage, debouncedSearchTerm, sortOrder, fetchApiData, fetchAllPaginatedData, isClient]);
+    
+    const fetchModalData = useCallback(async (status: 'To‘langan' | 'Kutilmoqda') => {
+        if (!accessToken) return [];
         setModalLoading(true);
         try {
             const queryParams = new URLSearchParams();
             if (filters.object && filters.object !== "all") queryParams.append("object", filters.object);
             if (filters.expense_type && filters.expense_type !== "all") queryParams.append("expense_type", filters.expense_type);
             if (debouncedSearchTerm) queryParams.append("search", debouncedSearchTerm);
-            queryParams.append("status", "To‘langan");
-            queryParams.append("page_size", "1000");
-            queryParams.append("ordering", "-date,-id");
-            await fetchApiData("/expenses/", setModalPaidExpenses, "To'langan xarajatlar modal uchun yuklanmadi", queryParams);
-        } catch (error: any) { /* Handled by fetchApiData */ }
-        finally { setModalLoading(false); }
-    }, [accessToken, filters, debouncedSearchTerm, fetchApiData]);
+            queryParams.append("status", status);
+            queryParams.append("ordering", status === 'To‘langan' ? "-date,-id" : "date,id");
 
-    const fetchPendingModalExpenses = useCallback(async (openModalAfterFetch = true) => {
-        if (!accessToken) return;
-        if (openModalAfterFetch) setModalLoading(true);
-        setSupplierDebtGroups([]);
-        try {
-            const queryParams = new URLSearchParams();
-            queryParams.append("status", "Kutilmoqda");
-            queryParams.append("page_size", "10000");
-            if (filters.object && filters.object !== "all") queryParams.append("object", filters.object);
-            if (filters.expense_type && filters.expense_type !== "all") queryParams.append("expense_type", filters.expense_type);
-            if (debouncedSearchTerm) queryParams.append("search", debouncedSearchTerm);
-            queryParams.append("ordering", "date,id");
-            const expensesData = await fetchApiData("/expenses/", null, "Kutilayotgan xarajatlar yuklanmadi", queryParams);
-            const pendingRawExpenses: Expense[] = expensesData.results || [];
-            const groups: Record<number, SupplierDebtGroup> = {};
-            let totalOverallFilteredPendingDebt = 0;
-            for (const rawExpense of pendingRawExpenses) {
-                const totalExpenseAmount = Number(rawExpense.amount);
-                const virtualPaid = getVirtualPaymentForExpense(rawExpense.id);
-                const calculatedRemaining = totalExpenseAmount - virtualPaid;
-                if (calculatedRemaining <= 0.009 && rawExpense.status === "Kutilmoqda") {
-                    clearVirtualPaymentForExpense(rawExpense.id);
-                    continue;
-                }
-                const modalExpenseItem: ModalExpense = {
-                    id: rawExpense.id,
-                    total_expense_amount: totalExpenseAmount,
-                    date: rawExpense.date,
-                    supplier: rawExpense.supplier,
-                    supplier_name: rawExpense.supplier_name || suppliers.find(s => s.id === rawExpense.supplier)?.company_name || `Yetk. ID: ${rawExpense.supplier}`,
-                    comment: rawExpense.comment,
-                    expense_type_name: rawExpense.expense_type_name || expenseTypes.find(et => et.id === rawExpense.expense_type)?.name || `Turi ID: ${rawExpense.expense_type}`,
-                    object: rawExpense.object,
-                    object_name: rawExpense.object_name || properties.find(p => p.id === rawExpense.object)?.name || "-",
-                    virtual_paid_amount: virtualPaid,
-                    calculated_remaining_debt: calculatedRemaining,
-                };
-                if (!groups[rawExpense.supplier]) {
-                    groups[rawExpense.supplier] = {
-                        supplier_id: rawExpense.supplier,
-                        supplier_name: modalExpenseItem.supplier_name,
-                        total_remaining_debt_for_supplier: 0,
-                        expenses: [],
-                    };
-                }
-                groups[rawExpense.supplier].expenses.push(modalExpenseItem);
-                groups[rawExpense.supplier].total_remaining_debt_for_supplier += calculatedRemaining;
-                totalOverallFilteredPendingDebt += calculatedRemaining;
+            return await fetchAllPaginatedData("/expenses/", queryParams);
+        } catch (error) {
+            return [];
+        } finally {
+            setModalLoading(false);
+        }
+    }, [accessToken, filters, debouncedSearchTerm, fetchAllPaginatedData]);
+
+
+    const handleOpenPaidModal = useCallback(async () => {
+        setPaidModalOpen(true);
+        const data = await fetchModalData('To‘langan');
+        setModalPaidExpenses(data);
+    }, [fetchModalData]);
+
+    const handleOpenPendingModal = useCallback(async () => {
+        setPendingModalOpen(true);
+        if (!isClient) return;
+        const pendingRawExpenses = await fetchModalData('Kutilmoqda');
+        
+        const groups: Record<number, SupplierDebtGroup> = {};
+        for (const rawExpense of pendingRawExpenses) {
+            const totalExpenseAmount = Number(rawExpense.amount);
+            const virtualPaid = getVirtualPaymentForExpense(rawExpense.id);
+            const calculatedRemaining = totalExpenseAmount - virtualPaid;
+            if (calculatedRemaining <= 0.009) {
+                clearVirtualPaymentForExpense(rawExpense.id);
+                continue;
             }
-            const groupedData = Object.values(groups)
-                .filter(group => group.total_remaining_debt_for_supplier > 0.009)
-                .sort((a, b) => a.supplier_name.localeCompare(b.supplier_name));
-            setSupplierDebtGroups(groupedData);
-            setFilteredPendingAmount(totalOverallFilteredPendingDebt);
-        } catch (error: any) { setFilteredPendingAmount(0); }
-        finally { if (openModalAfterFetch) setModalLoading(false); }
-    }, [accessToken, suppliers, properties, expenseTypes, filters, debouncedSearchTerm, fetchApiData]);
+            const modalExpenseItem: ModalExpense = {
+                id: rawExpense.id,
+                total_expense_amount: totalExpenseAmount,
+                date: rawExpense.date,
+                supplier: rawExpense.supplier,
+                supplier_name: rawExpense.supplier_name || suppliers.find(s => s.id === rawExpense.supplier)?.company_name || `Yetk. ID: ${rawExpense.supplier}`,
+                comment: rawExpense.comment,
+                expense_type_name: rawExpense.expense_type_name || expenseTypes.find(et => et.id === rawExpense.expense_type)?.name || `Turi ID: ${rawExpense.expense_type}`,
+                object: rawExpense.object,
+                object_name: rawExpense.object_name || properties.find(p => p.id === rawExpense.object)?.name || "-",
+                virtual_paid_amount: virtualPaid,
+                calculated_remaining_debt: calculatedRemaining,
+            };
+            if (!groups[rawExpense.supplier]) {
+                groups[rawExpense.supplier] = {
+                    supplier_id: rawExpense.supplier,
+                    supplier_name: modalExpenseItem.supplier_name,
+                    total_remaining_debt_for_supplier: 0,
+                    expenses: [],
+                };
+            }
+            groups[rawExpense.supplier].expenses.push(modalExpenseItem);
+            groups[rawExpense.supplier].total_remaining_debt_for_supplier += calculatedRemaining;
+        }
+        const groupedData = Object.values(groups)
+            .filter(group => group.total_remaining_debt_for_supplier > 0.009)
+            .sort((a, b) => a.supplier_name.localeCompare(b.supplier_name));
+        setSupplierDebtGroups(groupedData);
+    }, [isClient, fetchModalData, suppliers, properties, expenseTypes]);
 
     useEffect(() => {
         if (accessToken) {
-            fetchInitialData().then(() => {
-                fetchExpensesAndFilteredTotals();
-            }).catch(err => console.error("Initial data load failed, cannot fetch expenses.", err));
+            fetchInitialData();
         }
-    }, [accessToken, fetchInitialData, fetchExpensesAndFilteredTotals]);
+    }, [accessToken, fetchInitialData]);
 
     useEffect(() => {
-        // Bu useEffect faqat filtrlar, sahifa, qidiruv yoki saralash o'zgarganda ma'lumotlarni qayta yuklaydi.
-        // accessToken yoki boshqa boshlang'ich ma'lumotlar o'zgarishiga bog'liq emas.
-        if (accessToken) { // Ensure token exists before re-fetching
-             fetchExpensesAndFilteredTotals();
+        if (accessToken && isClient) {
+            fetchExpensesAndFilteredTotals();
         }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [filters, currentPage, debouncedSearchTerm, sortOrder]); // accessToken olib tashlandi, chunki u faqat birinchi yuklashda muhim.
+    }, [accessToken, isClient, filters, currentPage, debouncedSearchTerm, sortOrder, fetchExpensesAndFilteredTotals]);
 
     useEffect(() => {
-        if (typeof window !== 'undefined') {
+        if (isClient) {
             const params = new URLSearchParams(window.location.search);
             if (currentPage === 1) params.delete("page"); else params.set("page", currentPage.toString());
             window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
         }
-    }, [currentPage]);
+    }, [currentPage, isClient]);
 
     const createSupplierPaymentAPI = async (supplierId: number, amount: string, description: string) => {
         const paymentData = { supplier: supplierId, amount: Number(amount), payment_type: "naqd", description };
@@ -508,7 +522,7 @@ export default function ExpensesPage() {
         return await response.json();
     };
 
-    const createExpense = async (expenseData: any, action: "save" | "saveAndAdd" | "saveAndContinue") => {
+    const createExpense = async (expenseData: any) => {
         if (!accessToken) { toast.error("Avtorizatsiya tokeni topilmadi"); return; }
         setIsSubmitting(true);
         try {
@@ -530,8 +544,7 @@ export default function ExpensesPage() {
             }
             toast.success("Xarajat muvaffaqiyatli qo'shildi");
             setOpen(false); setFormData(initialFormData);
-            setCurrentPage(1);
-            await fetchExpensesAndFilteredTotals();
+            if (currentPage !== 1) setCurrentPage(1); else await fetchExpensesAndFilteredTotals();
         } catch (error: any) { toast.error(error.message); }
         finally { setIsSubmitting(false); }
     };
@@ -540,7 +553,7 @@ export default function ExpensesPage() {
         if (!accessToken) return;
         setEditOpen(true); setCurrentExpense(null); setFormData(initialFormData);
         try {
-            const data: Expense = await fetchApiData(`/expenses/${id}/`, null, `Xarajat (ID: ${id}) olinmadi`);
+            const data = await fetchApiData(`/expenses/${id}/`);
             setCurrentExpense(data);
             setFormData({
                 object: data.object?.toString() || "", supplier: data.supplier?.toString() || "",
@@ -552,7 +565,7 @@ export default function ExpensesPage() {
         } catch (error: any) { setEditOpen(false); }
     };
 
-    const updateExpense = async (id: number, expenseDataFromForm: any, action: "save") => {
+    const updateExpense = async (id: number, expenseDataFromForm: any) => {
         if (!accessToken || !currentExpense) { toast.error("Xatolik: Joriy xarajat topilmadi."); return; }
         setIsSubmitting(true);
         const originalStatus = currentExpense.status;
@@ -576,7 +589,7 @@ export default function ExpensesPage() {
             }
             if (backendStatus === "To‘langan") { clearVirtualPaymentForExpense(id); }
             toast.success("Xarajat muvaffaqiyatli yangilandi");
-            if (action === "save") { setEditOpen(false); setCurrentExpense(null); setFormData(initialFormData); }
+            setEditOpen(false); setCurrentExpense(null); setFormData(initialFormData);
             await fetchExpensesAndFilteredTotals();
         } catch (error: any) { toast.error(error.message); }
         finally { setIsSubmitting(false); }
@@ -658,14 +671,15 @@ export default function ExpensesPage() {
         setIsSubmittingPayment(true);
         try {
             await createSupplierPaymentAPI(currentPaymentSupplier.id, paymentAmount, `${paymentDescription} (Umumiy qarz uchun)`);
-            toast(`${currentPaymentSupplier.company_name} uchun to'lov yozildi. Xarajatlar taqsimlanmoqda...`, { icon: 'ℹ️' });
-            const pendingExpensesResp = await fetchApiData("/expenses/", null, "Yetkazib beruvchining nasiyalari olinmadi",
-                new URLSearchParams({
-                    supplier: currentPaymentSupplier.id.toString(), status: "Kutilmoqda",
-                    ordering: "date,id", page_size: "1000"
-                })
-            );
-            const pendingExpensesForSupplier: Expense[] = pendingExpensesResp.results || [];
+            toast(`${currentPaymentSupplier.company_name} uchun to'lov yozildi.`, { icon: 'ℹ️' });
+            
+            const queryParams = new URLSearchParams({
+                supplier: currentPaymentSupplier.id.toString(), 
+                status: "Kutilmoqda",
+                ordering: "date,id"
+            });
+            const pendingExpensesForSupplier = await fetchAllPaginatedData("/expenses/", queryParams);
+
             let paymentAmountToDistribute = Number(paymentAmount);
             const updatePromises: Promise<any>[] = [];
             for (const expense of pendingExpensesForSupplier) {
@@ -690,13 +704,13 @@ export default function ExpensesPage() {
             if (updatePromises.length > 0) {
                 await Promise.all(updatePromises);
                 toast.success("Tegishli xarajatlar statuslari yangilandi.");
-            } else if (Number(paymentAmount) > 0 && pendingExpensesForSupplier.length > 0 && pendingExpensesForSupplier.some(e => (Number(e.amount) - getVirtualPaymentForExpense(e.id)) > 0.009)) {
-                toast.success("To'lov qabul qilindi, nasiyalar qisman qoplandi (localStorage'da).");
-            } else { toast.success("To'lov muvaffaqiyatli qayd etildi."); }
+            } else {
+                 toast.success("To'lov muvaffaqiyatli qayd etildi.");
+            }
             setPaymentDialogOpen(false); setPaymentAmount(""); setPaymentDescription(""); setCurrentPaymentSupplier(null);
             await fetchExpensesAndFilteredTotals();
-            if (pendingModalOpen) await fetchPendingModalExpenses(true); else await fetchPendingModalExpenses(false);
-            if (paidModalOpen) await fetchPaidModalExpenses();
+            if (pendingModalOpen) await handleOpenPendingModal();
+            if (paidModalOpen) await handleOpenPaidModal();
         } catch (error: any) {
             console.error("To'lov jarayonida xatolik:", error);
             toast.error(error.message || "To'lovda noma'lum xatolik");
@@ -711,8 +725,7 @@ export default function ExpensesPage() {
     const handleOpenEditDialog = (expenseId: number) => fetchExpenseById(expenseId);
     const handlePageChange = (page: number) => { if (page >= 1 && page <= totalPages) setCurrentPage(page); };
     const handleSortToggle = () => { setSortOrder((prev) => (prev === "desc" ? "asc" : "desc")); setCurrentPage(1); };
-    const handleOpenPaidModal = () => { setPaidModalOpen(true); fetchPaidModalExpenses(); };
-    const handleOpenPendingModal = () => { setPendingModalOpen(true); fetchPendingModalExpenses(true); };
+    
     const handleOpenSupplierPaymentDialog = (supplierGroup: SupplierDebtGroup) => {
         setCurrentPaymentSupplier({ id: supplierGroup.supplier_id, company_name: supplierGroup.supplier_name });
         setPaymentAmount(supplierGroup.total_remaining_debt_for_supplier.toFixed(2));
@@ -732,21 +745,21 @@ export default function ExpensesPage() {
         if (errors.length > 0) { toast.error(errors.join("\n")); return false; }
         return true;
     };
-    const handleSubmit = (e: React.FormEvent, action: "save" | "saveAndAdd" | "saveAndContinue") => {
+    const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault(); if (!validateFormData()) return;
         const expensePayload = {
             object: Number(formData.object), supplier: Number(formData.supplier), amount: formData.amount,
             expense_type: Number(formData.expense_type), date: formData.date, comment: formData.comment.trim(),
         };
-        createExpense(expensePayload, action);
+        createExpense(expensePayload);
     };
-    const handleEditSubmit = async (e: React.FormEvent, action: "save") => {
+    const handleEditSubmit = async (e: React.FormEvent) => {
         e.preventDefault(); if (!currentExpense || !validateFormData()) return;
         const expensePayload = {
             object: Number(formData.object), supplier: Number(formData.supplier), amount: formData.amount,
             expense_type: Number(formData.expense_type), date: formData.date, comment: formData.comment.trim(),
         };
-        updateExpense(currentExpense.id, expensePayload, action);
+        updateExpense(currentExpense.id, expensePayload);
     };
 
     const getExpenseTypeStyle = (typeName: string | undefined): string => {
@@ -764,46 +777,43 @@ export default function ExpensesPage() {
         catch (e) { return `${numericAmount.toFixed(2)} USD`; }
     }, [isClient]);
     const formatDate = useCallback((dateString: string | undefined | null) => {
-        if (!dateString) return "-"; if (!isClient) return dateString;
-        try { const date = new Date(dateString); if (isNaN(date.getTime())) return dateString; return format(date, "dd/MM/yyyy"); }
-        catch (e) { console.warn("Date formatting error:", e, "Original:", dateString); return dateString; }
+        if (!dateString) return "-";
+        if (!isClient) return dateString;
+        try {
+            const date = new Date(dateString);
+            if (isNaN(date.getTime())) return dateString;
+            return format(date, "dd/MM/yyyy");
+        } catch (e) {
+            return dateString;
+        }
     }, [isClient]);
     const getObjectName = useCallback((objectId: number | undefined) => {
-        if (!objectId && objectId !== 0) return "-";
+        if (objectId === null || objectId === undefined) return "-";
         return properties.find((p) => p.id === objectId)?.name || `Obyekt ID: ${objectId}`;
     }, [properties]);
 
-    // --- O'ZGARTIRILGAN: Funksiya nomi va logikasi ---
-    // Bu funksiya endi faqat "sezgir" amallar (tahrirlash/o'chirish) uchun ishlatiladi.
     const canPerformSensitiveActions = useCallback((user: CurrentUser | null): boolean => {
-        if (!user) {
-            return false; // Agar foydalanuvchi ma'lumoti yo'q bo'lsa, ruxsat yo'q
-        }
+        if (!user) return false;
         const isRestrictedRole = user.user_type === 'sotuvchi' || user.user_type === 'buxgalter';
         const hasSardorInFio = user.fio.toLowerCase().includes('sardor');
-
-        // Agar rol cheklangan BO'LSA YOKI ismda "Sardor" BO'LSA -> RUXSAT YO'Q (sezgir amallar uchun)
         if (isRestrictedRole || hasSardorInFio) {
             return false;
         }
-        // Aks holda (rol cheklanmagan VA ismda "Sardor" YO'Q bo'lsa) -> RUXSAT BOR (sezgir amallar uchun)
         return true;
     }, []);
-    // --- END ---
 
     function renderExpensesTable(expensesToRender: Expense[]) {
         const isLoadingCondition = loading && !isRefreshing;
-        if (isLoadingCondition && !expensesToRender.length && isClient) {
-            return (<div className="flex items-center justify-center h-[200px] border rounded-md"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /><p className="ml-2 text-muted-foreground">Jadval yuklanmoqda...</p></div>);
-        }
-        if (isLoadingCondition && !expensesToRender.length && !isClient) {
+        if (isLoadingCondition && !isClient) {
              return (<div className="flex items-center justify-center h-[200px] border rounded-md"><p className="ml-2 text-muted-foreground">Jadval yuklanmoqda...</p></div>);
+        }
+        if (isLoadingCondition && !expensesToRender.length) {
+            return (<div className="flex items-center justify-center h-[200px] border rounded-md"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /><p className="ml-2 text-muted-foreground">Jadval yuklanmoqda...</p></div>);
         }
         if (expensesToRender.length === 0 && !isLoadingCondition) {
             return (<div className="flex items-center justify-center h-[200px] border rounded-md"><p className="text-muted-foreground text-center">{searchTerm || filters.object || filters.expense_type || filters.dateRange !== "all" ? "Filtr yoki qidiruvga mos xarajatlar topilmadi." : "Hozircha xarajatlar mavjud emas."}</p></div>);
         }
 
-        // O'ZGARTIRILGAN: Bu o'zgaruvchi endi faqat tahrirlash/o'chirish uchun
         const showSensitiveActionButtons = canPerformSensitiveActions(currentUser);
 
         return (
@@ -816,19 +826,18 @@ export default function ExpensesPage() {
                             <TableHead>Yetkazib beruvchi</TableHead><TableHead>Tavsif</TableHead>
                             <TableHead>Turi</TableHead><TableHead>Status</TableHead>
                             <TableHead className="text-right w-[150px]">Summa</TableHead>
-                            {/* "Amallar" ustuni faqat sezgir amallarga ruxsat bo'lsa ko'rsatiladi */}
                             {showSensitiveActionButtons && <TableHead className="text-right w-[100px]">Amallar</TableHead>}
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {expensesToRender.map((expense, index) => {
                             const rowNumber = sortOrder === "desc" ? (totalExpenses - (currentPage - 1) * itemsPerPage - index) : ((currentPage - 1) * itemsPerPage + index + 1);
-                            const virtualPaidForThis = expense.status === "Kutilmoqda" ? getVirtualPaymentForExpense(expense.id) : 0;
+                            const virtualPaidForThis = isClient && expense.status === "Kutilmoqda" ? getVirtualPaymentForExpense(expense.id) : 0;
                             const expenseAmountNumber = Number(expense.amount);
                             const remainingVirtualDebt = expenseAmountNumber - virtualPaidForThis;
                             let displayAmountText = formatCurrency(expense.amount);
                             let titleText = "";
-                            if (expense.status === "Kutilmoqda" && virtualPaidForThis > 0 && remainingVirtualDebt > 0.009) {
+                            if (isClient && expense.status === "Kutilmoqda" && virtualPaidForThis > 0 && remainingVirtualDebt > 0.009) {
                                 displayAmountText = `${formatCurrency(expense.amount)} (Qarz: ${formatCurrency(remainingVirtualDebt)})`;
                                 titleText = `Jami: ${formatCurrency(expense.amount)}, To'langan (virtual): ${formatCurrency(virtualPaidForThis)}`;
                             }
@@ -844,7 +853,6 @@ export default function ExpensesPage() {
                                     <TableCell className="text-right font-semibold" title={titleText}>
                                         {displayAmountText}
                                     </TableCell>
-                                    {/* Tahrirlash/O'chirish tugmalari faqat ruxsat bo'lsa ko'rsatiladi */}
                                     {showSensitiveActionButtons && (
                                         <TableCell className="text-right">
                                             <div className="flex justify-end space-x-1">
@@ -867,6 +875,24 @@ export default function ExpensesPage() {
         );
     }
 
+    if (!isClient) {
+        return (
+            <div className="flex min-h-screen w-full flex-col bg-muted/40">
+                 <header className="border-b sticky top-0 bg-background z-10">
+                    <div className="flex h-16 items-center px-4 container mx-auto">
+                        <div className="mx-6 w-full"></div>
+                        <div className="ml-auto flex items-center space-x-4"></div>
+                    </div>
+                </header>
+                 <main className="flex-1 space-y-4 p-4 md:p-8 pt-6 container mx-auto">
+                    <div className="flex items-center justify-center h-[calc(100vh-200px)]">
+                        <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                    </div>
+                </main>
+            </div>
+        )
+    }
+
     return (
         <div className="flex min-h-screen w-full flex-col bg-muted/40">
             <Toaster position="top-center" toastOptions={{ duration: 4000 }} />
@@ -880,12 +906,11 @@ export default function ExpensesPage() {
             <main className="flex-1 space-y-4 p-4 md:p-8 pt-6 container mx-auto">
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between space-y-2 md:space-y-0 mb-6">
                     <h2 className="text-3xl font-bold tracking-tight">Xarajatlar</h2>
-                    {/* Yangi xarajat qo'shish tugmasi hamma uchun ko'rinadi */}
                     <Dialog open={open} onOpenChange={(isOpen) => { setOpen(isOpen); if (isOpen) { setFormData(initialFormData); setCurrentExpense(null); } }}>
                         <DialogTrigger asChild><Button size="sm" disabled={!accessToken || loading}><Plus className="mr-2 h-4 w-4" /> Yangi xarajat</Button></DialogTrigger>
                         <DialogContent className="sm:max-w-[600px] max-h-[90vh] flex flex-col">
                             <DialogHeader><DialogTitle>Yangi xarajat qo'shish</DialogTitle><DialogDescription>Xarajat ma'lumotlarini kiriting. "Naqd pul" tanlansa, xarajat "To‘langan" bo'ladi.</DialogDescription></DialogHeader>
-                            <form id="add-expense-form" onSubmit={(e) => handleSubmit(e, "save")} className="flex-1 overflow-y-auto pr-4 pl-1 -mr-2">
+                            <form id="add-expense-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto pr-4 pl-1 -mr-2">
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3 py-4">
                                     <div className="space-y-1"><Label htmlFor="amount">Summa (USD) *</Label><Input required id="amount" name="amount" type="number" step="0.01" min="0.01" value={formData.amount} onChange={handleChange} placeholder="1500.50" /></div>
                                     <div className="space-y-1"><Label htmlFor="date">Xarajat sanasi *</Label><Input required id="date" name="date" type="date" value={formData.date} onChange={handleChange} max={new Date().toISOString().split("T")[0]} /></div>
@@ -921,7 +946,7 @@ export default function ExpensesPage() {
                 <Dialog open={editOpen} onOpenChange={(isOpen) => { if (!isOpen) { setCurrentExpense(null); setFormData(initialFormData); } setEditOpen(isOpen); }}>
                     <DialogContent className="sm:max-w-[600px] max-h-[90vh] flex flex-col">
                         <DialogHeader><DialogTitle>Xarajatni tahrirlash (ID: {currentExpense?.id || "Yuklanmoqda..."})</DialogTitle><DialogDescription>Xarajat ma'lumotlarini yangilang.</DialogDescription></DialogHeader>
-                        <form id="edit-expense-form" onSubmit={(e) => handleEditSubmit(e, "save")} className="flex-1 overflow-y-auto pr-4 pl-1 -mr-2">
+                        <form id="edit-expense-form" onSubmit={handleEditSubmit} className="flex-1 overflow-y-auto pr-4 pl-1 -mr-2">
                             {!currentExpense && editOpen ? <div className="flex justify-center items-center h-40"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /><span className="ml-2 text-muted-foreground">Yuklanmoqda...</span></div> : (
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3 py-4">
                                     <div className="space-y-1"><Label htmlFor="edit-amount">Summa (USD) *</Label><Input required id="edit-amount" name="amount" type="number" step="0.01" min="0.01" value={formData.amount} onChange={handleChange} /></div>
@@ -1009,7 +1034,6 @@ export default function ExpensesPage() {
                                                         <span className="font-semibold text-base">{group.supplier_name}</span>
                                                         <div className="flex items-center space-x-4">
                                                             <Badge variant="outline" className="text-sm px-3 py-1"> Qarz: {formatCurrency(group.total_remaining_debt_for_supplier)} </Badge>
-                                                            {/* To'lov qilish tugmasi ham sezgir amallarga ruxsat bo'lsa ko'rsatiladi */}
                                                             {canPerformSensitiveActions(currentUser) && (
                                                                 <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleOpenSupplierPaymentDialog(group); }} disabled={group.total_remaining_debt_for_supplier <= 0.009}> To'lov qilish </Button>
                                                             )}
