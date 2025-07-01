@@ -248,7 +248,7 @@ export default function ExpensesPage() {
                 setCurrentUser(null);
             }
         } else {
-            toast.error("Iltimos tizimga kiring");
+            toast.error("Iltimos tizimga kiring va davom eting");
             router.push("/login");
         }
     }, [router]);
