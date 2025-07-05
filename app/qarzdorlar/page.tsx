@@ -31,6 +31,7 @@ interface UserCreate {
   fio: string;
   phone_number: string;
   address: string;
+  kafil_address: string;
   balance: string;
   user_type: string;
   password: string;
@@ -41,9 +42,9 @@ interface User {
   fio: string;
   phone_number: string;
   address: string;
+  kafil_address: string | null;
   balance: number;
   kafil_fio: string | null;
-  kafil_address: string | null;
   kafil_phone_number: string | null;
   user_type: string;
 }
@@ -114,6 +115,7 @@ const QarzdorlarPageComponent = () => {
     fio: "",
     phone_number: "",
     address: "",
+    kafil_address: "",
     balance: "0",
     user_type: "mijoz",
   });
@@ -288,6 +290,7 @@ const QarzdorlarPageComponent = () => {
         fio: `${formData.fio} (Qarzdor)`,
         phone_number: formData.phone_number,
         address: formData.address,
+        kafil_address: formData.kafil_address,
         balance: formData.balance,
         user_type: 'mijoz',
         password: formData.phone_number
@@ -409,6 +412,7 @@ const QarzdorlarPageComponent = () => {
                       <TableHead className="text-slate-900 dark:text-white text-lg font-bold">F.I.O</TableHead>
                       <TableHead className="text-slate-900 dark:text-white text-lg font-bold">Telefon</TableHead>
                       <TableHead className="text-slate-900 dark:text-white text-lg font-bold">Manzil</TableHead>
+                      <TableHead className="text-slate-900 dark:text-white text-lg font-bold">Tavsif</TableHead>
                       <TableHead className="text-slate-900 dark:text-white text-lg font-bold">Qarzi</TableHead>
                       {/* Amallar ustuni faqat admin uchun ko'rinadi */}
                       {canUserPerformActions(currentUser) && <TableHead className="text-slate-900 dark:text-white text-lg font-bold text-right">Amallar</TableHead>}
@@ -420,6 +424,7 @@ const QarzdorlarPageComponent = () => {
                         <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{user.fio}</TableCell>
                         <TableCell className="text-slate-700 dark:text-slate-300">{user.phone_number}</TableCell>
                         <TableCell className="text-slate-700 dark:text-slate-300 max-w-xs truncate" title={user.address}>{user.address}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300 max-w-xs truncate" title={user.kafil_address}>{user.kafil_address || ''}</TableCell>
                         <TableCell className="text-slate-700 dark:text-slate-300 font-semibold">{user.balance.toLocaleString()} $</TableCell>
                         {/* Amallar tugmalari faqat admin uchun ko'rinadi */}
                         {canUserPerformActions(currentUser) && (
@@ -451,6 +456,7 @@ const QarzdorlarPageComponent = () => {
                 <div className="space-y-1.5"><Label htmlFor="fio-new" className="text-slate-800 dark:text-slate-200">F.I.O</Label><Input id="fio-new" value={formData.fio} onChange={(e) => setFormData({ ...formData, fio: e.target.value })} className="bg-white/20 dark:bg-sky-900/20 border-white/30 dark:border-sky-700/30" required/></div>
                 <div className="space-y-1.5"><Label htmlFor="phone-new" className="text-slate-800 dark:text-slate-200">Telefon</Label><Input id="phone-new" value={formData.phone_number} onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })} className="bg-white/20 dark:bg-sky-900/20 border-white/30 dark:border-sky-700/30" required/></div>
                 <div className="space-y-1.5"><Label htmlFor="address-new" className="text-slate-800 dark:text-slate-200">Manzil</Label><Input id="address-new" value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} className="bg-white/20 dark:bg-sky-900/20 border-white/30 dark:border-sky-700/30"/></div>
+                <div className="space-y-1.5"><Label htmlFor="kafil_address-new" className="text-slate-800 dark:text-slate-200">Tavsif</Label><Input id="kafil_address-new" value={formData.kafil_address} onChange={(e) => setFormData({ ...formData, kafil_address: e.target.value })} className="bg-white/20 dark:bg-sky-900/20 border-white/30 dark:border-sky-700/30"/></div>
                 <div className="space-y-1.5"><Label htmlFor="balance-new" className="text-slate-800 dark:text-slate-200">Qarzi ($)</Label><Input id="balance-new" type="number" value={formData.balance} onChange={(e) => setFormData({ ...formData, balance: e.target.value })} className="bg-white/20 dark:bg-sky-900/20 border-white/30 dark:border-sky-700/30" required/></div>
                 </div>
                 <DialogFooter className="pt-4 border-t border-white/10 dark:border-sky-700/10">
