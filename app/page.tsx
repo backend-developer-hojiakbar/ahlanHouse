@@ -425,7 +425,7 @@ export default function DashboardPage() {
               transition={{ delay: 0.3, duration: 0.5 }}
               className="text-slate-600 dark:text-slate-400"
             >
-              Ma'lumotlar yuklanmoqda...
+              Ma'lumotlar yuklanmoqda.......
             </motion.div>
           </div>
         </div>
