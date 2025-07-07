@@ -452,39 +452,57 @@ const QarzdorlarPageComponent = () => {
             </DialogContent>
         </Dialog>
 
+        {/* --- O'ZGARTIRILGAN QISM BOSHLANISHI --- */}
         <Dialog open={isHistoryOpen} onOpenChange={setIsHistoryOpen}>
-            <DialogContent className="max-w-3xl bg-white/10 dark:bg-sky-950/10 backdrop-blur-xl border border-white/20 dark:border-sky-700/20">
-                <DialogHeader><DialogTitle className="text-slate-900 dark:text-white">Balans Tarixi</DialogTitle><DialogDescription className="text-slate-700 dark:text-slate-400">{selectedUser?.fio} uchun operatsiyalar ro'yxati</DialogDescription></DialogHeader>
+            <DialogContent className="max-w-3xl bg-white text-black dark:bg-white dark:text-black">
+                <DialogHeader>
+                    <DialogTitle className="text-slate-900">Balans Tarixi</DialogTitle>
+                    <DialogDescription className="text-slate-500">
+                        {selectedUser?.fio} uchun operatsiyalar ro'yxati
+                    </DialogDescription>
+                </DialogHeader>
                 <div className="max-h-[60vh] overflow-y-auto mt-4">
-                    {historyLoading ? (<div className="flex items-center justify-center h-40"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-sky-600"></div></div>) 
-                    : paymentHistory.length === 0 ? (<p className="text-center text-slate-700 dark:text-slate-300 py-8">Bu foydalanuvchi uchun hali operatsiyalar mavjud emas.</p>) 
-                    : (
-                        <Table><TableHeader><TableRow className="border-white/10 dark:border-sky-700/10">
-                            <TableHead className="text-slate-900 dark:text-white font-semibold">Sana</TableHead>
-                            <TableHead className="text-slate-900 dark:text-white font-semibold">Summa</TableHead>
-                            <TableHead className="text-slate-900 dark:text-white font-semibold">To'lov Turi</TableHead>
-                            <TableHead className="text-slate-900 dark:text-white font-semibold">Izoh</TableHead>
-                        </TableRow></TableHeader>
-                        <TableBody>
-                            {paymentHistory.map(payment => (
-                                <TableRow key={payment.id} className="border-white/10 dark:border-sky-700/10">
-                                    <TableCell className="text-slate-700 dark:text-slate-300">{new Date(payment.created_at).toLocaleString('uz-UZ')}</TableCell>
-                                    <TableCell className={cn("font-semibold", parseFloat(payment.amount) >= 0 ? "text-green-500" : "text-red-500")}>
-                                        {parseFloat(payment.amount).toLocaleString('uz-UZ')} $
-                                    </TableCell>
-                                    <TableCell className="text-slate-700 dark:text-slate-300">{payment.payment_type}</TableCell>
-                                    <TableCell className="text-slate-700 dark:text-slate-300">{payment.description}</TableCell>
+                    {historyLoading ? (
+                        <div className="flex items-center justify-center h-40">
+                            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-slate-900"></div>
+                        </div>
+                    ) : paymentHistory.length === 0 ? (
+                        <p className="text-center text-slate-500 py-8">
+                            Bu foydalanuvchi uchun hali operatsiyalar mavjud emas.
+                        </p>
+                    ) : (
+                        <Table>
+                            <TableHeader>
+                                <TableRow className="border-b-slate-200">
+                                    <TableHead className="text-slate-600 font-semibold">Sana</TableHead>
+                                    <TableHead className="text-slate-600 font-semibold">Summa</TableHead>
+                                    <TableHead className="text-slate-600 font-semibold">To'lov Turi</TableHead>
+                                    <TableHead className="text-slate-600 font-semibold">Izoh</TableHead>
                                 </TableRow>
-                            ))}
-                        </TableBody>
+                            </TableHeader>
+                            <TableBody>
+                                {paymentHistory.map(payment => (
+                                    <TableRow key={payment.id} className="border-b-slate-200">
+                                        <TableCell className="text-slate-800">{new Date(payment.created_at).toLocaleString('uz-UZ')}</TableCell>
+                                        <TableCell className={cn("font-semibold", parseFloat(payment.amount) >= 0 ? "text-green-600" : "text-red-600")}>
+                                            {parseFloat(payment.amount).toLocaleString('uz-UZ')} $
+                                        </TableCell>
+                                        <TableCell className="text-slate-800">{payment.payment_type}</TableCell>
+                                        <TableCell className="text-slate-800">{payment.description}</TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
                         </Table>
                     )}
                 </div>
-                <DialogFooter className="pt-4 mt-4 border-t border-white/10 dark:border-sky-700/10">
-                    <Button variant="outline" onClick={() => setIsHistoryOpen(false)} className="bg-white/5 dark:bg-sky-900/5 backdrop-blur-md border-white/10 dark:border-sky-700/10 text-slate-900 dark:text-white hover:bg-white/10 dark:hover:bg-sky-900/10">Yopish</Button>
+                <DialogFooter className="pt-4 mt-4 border-t border-slate-200">
+                    <Button variant="outline" onClick={() => setIsHistoryOpen(false)}>
+                        Yopish
+                    </Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
+        {/* --- O'ZGARTIRILGAN QISM TUGASHI --- */}
       </>)}
       <Toaster position="top-center" toastOptions={{ duration: 3000 }} />
     </div>

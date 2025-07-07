@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { MainNav } from "@/components/main-nav";
 import { Search } from "@/components/search";
 import { UserNav } from "@/components/user-nav";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"; // CardDescription qo'shildi
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CalendarDateRangePicker } from "@/components/date-range-picker";
 import { CreditCard, DollarSign, Home, Loader2, Users, Truck, Building2, Hammer, Wrench, HardHat, Factory, Warehouse, Construction, Building } from "lucide-react";
@@ -47,24 +47,24 @@ const Overview = ({ data }: { data: SalesData[] }) => {
         <CartesianGrid strokeDasharray="3 3" className="stroke-white/20 dark:stroke-sky-700/20" />
         <XAxis dataKey="name" className="text-sm text-slate-700 dark:text-slate-300" />
         <YAxis className="text-sm text-slate-700 dark:text-slate-300" />
-        <Tooltip 
-          contentStyle={{ 
+        <Tooltip
+          contentStyle={{
             backgroundColor: 'rgba(255, 255, 255, 0.1)',
             border: '1px solid rgba(255, 255, 255, 0.2)',
             borderRadius: '12px',
             boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
             backdropFilter: 'blur(8px)'
           }}
-          formatter={(value: number) => value.toLocaleString("us-US", { style: "currency", currency: "USD" })} 
+          formatter={(value: number) => value.toLocaleString("us-US", { style: "currency", currency: "USD" })}
         />
         <Legend />
-        <Line 
-          type="monotone" 
-          dataKey="total" 
-          stroke="#0ea5e9" 
+        <Line
+          type="monotone"
+          dataKey="total"
+          stroke="#0ea5e9"
           strokeWidth={2}
           dot={{ fill: '#0ea5e9', strokeWidth: 2 }}
-          activeDot={{ r: 8, fill: '#0284c7' }} 
+          activeDot={{ r: 8, fill: '#0284c7' }}
         />
       </LineChart>
     </div>
@@ -72,7 +72,6 @@ const Overview = ({ data }: { data: SalesData[] }) => {
 };
 
 const FloatingIcons = () => {
-  // Zamonaviy va rangli iconlar
   const icons = [
     { Icon: require('lucide-react').Rocket, color: 'from-pink-500 via-red-500 to-yellow-500' },
     { Icon: require('lucide-react').Star, color: 'from-yellow-400 via-orange-400 to-pink-500' },
@@ -85,11 +84,9 @@ const FloatingIcons = () => {
     { Icon: require('lucide-react').Feather, color: 'from-teal-400 via-cyan-400 to-blue-400' },
     { Icon: require('lucide-react').Smile, color: 'from-yellow-400 via-pink-400 to-red-400' },
   ];
-  // Har bir icon uchun random parametrlar
   return (
     <div className="fixed inset-0 overflow-hidden pointer-events-none -z-10">
       {icons.map(({ Icon, color }, index) => {
-        // Har bir icon uchun random boshlang'ich va sinusoidal harakat
         const duration = 12 + Math.random() * 10;
         const delay = Math.random() * 5;
         const size = 36 + Math.random() * 32;
@@ -129,7 +126,7 @@ const FloatingIcons = () => {
               zIndex: 0,
             }}
           >
-            <div className={`bg-gradient-to-br ${color} rounded-full p-2 shadow-2xl`}> 
+            <div className={`bg-gradient-to-br ${color} rounded-full p-2 shadow-2xl`}>
               <Icon size={size} className="text-white drop-shadow-lg" />
             </div>
           </motion.div>
@@ -167,48 +164,20 @@ export default function DashboardPage() {
   const [modalLoading, setModalLoading] = useState(false);
 
   const icons = [
-    { Icon: Building2, size: 48 },
-    { Icon: Home, size: 42 },
-    { Icon: Hammer, size: 46 },
-    { Icon: Wrench, size: 40 },
-    { Icon: HardHat, size: 48 },
-    { Icon: Truck, size: 52 },
-    { Icon: Building, size: 56 },
-    { Icon: Factory, size: 48 },
-    { Icon: Warehouse, size: 46 },
+    { Icon: Building2, size: 48 }, { Icon: Home, size: 42 }, { Icon: Hammer, size: 46 },
+    { Icon: Wrench, size: 40 }, { Icon: HardHat, size: 48 }, { Icon: Truck, size: 52 },
+    { Icon: Building, size: 56 }, { Icon: Factory, size: 48 }, { Icon: Warehouse, size: 46 },
+    { Icon: Construction, size: 42 }, { Icon: Building2, size: 46 }, { Icon: Home, size: 48 },
+    { Icon: Hammer, size: 44 }, { Icon: Wrench, size: 46 }, { Icon: HardHat, size: 50 },
+    { Icon: Building2, size: 48 }, { Icon: Home, size: 42 }, { Icon: Hammer, size: 46 },
+    { Icon: Wrench, size: 40 }, { Icon: HardHat, size: 48 }, { Icon: Truck, size: 52 },
+    { Icon: Building, size: 56 }, { Icon: Factory, size: 48 }, { Icon: Warehouse, size: 46 },
+    { Icon: Construction, size: 42 }, { Icon: Building2, size: 46 }, { Icon: Home, size: 48 },
+    { Icon: Hammer, size: 44 }, { Icon: Wrench, size: 46 }, { Icon: HardHat, size: 50 },
+    { Icon: Building2, size: 48 }, { Icon: Home, size: 42 }, { Icon: Hammer, size: 46 },
+    { Icon: Wrench, size: 40 }, { Icon: HardHat, size: 48 }, { Icon: Truck, size: 52 },
+    { Icon: Building, size: 56 }, { Icon: Factory, size: 48 }, { Icon: Warehouse, size: 46 },
     { Icon: Construction, size: 42 },
-    { Icon: Building2, size: 46 },
-    { Icon: Home, size: 48 },
-    { Icon: Hammer, size: 44 },
-    { Icon: Wrench, size: 46 },
-    { Icon: HardHat, size: 50 },
-    { Icon: Building2, size: 48 },
-    { Icon: Home, size: 42 },
-    { Icon: Hammer, size: 46 },
-    { Icon: Wrench, size: 40 },
-    { Icon: HardHat, size: 48 },
-    { Icon: Truck, size: 52 },
-    { Icon: Building, size: 56 },
-    { Icon: Factory, size: 48 },
-    { Icon: Warehouse, size: 46 },
-    { Icon: Construction, size: 42 },
-    { Icon: Building2, size: 46 },
-    { Icon: Home, size: 48 },
-    { Icon: Hammer, size: 44 },
-    { Icon: Wrench, size: 46 },
-    { Icon: HardHat, size: 50 },
-    { Icon: Building2, size: 48 },
-    { Icon: Home, size: 42 },
-    { Icon: Hammer, size: 46 },
-    { Icon: Wrench, size: 40 },
-    { Icon: HardHat, size: 48 },
-    { Icon: Truck, size: 52 },
-    { Icon: Building, size: 56 },
-    { Icon: Factory, size: 48 },
-    { Icon: Warehouse, size: 46 },
-    { Icon: Construction, size: 42 },
-    
-    
   ];
 
   useEffect(() => {
@@ -235,7 +204,6 @@ export default function DashboardPage() {
     const fetchStats = async () => {
       setLoading(true);
       try {
-        // Asosiy statistikalar
         let url = "http://api.ahlan.uz/payments/statistics/";
         if (dateRange.from && dateRange.to) {
           url += `?created_at__gte=${dateRange.from.toISOString().split("T")[0]}&created_at__lte=${dateRange.to.toISOString().split("T")[0]}`;
@@ -253,9 +221,7 @@ export default function DashboardPage() {
 
         const statsData = await statsResponse.json();
 
-        // Sotilgan xonadonlar uchun qo'shimcha so'rov
-        // API count noto'g'ri bo'lishi mumkinligi sababli, barcha natijalarni olib, o'zimiz sanaymiz
-        const soldApartmentsUrl = `http://api.ahlan.uz/apartments/?status__in=paid,sotilgan&page_size=1000`; // Kerak bo'lsa page_size o'zgartiriladi
+        const soldApartmentsUrl = `http://api.ahlan.uz/apartments/?status__in=paid,sotilgan&page_size=1000`;
         const soldApartmentsResponse = await fetch(
           soldApartmentsUrl,
           { method: "GET", headers: getAuthHeaders() }
@@ -265,13 +231,10 @@ export default function DashboardPage() {
         }
         const soldApartmentsData = await soldApartmentsResponse.json();
 
-        // API count o'rniga 'results' massividan qo'lda sanash
         const actualSoldCount = (soldApartmentsData.results || []).filter(
           (apt: { status: string }) => apt.status === 'paid' || apt.status === 'sotilgan'
         ).length;
 
-
-        // Yetkazib beruvchilar soni uchun so'rov
         const suppliersResponse = await fetch("http://api.ahlan.uz/suppliers/", {
           method: "GET", headers: getAuthHeaders(),
         });
@@ -284,7 +247,7 @@ export default function DashboardPage() {
         setStats({
           totalProperties: statsData.total_objects || 0,
           totalApartments: statsData.total_apartments || 0,
-          soldApartments: actualSoldCount, // Qo'lda sanalgan qiymat ishlatiladi
+          soldApartments: actualSoldCount,
           reservedApartments: statsData.reserved_apartments || 0,
           availableApartments: statsData.free_apartments || 0,
           totalClients: statsData.clients || 0,
@@ -370,8 +333,8 @@ export default function DashboardPage() {
       } catch (error: any) {
         toast({ title: "Xatolik", description: error.message, variant: "destructive" });
         setSalesData([
-          { name: "Jan 2025", total: 40000000 },
-          { name: "Feb 2025", total: 50000000 },
+          { name: "Yan 2025", total: 40000000 },
+          { name: "Fev 2025", total: 50000000 },
           { name: "Mar 2025", total: 60000000 },
         ]);
       }
@@ -380,7 +343,6 @@ export default function DashboardPage() {
     fetchSalesData();
   }, [accessToken, router, dateRange, getAuthHeaders]);
 
-  // Modal uchun to'lovlarni olish
   const fetchModalPayments = useCallback(
     async (type: "pending") => {
       if (!accessToken) return;
@@ -410,18 +372,15 @@ export default function DashboardPage() {
     [accessToken, dateRange, getAuthHeaders]
   );
 
-  // Modal ochish handleri
   const handleOpenPendingModal = () => {
     setPendingModalOpen(true);
     fetchModalPayments("pending");
   };
 
-  // Sana oralig'ini o'zgartirish
   const handleDateRangeChange = (range: { from: Date | null; to: Date | null }) => {
     setDateRange(range);
   };
 
-  // Formatlash funksiyalari
   const formatCurrency = (amount: number | string) => {
     const numericAmount = Number(amount || 0);
     return numericAmount.toLocaleString("us-US", { style: "currency", currency: "USD" });
@@ -476,18 +435,15 @@ export default function DashboardPage() {
 
   return (
     <div className="flex min-h-screen flex-col relative">
-      {/* Background gradient with blur */}
       <div className="fixed inset-0 bg-gradient-to-tr from-[#90EE90]/75 via-[#87CEEB]/75 to-[#D3D3D3]/75 dark:from-[#90EE90]/75 dark:via-[#87CEEB]/75 dark:to-[#D3D3D3]/75 opacity-40 -z-10" />
       <div className="fixed inset-0 bg-[radial-gradient(circle_at_top_left,_var(--tw-gradient-stops))] from-[#90EE90]/75 via-transparent to-transparent dark:from-[#90EE90]/75 opacity-35 -z-10" />
       <div className="fixed inset-0 bg-[radial-gradient(circle_at_bottom_right,_var(--tw-gradient-stops))] from-[#87CEEB]/75 via-transparent to-transparent dark:from-[#87CEEB]/75 opacity-35 -z-10" />
       <div className="fixed inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-[#D3D3D3]/75 via-transparent to-transparent dark:from-[#D3D3D3]/75 opacity-35 -z-10" />
-      
-      {/* Blur effects */}
+
       <div className="fixed top-0 left-0 w-[1000px] h-[1000px] bg-[#90EE90]/75 dark:bg-[#90EE90]/75 rounded-full blur-[100px] opacity-35 -z-10" />
       <div className="fixed bottom-0 right-0 w-[1000px] h-[1000px] bg-[#87CEEB]/75 dark:bg-[#87CEEB]/75 rounded-full blur-[100px] opacity-35 -z-10" />
       <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1000px] h-[1000px] bg-[#D3D3D3]/75 dark:bg-[#D3D3D3]/75 rounded-full blur-[100px] opacity-35 -z-10" />
 
-      {/* Floating construction icons */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none -z-10">
         {icons.map(({ Icon, size }, index) => (
           <motion.div
@@ -552,11 +508,11 @@ export default function DashboardPage() {
       <div className="flex-1 space-y-4 p-8 pt-6 relative">
         <div className="flex items-center justify-between space-y-2">
           <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
-            Dashboard
+            Boshqaruv paneli
           </h2>
           <div className="flex items-center space-x-2">
-            <CalendarDateRangePicker 
-              onDateRangeChange={handleDateRangeChange} 
+            <CalendarDateRangePicker
+              onDateRangeChange={handleDateRangeChange}
               className="bg-white/5 dark:bg-sky-900/5 backdrop-blur-md border border-white/10 dark:border-sky-700/10 rounded-lg shadow-sm hover:shadow-xl transition-all duration-300"
             />
           </div>
@@ -565,10 +521,10 @@ export default function DashboardPage() {
         <Tabs defaultValue="overview" className="space-y-4">
           <TabsList className="bg-white/5 dark:bg-sky-900/5 backdrop-blur-md p-1 rounded-lg shadow-sm border border-white/10 dark:border-sky-700/10">
             <TabsTrigger value="overview" className="rounded-md px-4 py-2 text-sm font-semibold text-slate-900 dark:text-white transition-colors bg-white/5 dark:bg-sky-900/5 backdrop-blur-md hover:bg-white/10 dark:hover:bg-sky-900/10">
-              Overview
+              Umumiy ko'rinish
             </TabsTrigger>
             <TabsTrigger value="analytics" className="rounded-md px-4 py-2 text-sm font-semibold text-slate-900 dark:text-white transition-colors bg-white/5 dark:bg-sky-900/5 backdrop-blur-md hover:bg-white/10 dark:hover:bg-sky-900/10">
-              Analytics
+              Tahlil
             </TabsTrigger>
           </TabsList>
 
@@ -577,35 +533,35 @@ export default function DashboardPage() {
               <Card className="relative bg-white/5 dark:bg-sky-900/5 backdrop-blur-md shadow-lg hover:shadow-2xl transition-all duration-300 border border-gradient-to-r from-black/80 via-sky-900/80 to-black/80 dark:from-black/80 dark:via-sky-800/80 dark:to-black/80">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 bg-white/5 dark:bg-sky-900/5 backdrop-blur-md border-b border-gradient-to-r from-black/80 via-sky-900/80 to-black/80 dark:from-black/80 dark:via-sky-800/80 dark:to-black/80">
                   <CardTitle className="text-sm font-medium text-slate-900 dark:text-white">
-                    Total Properties
+                    Jami Obyektlar
                   </CardTitle>
                   <Home className="h-4 w-4 text-slate-900 dark:text-white" />
                 </CardHeader>
                 <CardContent className="bg-white/5 dark:bg-sky-900/5 backdrop-blur-md">
                   <div className="text-2xl font-bold text-slate-900 dark:text-white">{stats.totalProperties}</div>
                   <p className="text-xs text-slate-700 dark:text-slate-300">
-                    Active properties in system
+                    Tizimdagi faol obyektlar
                   </p>
                 </CardContent>
               </Card>
               <Card className="relative bg-white/5 dark:bg-sky-900/5 backdrop-blur-md shadow-lg hover:shadow-2xl transition-all duration-300 border border-gradient-to-r from-black/80 via-sky-900/80 to-black/80 dark:from-black/80 dark:via-sky-800/80 dark:to-black/80">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 bg-white/5 dark:bg-sky-900/5 backdrop-blur-md border-b border-gradient-to-r from-black/80 via-sky-900/80 to-black/80 dark:from-black/80 dark:via-sky-800/80 dark:to-black/80">
                   <CardTitle className="text-sm font-medium text-slate-900 dark:text-white">
-                    Total Apartments
+                    Jami Xonadonlar
                   </CardTitle>
                   <Users className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                 </CardHeader>
                 <CardContent className="bg-white/5 dark:bg-sky-900/5 backdrop-blur-md">
                   <div className="text-2xl font-bold text-slate-900 dark:text-white">{stats.totalApartments}</div>
                   <p className="text-xs text-slate-700 dark:text-slate-300">
-                    Total apartments available
+                    Jami mavjud xonadonlar
                   </p>
                 </CardContent>
               </Card>
               <Card className="relative bg-white/5 dark:bg-sky-900/5 backdrop-blur-md shadow-lg hover:shadow-2xl transition-all duration-300 border border-gradient-to-r from-black/80 via-sky-900/80 to-black/80 dark:from-black/80 dark:via-sky-800/80 dark:to-black/80">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 bg-white/5 dark:bg-sky-900/5 backdrop-blur-md border-b border-gradient-to-r from-black/80 via-sky-900/80 to-black/80 dark:from-black/80 dark:via-sky-800/80 dark:to-black/80">
                   <CardTitle className="text-sm font-medium text-slate-900 dark:text-white">
-                    Total Sales
+                    Jami Sotuvlar
                   </CardTitle>
                   <DollarSign className="h-4 w-4 text-slate-900 dark:text-white" />
                 </CardHeader>
@@ -614,14 +570,14 @@ export default function DashboardPage() {
                     {formatCurrency(stats.totalSales)}
                   </div>
                   <p className="text-xs text-slate-700 dark:text-slate-300">
-                    Total sales amount
+                    Umumiy sotuv miqdori
                   </p>
                 </CardContent>
               </Card>
               <Card className="relative bg-white/5 dark:bg-sky-900/5 backdrop-blur-md shadow-lg hover:shadow-2xl transition-all duration-300 border border-gradient-to-r from-black/80 via-sky-900/80 to-black/80 dark:from-black/80 dark:via-sky-800/80 dark:to-black/80">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 bg-white/5 dark:bg-sky-900/5 backdrop-blur-md border-b border-gradient-to-r from-black/80 via-sky-900/80 to-black/80 dark:from-black/80 dark:via-sky-800/80 dark:to-black/80">
                   <CardTitle className="text-sm font-medium text-slate-900 dark:text-white">
-                    Pending Payments
+                    Kutilayotgan To'lovlar
                   </CardTitle>
                   <CreditCard className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                 </CardHeader>
@@ -630,7 +586,7 @@ export default function DashboardPage() {
                     {formatCurrency(stats.pendingPayments)}
                   </div>
                   <p className="text-xs text-slate-700 dark:text-slate-300">
-                    Awaiting payment
+                    To'lov kutilmoqda
                   </p>
                 </CardContent>
               </Card>
@@ -638,9 +594,9 @@ export default function DashboardPage() {
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
               <Card className="col-span-4 relative bg-white/5 dark:bg-sky-900/5 backdrop-blur-md shadow-lg hover:shadow-2xl transition-all duration-300 border border-gradient-to-r from-black/80 via-sky-900/80 to-black/80 dark:from-black/80 dark:via-sky-800/80 dark:to-black/80">
                 <CardHeader className="bg-white/5 dark:bg-sky-900/5 backdrop-blur-md border-b border-gradient-to-r from-black/80 via-sky-900/80 to-black/80 dark:from-black/80 dark:via-sky-800/80 dark:to-black/80">
-                  <CardTitle className="text-lg font-semibold text-slate-900 dark:text-white">Sales Overview</CardTitle>
+                  <CardTitle className="text-lg font-semibold text-slate-900 dark:text-white">Sotuvlar Sharhi</CardTitle>
                   <CardDescription className="text-sm text-slate-700 dark:text-slate-300">
-                    Monthly sales performance
+                    Oylik sotuvlar ko'rsatkichi
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="pl-2 bg-white/5 dark:bg-sky-900/5 backdrop-blur-md">
@@ -649,9 +605,9 @@ export default function DashboardPage() {
               </Card>
               <Card className="col-span-3 relative bg-white/5 dark:bg-sky-900/5 backdrop-blur-md shadow-lg hover:shadow-2xl transition-all duration-300 border border-gradient-to-r from-black/80 via-sky-900/80 to-black/80 dark:from-black/80 dark:via-sky-800/80 dark:to-black/80">
                 <CardHeader className="bg-white/5 dark:bg-sky-900/5 backdrop-blur-md border-b border-gradient-to-r from-black/80 via-sky-900/80 to-black/80 dark:from-black/80 dark:via-sky-800/80 dark:to-black/80">
-                  <CardTitle className="text-lg font-semibold text-slate-900 dark:text-white">Recent Payments</CardTitle>
+                  <CardTitle className="text-lg font-semibold text-slate-900 dark:text-white">So'nggi To'lovlar</CardTitle>
                   <CardDescription className="text-sm text-slate-700 dark:text-slate-300">
-                    Latest payment transactions
+                    Oxirgi to'lov operatsiyalari
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="bg-white/5 dark:bg-sky-900/5 backdrop-blur-md">
@@ -730,7 +686,6 @@ export default function DashboardPage() {
         </Tabs>
       </div>
 
-      {/* Kutilayotgan to'lovlar modali */}
       <Dialog open={pendingModalOpen} onOpenChange={setPendingModalOpen}>
         <DialogContent className="sm:max-w-[800px] max-h-[80vh] flex flex-col bg-white/30 dark:bg-sky-900/30 backdrop-blur-sm border-2 border-gradient-to-r from-black/70 via-sky-900/70 to-black/70 dark:from-black/70 dark:via-sky-800/70 dark:to-black/70 shadow-xl">
           <DialogHeader className="bg-white/20 dark:bg-sky-900/20 backdrop-blur-sm border-b border-gradient-to-r from-black/70 via-sky-900/70 to-black/70 dark:from-black/70 dark:via-sky-800/70 dark:to-black/70">
@@ -794,7 +749,7 @@ export default function DashboardPage() {
 
       <footer className="border-t-2 border-gradient-to-r from-black/70 via-sky-900/70 to-black/70 dark:from-black/70 dark:via-sky-800/70 dark:to-black/70 bg-white/30 dark:bg-sky-900/30 backdrop-blur-sm py-4">
         <div className="container mx-auto text-center text-sm font-semibold text-slate-900 dark:text-white">
-          Version 1.0 | Barcha huquqlar ximoyalangan | Ushbu Dastur CDCGroup tomonidan yaratilgan | CraDev Company tomonidan qo'llab quvvatlanadi | since 2019
+          Version 1.0 | Barcha huquqlar himoyalangan. Ushbu Dastur CDCGroup tomonidan yaratilgan. CraDev Company tomonidan qo'llab-quvvatlanadi. 2019 yildan beri
         </div>
       </footer>
     </div>
