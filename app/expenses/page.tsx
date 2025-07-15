@@ -26,6 +26,7 @@ import {
     ArrowUpDown,
     Pencil,
     Trash,
+    Camera,
 } from "lucide-react";
 import {
     Select,
@@ -53,6 +54,9 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { format } from "date-fns";
 import toast, { Toaster } from "react-hot-toast";
+
+const TELEGRAM_BOT_TOKEN = "7165051905:AAFS-lG2LDq5OjFdAwTzrpbHYnrkup6y13s";
+const TELEGRAM_CHAT_ID = "1728300"; // Sizning Chat ID'ingiz kiritildi
 
 const VIRTUAL_PAYMENTS_STORAGE_KEY = "ahlan_expenses_virtual_paid_amounts";
 type VirtualPayments = { [expenseId: string]: number };
@@ -185,6 +189,7 @@ export default function ExpensesPage() {
     const [formData, setFormData] = useState(initialFormData);
     const [newSupplierData, setNewSupplierData] = useState(initialNewSupplierData);
     const [newExpenseTypeName, setNewExpenseTypeName] = useState("");
+    const [expenseImageFile, setExpenseImageFile] = useState<File | null>(null);
     
     const [searchTerm, setSearchTerm] = useState('');
     const debouncedSearchTerm = useDebounce(searchTerm, 500);
@@ -374,6 +379,29 @@ export default function ExpensesPage() {
         return true;
     };
     
+    const sendImageToTelegram = async (imageFile: File, caption: string) => {
+        const formData = new FormData();
+        formData.append("chat_id", TELEGRAM_CHAT_ID);
+        formData.append("photo", imageFile);
+        formData.append("caption", caption);
+        formData.append("parse_mode", "HTML");
+
+        try {
+            const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`, {
+                method: "POST",
+                body: formData,
+            });
+            const result = await response.json();
+            if (!result.ok) {
+                throw new Error(result.description || "Telegramga yuborishda xato");
+            }
+            toast.success("Xarajat rasmi Telegramga yuborildi.");
+        } catch (error: any) {
+            console.error("Telegram send error:", error);
+            toast.error(`Rasm yuborilmadi: ${error.message}`);
+        }
+    };
+    
     const handleAddPayment = () => handleActionAndRefetch(async () => {
         if (!currentPaymentSupplier || !paymentAmount || Number(paymentAmount) <= 0 || !paymentDescription.trim()) {
             throw new Error("Iltimos, summa va tavsifni to'g'ri kiriting.");
@@ -457,9 +485,24 @@ export default function ExpensesPage() {
             const errorData = await res.json().catch(() => ({}));
             throw new Error(`Xarajat qo'shilmadi: ${errorData.detail || res.statusText}`);
         }
+        const newExpense = await res.json();
         toast.success("Xarajat muvaffaqiyatli qo'shildi");
+
+        if (expenseImageFile) {
+            const supplierName = suppliers.find(s => s.id === Number(formData.supplier))?.company_name || `ID: ${formData.supplier}`;
+            const objectName = properties.find(p => p.id === Number(formData.object))?.name || `ID: ${formData.object}`;
+            const caption = `<b>🆕 Yangi xarajat (ID: ${newExpense.id})</b>\n\n` +
+                          `<b>Obyekt:</b> ${objectName}\n` +
+                          `<b>Yetkazib beruvchi:</b> ${supplierName}\n` +
+                          `<b>Summa:</b> ${formatCurrency(formData.amount)}\n` +
+                          `<b>Sana:</b> ${formatDate(formData.date)}\n` +
+                          `<b>Izoh:</b> ${formData.comment}`;
+            await sendImageToTelegram(expenseImageFile, caption);
+        }
+        
         setOpen(false);
         setFormData(initialFormData);
+        setExpenseImageFile(null);
         setIsSubmitting(false);
     });
 
@@ -478,10 +521,25 @@ export default function ExpensesPage() {
             const err = await res.json().catch(() => ({}));
             throw new Error(`Xarajat yangilanmadi: ${err.detail || res.statusText}`);
         }
-        if (dataToSend.status === 'To‘langan') clearVirtualPaymentForExpense(id);
         toast.success("Xarajat muvaffaqiyatli yangilandi");
+
+        if (expenseImageFile) {
+            const supplierName = suppliers.find(s => s.id === Number(formData.supplier))?.company_name || `ID: ${formData.supplier}`;
+            const objectName = properties.find(p => p.id === Number(formData.object))?.name || `ID: ${formData.object}`;
+            const caption = `<b>✏️ Xarajat Tahrirlandi (ID: ${id})</b>\n\n` +
+                          `<b>Obyekt:</b> ${objectName}\n` +
+                          `<b>Yetkazib beruvchi:</b> ${supplierName}\n` +
+                          `<b>Summa:</b> ${formatCurrency(formData.amount)}\n` +
+                          `<b>Sana:</b> ${formatDate(formData.date)}\n` +
+                          `<b>Izoh:</b> ${formData.comment}`;
+            await sendImageToTelegram(expenseImageFile, caption);
+        }
+
+        if (dataToSend.status === 'To‘langan') clearVirtualPaymentForExpense(id);
+        
         setEditOpen(false);
         setCurrentExpense(null);
+        setExpenseImageFile(null);
         setIsSubmitting(false);
     });
 
@@ -508,6 +566,7 @@ export default function ExpensesPage() {
                 date: data.date ? format(new Date(data.date), "yyyy-MM-dd") : '',
                 comment: data.comment || "", status: data.status === "To‘langan" ? "Naqd pul" : "Nasiya",
             });
+            setExpenseImageFile(null);
             setEditOpen(true);
         } catch (error: any) {
             toast.error(`Xarajat ma'lumotlarini yuklashda xato: ${error.message}`);
@@ -573,6 +632,11 @@ export default function ExpensesPage() {
     const handleFilterChange = (name: string, value: string) => setFilters(prev => ({ ...prev, [name]: value === "all" ? "" : value }));
     const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value);
     const handleSupplierChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setNewSupplierData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+    const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files.length > 0) {
+            setExpenseImageFile(e.target.files[0]);
+        }
+    };
     
     const getExpenseTypeStyle = (typeName?: string) => {
         const lower = (typeName || '').toLowerCase();
@@ -599,7 +663,7 @@ export default function ExpensesPage() {
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between space-y-2 md:space-y-0">
                     <h2 className="text-3xl font-bold tracking-tight">Xarajatlar</h2>
                     <div className="flex items-center space-x-2">
-                        <Dialog open={open} onOpenChange={setOpen}>
+                        <Dialog open={open} onOpenChange={(isOpen) => { setOpen(isOpen); if (!isOpen) { setFormData(initialFormData); setExpenseImageFile(null); } }}>
                             <DialogTrigger asChild><Button><Plus className="mr-2 h-4 w-4" />Xarajat qo'shish</Button></DialogTrigger>
                             <DialogContent className="sm:max-w-3xl">
                                 <DialogHeader><DialogTitle>Yangi xarajat qo'shish</DialogTitle><DialogDescription>Barcha * belgili maydonlar majburiy.</DialogDescription></DialogHeader>
@@ -623,6 +687,7 @@ export default function ExpensesPage() {
                                     <div className="space-y-1"><Label htmlFor="object">Obyekt *</Label><Select required value={formData.object} onValueChange={(v) => handleSelectChange("object", v)} name="object"><SelectTrigger><SelectValue placeholder="Tanlang..." /></SelectTrigger><SelectContent>{properties.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}</SelectContent></Select></div>
                                     <div className="space-y-1"><Label htmlFor="status">To'lov turi *</Label><Select required value={formData.status} onValueChange={(v) => handleSelectChange("status", v)} name="status"><SelectTrigger><SelectValue placeholder="Tanlang..." /></SelectTrigger><SelectContent><SelectItem value="Naqd pul">Naqd pul</SelectItem><SelectItem value="Nasiya">Nasiya</SelectItem></SelectContent></Select></div>
                                     <div className="space-y-1 sm:col-span-2"><Label htmlFor="comment">Izoh *</Label><Textarea required id="comment" name="comment" value={formData.comment} onChange={handleChange} /></div>
+                                    <div className="space-y-1 sm:col-span-2"><Label htmlFor="image">Rasm (ixtiyoriy)</Label><Input id="image" type="file" accept="image/*" onChange={handleImageChange} /></div>
                                 </form>
                                 <DialogFooter>
                                     <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isSubmitting}>Bekor qilish</Button>
@@ -688,7 +753,7 @@ export default function ExpensesPage() {
                 </div>
             </main>
 
-            <Dialog open={editOpen} onOpenChange={setEditOpen}>
+            <Dialog open={editOpen} onOpenChange={(isOpen) => { setEditOpen(isOpen); if (!isOpen) { setCurrentExpense(null); setExpenseImageFile(null); } }}>
                 <DialogContent className="sm:max-w-3xl"><DialogHeader><DialogTitle>Xarajatni tahrirlash (ID: {currentExpense?.id})</DialogTitle></DialogHeader>
                     <form id="edit-expense-form" onSubmit={(e) => { e.preventDefault(); if (currentExpense) updateExpense(currentExpense.id); }} className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-4">
                         <div className="space-y-1"><Label htmlFor="edit-amount">Summa (USD) *</Label><Input required id="edit-amount" name="amount" type="number" value={formData.amount} onChange={handleChange} /></div>
@@ -698,6 +763,7 @@ export default function ExpensesPage() {
                         <div className="space-y-1"><Label htmlFor="edit-object">Obyekt *</Label><Select required value={formData.object} onValueChange={v => handleSelectChange("object", v)} name="object"><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{properties.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}</SelectContent></Select></div>
                         <div className="space-y-1"><Label htmlFor="edit-status">To'lov turi *</Label><Select required value={formData.status} onValueChange={v => handleSelectChange("status", v)} name="status"><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Naqd pul">Naqd pul</SelectItem><SelectItem value="Nasiya">Nasiya</SelectItem></SelectContent></Select></div>
                         <div className="space-y-1 sm:col-span-2"><Label htmlFor="edit-comment">Izoh *</Label><Textarea required id="edit-comment" name="comment" value={formData.comment} onChange={handleChange} /></div>
+                        <div className="space-y-1 sm:col-span-2"><Label htmlFor="edit-image">Yangi rasm (avvalgisi o'chiriladi)</Label><Input id="edit-image" type="file" accept="image/*" onChange={handleImageChange} /></div>
                     </form>
                     <DialogFooter><Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={isSubmitting}>Bekor qilish</Button><Button type="submit" form="edit-expense-form" disabled={isSubmitting}>{isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Yangilash</Button></DialogFooter>
                 </DialogContent>
