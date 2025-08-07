@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,6 +13,16 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
+
+const TELEGRAM_BOT_TOKEN = "7165051905:AAFS-lG2LDq5OjFdAwTzrpbHYnrkup6y13s";
+const TELEGRAM_CHAT_ID = "1728300"; // Sizning Chat ID'ingiz kiritildi
+
+
+// Valyutani formatlash uchun yordamchi funksiya
+const formatCurrency = (amount: number | string) => {
+  if (amount == null || isNaN(Number(amount))) return "-";
+  return Number(amount).toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 2 }).replace('$', '') + ' $';
+};
 
 export default function AddApartmentPage() {
   const router = useRouter();
@@ -29,54 +39,52 @@ export default function AddApartmentPage() {
     area: "",
     price: "",
     description: "",
-    status: "bosh", // Default status
+    status: "bosh",
   });
-  const [isPriceManual, setIsPriceManual] = useState(false); // Narx qo‘lda kiritilganligini tekshirish uchun
+  const [isPriceManual, setIsPriceManual] = useState(false);
 
   const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
 
-  // Obyektlar ro‘yxatini API’dan barcha sahifalar bilan olish
+  const sendTelegramNotification = useCallback(async (message: string) => {
+    try {
+      await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: TELEGRAM_CHAT_ID,
+          text: message,
+          parse_mode: 'HTML'
+        })
+      });
+    } catch (error) {
+      console.error("Telegram xabarnomasini yuborishda xatolik:", error);
+    }
+  }, []);
+
   useEffect(() => {
     const fetchAllProperties = async () => {
       if (!token) {
-        toast({
-          title: "Xatolik",
-          description: "Foydalanuvchi autentifikatsiyadan o‘tmagan",
-          variant: "destructive",
-        });
+        toast({ title: "Xatolik", description: "Foydalanuvchi autentifikatsiyadan o‘tmagan", variant: "destructive" });
         router.push("/login");
         return;
       }
 
       try {
         let allProperties: any[] = [];
-        let nextUrl: string | null = "http://api.ahlan.uz/objects/?page_size=2";
+        let nextUrl: string | null = "http://api.ahlan.uz/objects/?page_size=1000";
 
         while (nextUrl) {
           const response = await fetch(nextUrl, {
-            method: "GET",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
+            headers: { Authorization: `Bearer ${token}` },
           });
-
-          if (!response.ok) {
-            throw new Error("Obyektlarni yuklashda xatolik yuz berdi");
-          }
-
+          if (!response.ok) throw new Error("Obyektlarni yuklashda xatolik");
           const data = await response.json();
           allProperties = [...allProperties, ...(data.results || data)];
           nextUrl = data.next;
         }
-
         setProperties(allProperties);
       } catch (error) {
-        toast({
-          title: "Xatolik",
-          description: (error as Error).message || "Obyektlarni yuklashda xatolik",
-          variant: "destructive",
-        });
+        toast({ title: "Xatolik", description: (error as Error).message, variant: "destructive" });
       }
     };
 
@@ -85,7 +93,6 @@ export default function AddApartmentPage() {
     }
   }, [token, router]);
 
-  // Maydon o‘zgarganda narxni avtomatik hisoblash
   useEffect(() => {
     if (formData.area && !isPriceManual) {
       const calculatedPrice = (parseFloat(formData.area) * 550).toFixed(2);
@@ -95,16 +102,8 @@ export default function AddApartmentPage() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    if (name === "area") {
-      // Agar maydon o‘zgarsa va narx qo‘lda kiritilmagan bo‘lsa, narxni hisoblaymiz
-      setFormData((prev) => ({ ...prev, [name]: value }));
-    } else if (name === "price") {
-      // Narx qo‘lda kiritilganda avtomatik hisoblashni o‘chiramiz
-      setIsPriceManual(true);
-      setFormData((prev) => ({ ...prev, [name]: value }));
-    } else {
-      setFormData((prev) => ({ ...prev, [name]: value }));
-    }
+    if (name === "price") setIsPriceManual(true);
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleSelectChange = (name: string, value: string) => {
@@ -141,6 +140,23 @@ export default function AddApartmentPage() {
         throw new Error(errorData.detail || "Xonadon qo'shishda xatolik yuz berdi");
       }
 
+      // --- TELEGRAM NOTIFICATION LOGIC ---
+      const currentUserFio = localStorage.getItem("user_fio") || "Noma'lum foydalanuvchi";
+      const objectName = properties.find(p => p.id.toString() === formData.object)?.name || "Noma'lum obyekt";
+
+      const message = `<b>✅🏢 Yangi Xonadon Qo'shildi</b>\n\n` +
+                      `<b>Kim tomonidan:</b> ${currentUserFio}\n` +
+                      `<b>Obyekt:</b> ${objectName}\n\n` +
+                      `<b>Xonadon raqami:</b> ${payload.room_number}\n` +
+                      `<b>Xonalar soni:</b> ${payload.rooms}\n` +
+                      `<b>Maydoni:</b> ${payload.area} m²\n` +
+                      `<b>Qavat:</b> ${payload.floor}\n` +
+                      `<b>Narxi:</b> ${formatCurrency(payload.price)}\n` +
+                      `<b>Tavsif:</b> ${payload.description || "Kiritilmagan"}`;
+      
+      await sendTelegramNotification(message);
+      // --- END OF TELEGRAM LOGIC ---
+
       setLoading(false);
       toast({
         title: "Xonadon qo'shildi",
@@ -151,7 +167,7 @@ export default function AddApartmentPage() {
       setLoading(false);
       toast({
         title: "Xatolik",
-        description: (error as Error).message || "Xonadon qo'shishda xatolik yuz berdi",
+        description: (error as Error).message,
         variant: "destructive",
       });
     }
@@ -205,7 +221,7 @@ export default function AddApartmentPage() {
                     id="room_number"
                     name="room_number"
                     type="text"
-                    placeholder="Masalan: 1001"
+                    placeholder="Masalan: 101"
                     value={formData.room_number}
                     onChange={handleChange}
                     required

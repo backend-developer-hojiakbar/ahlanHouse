@@ -27,6 +27,8 @@ import { cn } from "@/lib/utils";
 import { Building2, Home, Hammer, Wrench, HardHat, Truck, Building, Factory, Warehouse, Construction } from "lucide-react";
 
 const API_BASE_URL = "http://api.ahlan.uz";
+const TELEGRAM_BOT_TOKEN = "7165051905:AAFS-lG2LDq5OjFdAwTzrpbHYnrkup6y13s";
+const TELEGRAM_CHAT_ID = "1728300"; // Sizning Chat ID'ingiz kiritildi
 
 interface UserCreate {
   fio: string;
@@ -129,6 +131,22 @@ const QarzdorlarPageComponent = () => {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [hasPageAccess, setHasPageAccess] = useState<boolean | null>(null);
+  
+  const sendTelegramNotification = useCallback(async (message: string) => {
+    try {
+      await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: TELEGRAM_CHAT_ID,
+          text: message,
+          parse_mode: 'HTML'
+        })
+      });
+    } catch (error) {
+      console.error("Telegram xabarnomasini yuborishda xatolik:", error);
+    }
+  }, []);
 
   const canUserPerformActions = useCallback((user: CurrentUser | null): boolean => {
     if (!user) return false;
@@ -211,7 +229,7 @@ const QarzdorlarPageComponent = () => {
   
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canUserPerformActions(currentUser)) { toast.error("Bu amalni bajarish uchun ruxsatingiz yo'q."); return; }
+    if (!canUserPerformActions(currentUser) || !currentUser) { toast.error("Bu amalni bajarish uchun ruxsatingiz yo'q."); return; }
     if (!accessToken) { toast.error("Iltimos tizimga kiring"); router.push('/login'); return; }
     try {
       const userPayload: UserCreate = {
@@ -225,6 +243,16 @@ const QarzdorlarPageComponent = () => {
       };
       const response = await fetch(`${API_BASE_URL}/users/`, { method: 'POST', headers: getAuthHeaders(), body: JSON.stringify(userPayload) });
       if (!response.ok) throw new Error('Network response was not ok');
+      
+      const message = `<b>➕👤 Yangi Qarzdor Qo'shildi</b>\n\n`+
+                      `<b>Kim tomonidan:</b> ${currentUser.fio}\n`+
+                      `<b>Qarzdor F.I.O:</b> ${userPayload.fio}\n`+
+                      `<b>Telefon:</b> ${userPayload.phone_number}\n`+
+                      `<b>Manzil:</b> ${userPayload.address || "Kiritilmagan"}\n`+
+                      `<b>Tavsif:</b> ${userPayload.kafil_address || "Kiritilmagan"}\n`+
+                      `<b>Boshlang'ich qarz:</b> ${Number(userPayload.balance).toLocaleString('uz-UZ')} $`;
+      await sendTelegramNotification(message);
+
       await fetchUsers();
       setIsAddOpen(false);
       setAddFormData({ fio: "", phone_number: "", address: "", kafil_address: "", balance: "0" });
@@ -234,7 +262,7 @@ const QarzdorlarPageComponent = () => {
   
   const handleUpdateUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canUserPerformActions(currentUser) || !userToEdit) { toast.error("Bu amalni bajarish uchun ruxsatingiz yo'q."); return; }
+    if (!canUserPerformActions(currentUser) || !userToEdit || !currentUser) { toast.error("Bu amalni bajarish uchun ruxsatingiz yo'q."); return; }
     if (!accessToken) { toast.error("Iltimos tizimga kiring"); router.push('/login'); return; }
     try {
       const updatedData = { 
@@ -243,11 +271,17 @@ const QarzdorlarPageComponent = () => {
         password: editFormData.phone_number
       };
       const response = await fetch(`${API_BASE_URL}/users/${userToEdit.id}/`, { method: 'PUT', headers: getAuthHeaders(), body: JSON.stringify(updatedData) });
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error("Update error:", errorData);
-        throw new Error('Network response was not ok');
-      }
+      if (!response.ok) throw new Error('Network response was not ok');
+      
+      const message = `<b>✏️👤 Qarzdor Ma'lumotlari Tahrirlandi</b>\n\n`+
+                      `<b>Kim tomonidan:</b> ${currentUser.fio}\n`+
+                      `<b>Qarzdor:</b> ${userToEdit.fio} (ID: ${userToEdit.id})\n\n`+
+                      `<b>F.I.O:</b> <code>${userToEdit.fio.replace(" (Qarzdor)","")}</code> → <code>${editFormData.fio}</code>\n`+
+                      `<b>Telefon:</b> <code>${userToEdit.phone_number}</code> → <code>${editFormData.phone_number}</code>\n`+
+                      `<b>Manzil:</b> <code>${userToEdit.address}</code> → <code>${editFormData.address}</code>\n`+
+                      `<b>Tavsif:</b> <code>${userToEdit.kafil_address || ''}</code> → <code>${editFormData.kafil_address}</code>`;
+      await sendTelegramNotification(message);
+
       await fetchUsers();
       setIsEditOpen(false);
       setUserToEdit(null);
@@ -256,24 +290,60 @@ const QarzdorlarPageComponent = () => {
   };
 
   const handleDeleteUser = async (userId: number) => {
-    if (!canUserPerformActions(currentUser)) { toast.error("Bu amalni bajarish uchun ruxsatingiz yo'q."); return; }
+    if (!canUserPerformActions(currentUser) || !currentUser) { toast.error("Bu amalni bajarish uchun ruxsatingiz yo'q."); return; }
     if (!accessToken) { toast.error("Iltimos tizimga kiring"); router.push('/login'); return; }
+
+    const userToDelete = users.find(u => u.id === userId);
+    if (!userToDelete) return;
+
     if (!confirm("Haqiqatan ham bu qarzdorni o'chirmoqchimisiz?")) return;
     try {
       const response = await fetch(`${API_BASE_URL}/users/${userId}/`, { method: 'DELETE', headers: getAuthHeaders() });
       if (!response.ok) throw new Error('Network response was not ok');
+      
+      const message = `<b>❌👤 Qarzdor O'chirildi</b>\n\n`+
+                      `<b>Kim tomonidan:</b> ${currentUser.fio}\n`+
+                      `<b>O'chirilgan qarzdor:</b> ${userToDelete.fio}\n`+
+                      `<b>O'chirish vaqtidagi balansi:</b> ${userToDelete.balance.toLocaleString('uz-UZ')} $`;
+      await sendTelegramNotification(message);
+
       await fetchUsers();
       toast.success("Qarzdor o'chirildi");
     } catch (error) { console.error("Error deleting user:", error); toast.error("Qarzdorni o'chirishda xatolik yuz berdi"); }
   };
 
   const handleAddPayment = async (isNegative: boolean = false) => {
-    if (!canUserPerformActions(currentUser) || !selectedUser) { toast.error("Bu amalni bajarish uchun ruxsatingiz yo'q."); return; }
+    if (!canUserPerformActions(currentUser) || !selectedUser || !currentUser) { toast.error("Bu amalni bajarish uchun ruxsatingiz yo'q."); return; }
     if (!accessToken) { toast.error("Iltimos tizimga kiring"); router.push('/login'); return; }
     try {
-      const amount = isNegative ? (-Math.abs(Number(paymentData.amount))).toString() : paymentData.amount.toString();
-      const response = await fetch(`${API_BASE_URL}/user-payments/`, { method: 'POST', headers: getAuthHeaders(), body: JSON.stringify({ ...paymentData, user: selectedUser.id, amount: amount }) });
+      const amount = isNegative ? (-Math.abs(Number(paymentData.amount))) : Math.abs(Number(paymentData.amount));
+      const response = await fetch(`${API_BASE_URL}/user-payments/`, { method: 'POST', headers: getAuthHeaders(), body: JSON.stringify({ ...paymentData, user: selectedUser.id, amount: amount.toString() }) });
       if (!response.ok) throw new Error('Network response was not ok');
+      
+      const oldBalance = selectedUser.balance;
+      const newBalance = oldBalance + amount;
+      let message;
+      if(isNegative){
+          message = `<b>🔴💸 Balansdan Pul Ayirildi (Qarz qo'shildi)</b>\n\n`+
+                    `<b>Kim tomonidan:</b> ${currentUser.fio}\n`+
+                    `<b>Mijoz:</b> ${selectedUser.fio}\n\n`+
+                    `<b>Ayirma summasi:</b> ${amount.toLocaleString('uz-UZ')} $\n`+
+                    `<b>Operatsiya turi:</b> ${paymentData.payment_type}\n`+
+                    `<b>Izoh:</b> ${paymentData.description || "Kiritilmagan"}\n`+
+                    `<b>Eski balans:</b> ${oldBalance.toLocaleString('uz-UZ')} $\n`+
+                    `<b>Yangi balans:</b> ${newBalance.toLocaleString('uz-UZ')} $`;
+      } else {
+          message = `<b>🟢💰 Balansga Pul Qo'shildi</b>\n\n`+
+                    `<b>Kim tomonidan:</b> ${currentUser.fio}\n`+
+                    `<b>Mijoz:</b> ${selectedUser.fio}\n\n`+
+                    `<b>To'lov summasi:</b> +${amount.toLocaleString('uz-UZ')} $\n`+
+                    `<b>To'lov turi:</b> ${paymentData.payment_type}\n`+
+                    `<b>Izoh:</b> ${paymentData.description || "Kiritilmagan"}\n`+
+                    `<b>Eski balans:</b> ${oldBalance.toLocaleString('uz-UZ')} $\n`+
+                    `<b>Yangi balans:</b> ${newBalance.toLocaleString('uz-UZ')} $`;
+      }
+      await sendTelegramNotification(message);
+
       toast.success("To'lov muvaffaqiyatli qo'shildi");
       setIsPaymentOpen(false);
       setPaymentData({ amount: '', payment_type: 'naqd', description: '' });
@@ -295,7 +365,6 @@ const QarzdorlarPageComponent = () => {
         if (Array.isArray(historyArray)) {
             setPaymentHistory(historyArray);
         } else {
-            console.error("Received data is not an array:", historyArray);
             setPaymentHistory([]);
         }
     } catch (error) {
@@ -452,41 +521,25 @@ const QarzdorlarPageComponent = () => {
             </DialogContent>
         </Dialog>
 
-        {/* --- O'ZGARTIRILGAN QISM BOSHLANISHI --- */}
         <Dialog open={isHistoryOpen} onOpenChange={setIsHistoryOpen}>
             <DialogContent className="max-w-3xl bg-white text-black dark:bg-white dark:text-black">
                 <DialogHeader>
                     <DialogTitle className="text-slate-900">Balans Tarixi</DialogTitle>
-                    <DialogDescription className="text-slate-500">
-                        {selectedUser?.fio} uchun operatsiyalar ro'yxati
-                    </DialogDescription>
+                    <DialogDescription className="text-slate-500">{selectedUser?.fio} uchun operatsiyalar ro'yxati</DialogDescription>
                 </DialogHeader>
                 <div className="max-h-[60vh] overflow-y-auto mt-4">
                     {historyLoading ? (
-                        <div className="flex items-center justify-center h-40">
-                            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-slate-900"></div>
-                        </div>
+                        <div className="flex items-center justify-center h-40"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-slate-900"></div></div>
                     ) : paymentHistory.length === 0 ? (
-                        <p className="text-center text-slate-500 py-8">
-                            Bu foydalanuvchi uchun hali operatsiyalar mavjud emas.
-                        </p>
+                        <p className="text-center text-slate-500 py-8">Bu foydalanuvchi uchun hali operatsiyalar mavjud emas.</p>
                     ) : (
                         <Table>
-                            <TableHeader>
-                                <TableRow className="border-b-slate-200">
-                                    <TableHead className="text-slate-600 font-semibold">Sana</TableHead>
-                                    <TableHead className="text-slate-600 font-semibold">Summa</TableHead>
-                                    <TableHead className="text-slate-600 font-semibold">To'lov Turi</TableHead>
-                                    <TableHead className="text-slate-600 font-semibold">Izoh</TableHead>
-                                </TableRow>
-                            </TableHeader>
+                            <TableHeader><TableRow className="border-b-slate-200"><TableHead className="text-slate-600 font-semibold">Sana</TableHead><TableHead className="text-slate-600 font-semibold">Summa</TableHead><TableHead className="text-slate-600 font-semibold">To'lov Turi</TableHead><TableHead className="text-slate-600 font-semibold">Izoh</TableHead></TableRow></TableHeader>
                             <TableBody>
                                 {paymentHistory.map(payment => (
                                     <TableRow key={payment.id} className="border-b-slate-200">
                                         <TableCell className="text-slate-800">{new Date(payment.created_at).toLocaleString('uz-UZ')}</TableCell>
-                                        <TableCell className={cn("font-semibold", parseFloat(payment.amount) >= 0 ? "text-green-600" : "text-red-600")}>
-                                            {parseFloat(payment.amount).toLocaleString('uz-UZ')} $
-                                        </TableCell>
+                                        <TableCell className={cn("font-semibold", parseFloat(payment.amount) >= 0 ? "text-green-600" : "text-red-600")}>{parseFloat(payment.amount).toLocaleString('uz-UZ')} $</TableCell>
                                         <TableCell className="text-slate-800">{payment.payment_type}</TableCell>
                                         <TableCell className="text-slate-800">{payment.description}</TableCell>
                                     </TableRow>
@@ -495,14 +548,9 @@ const QarzdorlarPageComponent = () => {
                         </Table>
                     )}
                 </div>
-                <DialogFooter className="pt-4 mt-4 border-t border-slate-200">
-                    <Button variant="outline" onClick={() => setIsHistoryOpen(false)}>
-                        Yopish
-                    </Button>
-                </DialogFooter>
+                <DialogFooter className="pt-4 mt-4 border-t border-slate-200"><Button variant="outline" onClick={() => setIsHistoryOpen(false)}>Yopish</Button></DialogFooter>
             </DialogContent>
         </Dialog>
-        {/* --- O'ZGARTIRILGAN QISM TUGASHI --- */}
       </>)}
       <Toaster position="top-center" toastOptions={{ duration: 3000 }} />
     </div>

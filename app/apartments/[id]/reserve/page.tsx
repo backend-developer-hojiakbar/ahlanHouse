@@ -108,7 +108,7 @@ export default function ReserveApartmentPage() {
       const token = localStorage.getItem("access_token");
       if (!token) {
         toast({
-          title: "Xatolik",
+          title: "Xatolik sodir bo'ldi",
           description: "Avtorizatsiya qilinmagan.",
           variant: "destructive",
         });
@@ -517,6 +517,9 @@ _________________________                   _________________________
     const contractText = generateContractText(paymentId, client);
     console.log("Contract text generated:", contractText.substring(0, 200)); // Birinchi 200 belgini log qilish
     const lines = contractText.split("\n").filter(line => line.trim() !== ""); // Bo‘sh satrlarni olib tashlash
+    // Bo‘sh satrlarni olib tashlash
+    // Bo‘sh satrlarni olib tashlash
+    // Bo‘sh satrlarni olib tashlash
     const formatParagraph = (line: string) => {
       const commonProps = { size: 24, font: "Times New Roman" };
       const trimmedLine = line.trim();

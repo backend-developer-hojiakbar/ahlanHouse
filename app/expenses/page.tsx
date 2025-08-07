@@ -58,6 +58,7 @@ import toast, { Toaster } from "react-hot-toast";
 const TELEGRAM_BOT_TOKEN = "7165051905:AAFS-lG2LDq5OjFdAwTzrpbHYnrkup6y13s";
 const TELEGRAM_CHAT_ID = "1728300"; // Sizning Chat ID'ingiz kiritildi
 
+
 const VIRTUAL_PAYMENTS_STORAGE_KEY = "ahlan_expenses_virtual_paid_amounts";
 type VirtualPayments = { [expenseId: string]: number };
 
@@ -94,6 +95,22 @@ const clearVirtualPaymentForExpense = (expenseId: number): void => {
         const payments = getVirtualPayments();
         delete payments[expenseId.toString()];
         localStorage.setItem(VIRTUAL_PAYMENTS_STORAGE_KEY, JSON.stringify(payments));
+    }
+};
+
+const sendTelegramNotification = async (message: string) => {
+    try {
+        await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: TELEGRAM_CHAT_ID,
+                text: message,
+                parse_mode: 'HTML'
+            })
+        });
+    } catch (error) {
+        console.error("Telegram xabarini yuborishda xatolik:", error);
     }
 };
 
@@ -385,19 +402,12 @@ export default function ExpensesPage() {
         formData.append("photo", imageFile);
         formData.append("caption", caption);
         formData.append("parse_mode", "HTML");
-
         try {
-            const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`, {
-                method: "POST",
-                body: formData,
-            });
+            const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`, { method: "POST", body: formData });
             const result = await response.json();
-            if (!result.ok) {
-                throw new Error(result.description || "Telegramga yuborishda xato");
-            }
+            if (!result.ok) throw new Error(result.description || "Telegramga yuborishda xato");
             toast.success("Xarajat rasmi Telegramga yuborildi.");
         } catch (error: any) {
-            console.error("Telegram send error:", error);
             toast.error(`Rasm yuborilmadi: ${error.message}`);
         }
     };
@@ -407,45 +417,33 @@ export default function ExpensesPage() {
             throw new Error("Iltimos, summa va tavsifni to'g'ri kiriting.");
         }
         setIsSubmittingPayment(true);
+        const paymentData = { supplier: currentPaymentSupplier.supplier, amount: Number(paymentAmount), payment_type: 'naqd', description: paymentDescription.trim() };
+        const paymentResponse = await fetch(`${API_BASE_URL}/supplier-payments/`, { method: 'POST', headers: getAuthHeaders(), body: JSON.stringify(paymentData) });
+        if (!paymentResponse.ok) { setIsSubmittingPayment(false); throw new Error("To'lovni saqlashda xatolik yuz berdi."); }
+        toast.success("To'lov muvaffaqiyatli saqlandi.");
 
-        const paymentData = {
-            supplier: currentPaymentSupplier.supplier,
-            amount: Number(paymentAmount),
-            payment_type: 'naqd',
-            description: paymentDescription.trim()
-        };
-        const paymentResponse = await fetch(`${API_BASE_URL}/supplier-payments/`, {
-            method: 'POST', headers: getAuthHeaders(), body: JSON.stringify(paymentData)
-        });
-
-        if (!paymentResponse.ok) {
-            setIsSubmittingPayment(false);
-            throw new Error("To'lovni saqlashda xatolik yuz berdi.");
-        }
-
-        toast.success("To'lov muvaffaqiyatli saqlandi. Qarzdorlik yangilanmoqda...");
+        const oldDebt = currentPaymentSupplier.total_debt;
+        const newDebt = oldDebt - Number(paymentAmount);
+        const message = `<b>💰 Nasiya uchun to'lov</b>\n\n`+
+                        `<b>Kim tomonidan:</b> ${currentUser?.fio || 'Noma`lum'}\n` +
+                        `<b>Yetkazib beruvchi:</b> ${currentPaymentSupplier.supplier_name}\n\n`+
+                        `<b>To'lov summasi:</b> ${formatCurrency(paymentAmount)}\n`+
+                        `<b>Izoh:</b> ${paymentDescription.trim()}\n\n`+
+                        `<b>Eski qarz:</b> ${formatCurrency(oldDebt)}\n`+
+                        `<b>Yangi qarz:</b> ${formatCurrency(newDebt)}`;
+        await sendTelegramNotification(message);
 
         let paymentToDistribute = Number(paymentAmount);
         const updatePromises: Promise<any>[] = [];
-
         for (const expense of currentPaymentSupplier.expenses) {
             if (paymentToDistribute <= 0.009) break;
-
             const debtOnExpense = expense.calculated_remaining_debt || 0;
             if (debtOnExpense <= 0) continue;
-
             const paymentForThis = Math.min(paymentToDistribute, debtOnExpense);
-            
             if (paymentForThis >= debtOnExpense - 0.009) {
                 const payload = { ...expense, status: "To‘langan" };
-                delete (payload as any).supplier_name; delete (payload as any).expense_type_name;
-                delete (payload as any).object_name; delete (payload as any).calculated_remaining_debt;
-                delete (payload as any).virtual_paid_amount;
-                updatePromises.push(
-                    fetch(`${API_BASE_URL}/expenses/${expense.id}/`, {
-                        method: "PUT", headers: getAuthHeaders(), body: JSON.stringify(payload)
-                    })
-                );
+                delete (payload as any).supplier_name; delete (payload as any).expense_type_name; delete (payload as any).object_name; delete (payload as any).calculated_remaining_debt; delete (payload as any).virtual_paid_amount;
+                updatePromises.push( fetch(`${API_BASE_URL}/expenses/${expense.id}/`, { method: "PUT", headers: getAuthHeaders(), body: JSON.stringify(payload) }) );
                 clearVirtualPaymentForExpense(expense.id);
             } else {
                 const newVirtualPaidAmount = (expense.virtual_paid_amount || 0) + paymentForThis;
@@ -453,105 +451,87 @@ export default function ExpensesPage() {
             }
             paymentToDistribute -= paymentForThis;
         }
-
-        if (updatePromises.length > 0) {
-            await Promise.all(updatePromises);
-            toast.success(`${updatePromises.length} ta xarajat statusi "To'langan" ga o'zgartirildi.`);
-        }
-        
-        setIsPaymentDialogOpen(false);
-        setIsNasiyaDialogOpen(false);
-        setPaymentAmount("");
-        setPaymentDescription("");
-        setCurrentPaymentSupplier(null);
-        setIsSubmittingPayment(false);
+        if (updatePromises.length > 0) await Promise.all(updatePromises);
+        setIsPaymentDialogOpen(false); setIsNasiyaDialogOpen(false); setPaymentAmount(""); setPaymentDescription(""); setCurrentPaymentSupplier(null); setIsSubmittingPayment(false);
     });
 
     const createExpense = () => handleActionAndRefetch(async () => {
         if (!validateFormData()) return;
         setIsSubmitting(true);
-        const apiPayload = { 
-            object: Number(formData.object), 
-            supplier: Number(formData.supplier), 
-            amount: formData.amount,
-            expense_type: Number(formData.expense_type), 
-            date: formData.date, 
-            comment: formData.comment.trim(),
-            status: formData.status === "Naqd pul" ? "To‘langan" : "Kutilmoqda"
-        };
+        const apiPayload = { object: Number(formData.object), supplier: Number(formData.supplier), amount: formData.amount, expense_type: Number(formData.expense_type), date: formData.date, comment: formData.comment.trim(), status: formData.status === "Naqd pul" ? "To‘langan" : "Kutilmoqda" };
         const res = await fetch(`${API_BASE_URL}/expenses/`, { method: "POST", headers: getAuthHeaders(), body: JSON.stringify(apiPayload) });
-        if (!res.ok) {
-            setIsSubmitting(false);
-            const errorData = await res.json().catch(() => ({}));
-            throw new Error(`Xarajat qo'shilmadi: ${errorData.detail || res.statusText}`);
-        }
+        if (!res.ok) { setIsSubmitting(false); throw new Error(`Xarajat qo'shilmadi`); }
         const newExpense = await res.json();
         toast.success("Xarajat muvaffaqiyatli qo'shildi");
 
-        if (expenseImageFile) {
-            const supplierName = suppliers.find(s => s.id === Number(formData.supplier))?.company_name || `ID: ${formData.supplier}`;
-            const objectName = properties.find(p => p.id === Number(formData.object))?.name || `ID: ${formData.object}`;
-            const caption = `<b>🆕 Yangi xarajat (ID: ${newExpense.id})</b>\n\n` +
-                          `<b>Obyekt:</b> ${objectName}\n` +
-                          `<b>Yetkazib beruvchi:</b> ${supplierName}\n` +
-                          `<b>Summa:</b> ${formatCurrency(formData.amount)}\n` +
-                          `<b>Sana:</b> ${formatDate(formData.date)}\n` +
-                          `<b>Izoh:</b> ${formData.comment}`;
-            await sendImageToTelegram(expenseImageFile, caption);
-        }
-        
-        setOpen(false);
-        setFormData(initialFormData);
-        setExpenseImageFile(null);
-        setIsSubmitting(false);
+        const supplierName = suppliers.find(s => s.id === Number(formData.supplier))?.company_name;
+        const objectName = properties.find(p => p.id === Number(formData.object))?.name;
+        const expenseTypeName = expenseTypes.find(t => t.id === Number(formData.expense_type))?.name;
+        const message = `<b>➕ Yangi Xarajat Qo'shildi</b>\n\n` +
+                        `<b>Kim tomonidan:</b> ${currentUser?.fio || 'Noma`lum'}\n` +
+                        `<b>Obyekt:</b> ${objectName || 'N/A'}\n`+
+                        `<b>Yetkazib beruvchi:</b> ${supplierName || 'N/A'}\n`+
+                        `<b>Xarajat turi:</b> ${expenseTypeName || 'N/A'}\n\n`+
+                        `<b>Summa:</b> ${formatCurrency(formData.amount)}\n`+
+                        `<b>Sana:</b> ${formatDate(formData.date)}\n`+
+                        `<b>Status:</b> ${formData.status}\n`+
+                        `<b>Izoh:</b> ${formData.comment}`;
+        await sendTelegramNotification(message);
+
+        if (expenseImageFile) await sendImageToTelegram(expenseImageFile, `Xarajat ID: ${newExpense.id} uchun rasm`);
+        setOpen(false); setFormData(initialFormData); setExpenseImageFile(null); setIsSubmitting(false);
     });
 
     const updateExpense = (id: number) => handleActionAndRefetch(async () => {
         if (!currentExpense || !validateFormData()) return;
         setIsSubmitting(true);
-        const dataToSend = {
-            object: Number(formData.object), supplier: Number(formData.supplier),
-            amount: formData.amount, expense_type: Number(formData.expense_type),
-            date: formData.date, comment: formData.comment.trim(), 
-            status: formData.status === "Naqd pul" ? "To‘langan" : "Kutilmoqda"
-        };
+        const dataToSend = { object: Number(formData.object), supplier: Number(formData.supplier), amount: formData.amount, expense_type: Number(formData.expense_type), date: formData.date, comment: formData.comment.trim(), status: formData.status === "Naqd pul" ? "To‘langan" : "Kutilmoqda" };
         const res = await fetch(`${API_BASE_URL}/expenses/${id}/`, { method: "PUT", headers: getAuthHeaders(), body: JSON.stringify(dataToSend) });
-        if (!res.ok) {
-            setIsSubmitting(false);
-            const err = await res.json().catch(() => ({}));
-            throw new Error(`Xarajat yangilanmadi: ${err.detail || res.statusText}`);
-        }
+        if (!res.ok) { setIsSubmitting(false); throw new Error(`Xarajat yangilanmadi`); }
         toast.success("Xarajat muvaffaqiyatli yangilandi");
 
-        if (expenseImageFile) {
-            const supplierName = suppliers.find(s => s.id === Number(formData.supplier))?.company_name || `ID: ${formData.supplier}`;
-            const objectName = properties.find(p => p.id === Number(formData.object))?.name || `ID: ${formData.object}`;
-            const caption = `<b>✏️ Xarajat Tahrirlandi (ID: ${id})</b>\n\n` +
-                          `<b>Obyekt:</b> ${objectName}\n` +
-                          `<b>Yetkazib beruvchi:</b> ${supplierName}\n` +
-                          `<b>Summa:</b> ${formatCurrency(formData.amount)}\n` +
-                          `<b>Sana:</b> ${formatDate(formData.date)}\n` +
-                          `<b>Izoh:</b> ${formData.comment}`;
-            await sendImageToTelegram(expenseImageFile, caption);
+        const changes = [];
+        if(currentExpense.object !== dataToSend.object) changes.push(`• <b>Obyekt:</b> <code>${getObjectName(currentExpense.object)}</code> → <code>${getObjectName(dataToSend.object)}</code>`);
+        if(currentExpense.supplier !== dataToSend.supplier) changes.push(`• <b>Yetkazib beruvchi:</b> <code>${currentExpense.supplier_name}</code> → <code>${suppliers.find(s=>s.id === dataToSend.supplier)?.company_name}</code>`);
+        if(currentExpense.amount !== dataToSend.amount) changes.push(`• <b>Summa:</b> <code>${formatCurrency(currentExpense.amount)}</code> → <code>${formatCurrency(dataToSend.amount)}</code>`);
+        if(currentExpense.date !== dataToSend.date) changes.push(`• <b>Sana:</b> <code>${formatDate(currentExpense.date)}</code> → <code>${formatDate(dataToSend.date)}</code>`);
+        if(currentExpense.comment !== dataToSend.comment) changes.push(`• <b>Izoh:</b> <code>${currentExpense.comment}</code> → <code>${dataToSend.comment}</code>`);
+        const oldStatus = currentExpense.status === "To‘langan" ? "Naqd pul" : "Nasiya";
+        if(oldStatus !== formData.status) changes.push(`• <b>Status:</b> <code>${oldStatus}</code> → <code>${formData.status}</code>`);
+
+        if(changes.length > 0){
+            const message = `<b>✏️ Xarajat Tahrirlandi (ID: ${id})</b>\n\n`+
+                            `<b>Kim tomonidan:</b> ${currentUser?.fio || 'Noma`lum'}\n\n`+
+                            `<b>O'zgarishlar:</b>\n`+
+                            changes.join('\n');
+            await sendTelegramNotification(message);
         }
 
+        if (expenseImageFile) await sendImageToTelegram(expenseImageFile, `Tahrirlangan xarajat (ID: ${id}) uchun yangi rasm`);
         if (dataToSend.status === 'To‘langan') clearVirtualPaymentForExpense(id);
-        
-        setEditOpen(false);
-        setCurrentExpense(null);
-        setExpenseImageFile(null);
-        setIsSubmitting(false);
+        setEditOpen(false); setCurrentExpense(null); setExpenseImageFile(null); setIsSubmitting(false);
     });
 
     const handleConfirmDelete = () => handleActionAndRefetch(async () => {
         if (!expenseToDelete) return;
         if (deleteCode !== "7777") return toast.error("O'chirish kodi noto'g'ri.");
+        const expenseData = expenses.find(exp => exp.id === expenseToDelete);
         await fetch(`${API_BASE_URL}/expenses/${expenseToDelete}/`, { method: "DELETE", headers: getAuthHeaders() });
+        
+        if(expenseData){
+            const message = `<b>❌ Xarajat O'chirildi</b>\n\n`+
+                            `<b>Kim tomonidan:</b> ${currentUser?.fio || 'Noma`lum'}\n`+
+                            `<b>Xarajat ID:</b> ${expenseToDelete}\n\n`+
+                            `<b>Obyekt:</b> ${expenseData.object_name || getObjectName(expenseData.object)}\n`+
+                            `<b>Yetkazib beruvchi:</b> ${expenseData.supplier_name}\n`+
+                            `<b>Summa:</b> ${formatCurrency(expenseData.amount)}\n`+
+                            `<b>Sana:</b> ${formatDate(expenseData.date)}`;
+            await sendTelegramNotification(message);
+        }
+
         clearVirtualPaymentForExpense(expenseToDelete);
         toast.success("Xarajat o'chirildi");
-        setDeleteDialogOpen(false);
-        setExpenseToDelete(null);
-        setDeleteCode("");
+        setDeleteDialogOpen(false); setExpenseToDelete(null); setDeleteCode("");
     });
     
     const openEditDialog = async (id: number) => {
@@ -560,12 +540,7 @@ export default function ExpensesPage() {
             if(!res.ok) throw new Error("Ma'lumot topilmadi");
             const data = await res.json();
             setCurrentExpense(data);
-            setFormData({
-                object: data.object?.toString() || "", supplier: data.supplier?.toString() || "",
-                amount: data.amount || "0", expense_type: data.expense_type?.toString() || "",
-                date: data.date ? format(new Date(data.date), "yyyy-MM-dd") : '',
-                comment: data.comment || "", status: data.status === "To‘langan" ? "Naqd pul" : "Nasiya",
-            });
+            setFormData({ object: data.object?.toString() || "", supplier: data.supplier?.toString() || "", amount: data.amount || "0", expense_type: data.expense_type?.toString() || "", date: data.date ? format(new Date(data.date), "yyyy-MM-dd") : '', comment: data.comment || "", status: data.status === "To‘langan" ? "Naqd pul" : "Nasiya", });
             setExpenseImageFile(null);
             setEditOpen(true);
         } catch (error: any) {
@@ -573,13 +548,24 @@ export default function ExpensesPage() {
         }
     };
     
-    const createItem = (url: string, data: any, stateSetter: React.Dispatch<React.SetStateAction<any[]>>, sortFn: (a: any, b: any) => number, successMsg: string, submittingsetter: React.Dispatch<React.SetStateAction<boolean>>, closeFn?: () => void, resetFn?: () => void) => {
+    const createItem = (url: string, data: any, stateSetter: React.Dispatch<React.SetStateAction<any[]>>, sortFn: (a: any, b: any) => number, successMsg: string, submittingsetter: React.Dispatch<React.SetStateAction<boolean>>, itemType: 'supplier' | 'expense_type', closeFn?: () => void, resetFn?: () => void) => {
         submittingsetter(true);
         fetch(url, { method: "POST", headers: getAuthHeaders(), body: JSON.stringify(data) })
             .then(res => { if (!res.ok) throw new Error("Qo'shishda xatolik"); return res.json(); })
             .then(newItem => {
                 stateSetter(prev => [...prev, newItem].sort(sortFn));
                 toast.success(successMsg);
+                let message = '';
+                if(itemType === 'supplier'){
+                    message = `<b>➕ Yangi Yetkazib Beruvchi Qo'shildi</b>\n\n`+
+                              `<b>Kim tomonidan:</b> ${currentUser?.fio || 'Noma`lum'}\n` +
+                              `<b>Nomi:</b> ${data.company_name}`;
+                } else if(itemType === 'expense_type'){
+                    message = `<b>➕ Yangi Xarajat Turi Qo'shildi</b>\n\n`+
+                              `<b>Kim tomonidan:</b> ${currentUser?.fio || 'Noma`lum'}\n`+
+                              `<b>Nomi:</b> ${data.name}`;
+                }
+                if(message) sendTelegramNotification(message);
                 if (closeFn) closeFn();
                 if (resetFn) resetFn();
             })
@@ -589,42 +575,33 @@ export default function ExpensesPage() {
 
     const createSupplier = () => {
         if (!newSupplierData.company_name.trim()) return toast.error("Kompaniya nomi kiritilishi shart");
-        createItem(`${API_BASE_URL}/suppliers/`, newSupplierData, setSuppliers, (a, b) => a.company_name.localeCompare(b.company_name), `"${newSupplierData.company_name}" qo'shildi`, setIsSupplierSubmitting, () => setAddSupplierOpen(false), () => setNewSupplierData(initialNewSupplierData));
+        createItem(`${API_BASE_URL}/suppliers/`, newSupplierData, setSuppliers, (a, b) => a.company_name.localeCompare(b.company_name), `"${newSupplierData.company_name}" qo'shildi`, setIsSupplierSubmitting, 'supplier', () => setAddSupplierOpen(false), () => setNewSupplierData(initialNewSupplierData));
     };
     
     const createExpenseType = () => {
         if (!newExpenseTypeName.trim()) return toast.error("Xarajat turi nomi kiritilishi shart");
-        createItem(`${API_BASE_URL}/expense-types/`, { name: newExpenseTypeName.trim() }, setExpenseTypes, (a, b) => a.name.localeCompare(b.name), `"${newExpenseTypeName}" qo'shildi`, setIsExpenseTypeSubmitting, () => setAddExpenseTypeOpen(false), () => setNewExpenseTypeName(""));
+        createItem(`${API_BASE_URL}/expense-types/`, { name: newExpenseTypeName.trim() }, setExpenseTypes, (a, b) => a.name.localeCompare(b.name), `"${newExpenseTypeName}" qo'shildi`, setIsExpenseTypeSubmitting, 'expense_type', () => setAddExpenseTypeOpen(false), () => setNewExpenseTypeName(""));
     };
     
     const handleNasiyaCardClick = useCallback(() => {
         const pendingExpenses = expenses.filter(exp => exp.status !== 'To‘langan');
-        if (pendingExpenses.length === 0) {
-            toast.info("To'lanmagan nasiya xarajatlar mavjud emas.");
-            return;
-        }
-
+        if (pendingExpenses.length === 0) { toast.info("To'lanmagan nasiya xarajatlar mavjud emas."); return; }
         const grouped = pendingExpenses.reduce((acc, expense) => {
             const supplierId = expense.supplier;
-            if (!acc[supplierId]) {
-                acc[supplierId] = { supplier: supplierId, supplier_name: expense.supplier_name, total_debt: 0, expenses: [] };
-            }
+            if (!acc[supplierId]) acc[supplierId] = { supplier: supplierId, supplier_name: expense.supplier_name, total_debt: 0, expenses: [] };
             const amount = parseFloat(expense.amount);
             const virtualPaid = getVirtualPaymentForExpense(expense.id);
             const remainingDebt = amount - virtualPaid;
-
             if (remainingDebt > 0.01) {
                 acc[supplierId].total_debt += remainingDebt;
                 acc[supplierId].expenses.push({ ...expense, calculated_remaining_debt: remainingDebt, virtual_paid_amount: virtualPaid });
             }
             return acc;
         }, {} as Record<string, SupplierDebtGroup>);
-
         const finalData = Object.values(grouped).filter(group => group.total_debt > 0.01);
         finalData.forEach(group => group.expenses.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
         finalData.sort((a, b) => b.total_debt - a.total_debt);
-        setNasiyaData(finalData);
-        setIsNasiyaDialogOpen(true);
+        setNasiyaData(finalData); setIsNasiyaDialogOpen(true);
     }, [expenses]);
     
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -632,12 +609,7 @@ export default function ExpensesPage() {
     const handleFilterChange = (name: string, value: string) => setFilters(prev => ({ ...prev, [name]: value === "all" ? "" : value }));
     const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value);
     const handleSupplierChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setNewSupplierData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
-    const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files.length > 0) {
-            setExpenseImageFile(e.target.files[0]);
-        }
-    };
-    
+    const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => { if (e.target.files && e.target.files.length > 0) setExpenseImageFile(e.target.files[0]); };
     const getExpenseTypeStyle = (typeName?: string) => {
         const lower = (typeName || '').toLowerCase();
         if (lower.includes("qurilish") || lower.includes("material")) return "bg-blue-100 text-blue-800";
@@ -645,7 +617,6 @@ export default function ExpensesPage() {
         if (lower.includes("kommunal")) return "bg-yellow-100 text-yellow-800";
         return "bg-secondary text-secondary-foreground";
     };
-
     const formatCurrency = (amount: number | string | undefined | null) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(amount || 0));
     const formatDate = (dateString: string | undefined | null) => dateString ? format(new Date(dateString), "dd.MM.yyyy") : "-";
     const getObjectName = (objectId: number | undefined) => properties.find(p => p.id === objectId)?.name || `ID: ${objectId}`;
