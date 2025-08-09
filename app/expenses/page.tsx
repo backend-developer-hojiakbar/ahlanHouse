@@ -56,8 +56,7 @@ import { format } from "date-fns";
 import toast, { Toaster } from "react-hot-toast";
 
 const TELEGRAM_BOT_TOKEN = "7165051905:AAFS-lG2LDq5OjFdAwTzrpbHYnrkup6y13s";
-const TELEGRAM_CHAT_ID = "1728300"; // Sizning Chat ID'ingiz kiritildi
-
+const TELEGRAM_CHAT_ID = "1253428560";
 
 const VIRTUAL_PAYMENTS_STORAGE_KEY = "ahlan_expenses_virtual_paid_amounts";
 type VirtualPayments = { [expenseId: string]: number };
@@ -316,23 +315,29 @@ export default function ExpensesPage() {
             const allExpenses = await fetchAllPaginatedData("/expenses/", queryParams);
             setExpenses(allExpenses);
 
-            let totalAmount = 0, paidAmount = 0, pendingDebt = 0, objectTotal = 0;
+            let totalAmount = 0, paidAmount = 0, pendingDebt = 0, objectTotal = 0, totalVirtualPaid = 0;
             const objectIdNum = Number(filters.object);
 
             for (const exp of allExpenses) {
                 const amount = Number(exp.amount || 0);
                 totalAmount += amount;
                 if (filters.object && exp.object === objectIdNum) objectTotal += amount;
+                
                 if (exp.status === 'To‘langan') {
                     paidAmount += amount;
                 } else {
                     const virtualPaid = getVirtualPaymentForExpense(exp.id);
+                    if (virtualPaid > 0) {
+                        totalVirtualPaid += virtualPaid;
+                    }
                     const remaining = amount - virtualPaid;
-                    if (remaining > 0.009) pendingDebt += remaining;
+                    if (remaining > 0.009) {
+                        pendingDebt += remaining;
+                    }
                 }
             }
             setFilteredTotalAmount(totalAmount);
-            setFilteredPaidExpensesAmount(paidAmount);
+            setFilteredPaidExpensesAmount(paidAmount + totalVirtualPaid);
             setFilteredPendingAmount(pendingDebt);
             setSelectedObjectTotal(filters.object ? objectTotal : null);
         } catch (error) {
