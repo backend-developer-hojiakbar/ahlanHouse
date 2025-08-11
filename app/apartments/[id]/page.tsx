@@ -104,6 +104,15 @@ const getScheduleStatusStyle = (status: PaymentScheduleItem['status']) => {
     }
 };
 
+const getMainPaymentTypeLabel = (paymentType: string | undefined): string => {
+    const typeMap: { [key: string]: string } = {
+        "naqd": "Naqd pul", 
+        "muddatli": "Muddatli to'lov", 
+        "ipoteka": "Ipoteka"
+    };
+    return typeMap[paymentType || ""] || "Noma'lum";
+};
+
 function PaymentTimelineGraph({ scheduleData, formatCurrency, formatDate }) {
     if (!scheduleData || scheduleData.length === 0) return null;
     return (
