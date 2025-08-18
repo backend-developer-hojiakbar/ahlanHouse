@@ -58,43 +58,25 @@ import toast, { Toaster } from "react-hot-toast";
 const TELEGRAM_BOT_TOKEN = "7165051905:AAFS-lG2LDq5OjFdAwTzrpbHYnrkup6y13s";
 const TELEGRAM_CHAT_ID = "1253428560";
 
-const VIRTUAL_PAYMENTS_STORAGE_KEY = "ahlan_expenses_virtual_paid_amounts";
-type VirtualPayments = { [expenseId: string]: number };
-
-const getVirtualPayments = (): VirtualPayments => {
-    if (typeof window !== "undefined") {
-        const stored = localStorage.getItem(VIRTUAL_PAYMENTS_STORAGE_KEY);
-        try { return stored ? JSON.parse(stored) : {}; } catch (e) { return {}; }
+const parsePaidAmountFromComment = (comment: string | null | undefined): { paidAmount: number; originalComment: string } => {
+    if (!comment) return { paidAmount: 0, originalComment: "" };
+    const regex = / \[PAID:(\d+\.?\d*)]$/;
+    const match = comment.match(regex);
+    if (match && match[1]) {
+        return {
+            paidAmount: parseFloat(match[1]),
+            originalComment: comment.replace(regex, "").trim(),
+        };
     }
-    return {};
+    return { paidAmount: 0, originalComment: comment };
 };
 
-const setVirtualPaymentForExpense = (expenseId: number, amount: number): void => {
-    if (typeof window !== "undefined") {
-        const payments = getVirtualPayments();
-        if (amount > 0.01) {
-            payments[expenseId.toString()] = amount;
-        } else {
-            delete payments[expenseId.toString()];
-        }
-        localStorage.setItem(VIRTUAL_PAYMENTS_STORAGE_KEY, JSON.stringify(payments));
+const createUpdatedComment = (originalComment: string, newPaidAmount: number): string => {
+    const cleanOriginalComment = parsePaidAmountFromComment(originalComment).originalComment;
+    if (newPaidAmount > 0.01) {
+        return `${cleanOriginalComment} [PAID:${newPaidAmount.toFixed(2)}]`;
     }
-};
-
-const getVirtualPaymentForExpense = (expenseId: number): number => {
-    if (typeof window !== "undefined") {
-        const payments = getVirtualPayments();
-        return payments[expenseId.toString()] || 0;
-    }
-    return 0;
-};
-
-const clearVirtualPaymentForExpense = (expenseId: number): void => {
-    if (typeof window !== "undefined") {
-        const payments = getVirtualPayments();
-        delete payments[expenseId.toString()];
-        localStorage.setItem(VIRTUAL_PAYMENTS_STORAGE_KEY, JSON.stringify(payments));
-    }
+    return cleanOriginalComment;
 };
 
 const sendTelegramNotification = async (message: string) => {
@@ -135,7 +117,8 @@ interface Expense {
     object_name?: string;
     status: string;
     calculated_remaining_debt?: number;
-    virtual_paid_amount?: number;
+    paid_from_comment?: number;
+    original_comment?: string;
 }
 
 interface SupplierDebtGroup {
@@ -315,7 +298,7 @@ export default function ExpensesPage() {
             const allExpenses = await fetchAllPaginatedData("/expenses/", queryParams);
             setExpenses(allExpenses);
 
-            let totalAmount = 0, paidAmount = 0, pendingDebt = 0, objectTotal = 0, totalVirtualPaid = 0;
+            let totalAmount = 0, paidAmount = 0, pendingDebt = 0, objectTotal = 0;
             const objectIdNum = Number(filters.object);
 
             for (const exp of allExpenses) {
@@ -326,18 +309,16 @@ export default function ExpensesPage() {
                 if (exp.status === 'To‘langan') {
                     paidAmount += amount;
                 } else {
-                    const virtualPaid = getVirtualPaymentForExpense(exp.id);
-                    if (virtualPaid > 0) {
-                        totalVirtualPaid += virtualPaid;
-                    }
-                    const remaining = amount - virtualPaid;
+                    const { paidAmount: paidFromComment } = parsePaidAmountFromComment(exp.comment);
+                    const remaining = amount - paidFromComment;
+                    paidAmount += paidFromComment;
                     if (remaining > 0.009) {
                         pendingDebt += remaining;
                     }
                 }
             }
             setFilteredTotalAmount(totalAmount);
-            setFilteredPaidExpensesAmount(paidAmount + totalVirtualPaid);
+            setFilteredPaidExpensesAmount(paidAmount);
             setFilteredPendingAmount(pendingDebt);
             setSelectedObjectTotal(filters.object ? objectTotal : null);
         } catch (error) {
@@ -440,22 +421,35 @@ export default function ExpensesPage() {
 
         let paymentToDistribute = Number(paymentAmount);
         const updatePromises: Promise<any>[] = [];
+        
         for (const expense of currentPaymentSupplier.expenses) {
             if (paymentToDistribute <= 0.009) break;
             const debtOnExpense = expense.calculated_remaining_debt || 0;
             if (debtOnExpense <= 0) continue;
+
             const paymentForThis = Math.min(paymentToDistribute, debtOnExpense);
-            if (paymentForThis >= debtOnExpense - 0.009) {
-                const payload = { ...expense, status: "To‘langan" };
-                delete (payload as any).supplier_name; delete (payload as any).expense_type_name; delete (payload as any).object_name; delete (payload as any).calculated_remaining_debt; delete (payload as any).virtual_paid_amount;
-                updatePromises.push( fetch(`${API_BASE_URL}/expenses/${expense.id}/`, { method: "PUT", headers: getAuthHeaders(), body: JSON.stringify(payload) }) );
-                clearVirtualPaymentForExpense(expense.id);
-            } else {
-                const newVirtualPaidAmount = (expense.virtual_paid_amount || 0) + paymentForThis;
-                setVirtualPaymentForExpense(expense.id, newVirtualPaidAmount);
+            const newTotalPaidForExpense = (expense.paid_from_comment || 0) + paymentForThis;
+
+            let newStatus = expense.status;
+            let finalComment = createUpdatedComment(expense.original_comment || expense.comment, newTotalPaidForExpense);
+
+            if (newTotalPaidForExpense >= Number(expense.amount) - 0.009) {
+                newStatus = "To‘langan";
+                finalComment = parsePaidAmountFromComment(finalComment).originalComment; 
             }
+
+            const payload = { ...expense, status: newStatus, comment: finalComment };
+            delete (payload as any).supplier_name; 
+            delete (payload as any).expense_type_name; 
+            delete (payload as any).object_name; 
+            delete (payload as any).calculated_remaining_debt;
+            delete (payload as any).paid_from_comment;
+            delete (payload as any).original_comment;
+            
+            updatePromises.push( fetch(`${API_BASE_URL}/expenses/${expense.id}/`, { method: "PUT", headers: getAuthHeaders(), body: JSON.stringify(payload) }) );
             paymentToDistribute -= paymentForThis;
         }
+
         if (updatePromises.length > 0) await Promise.all(updatePromises);
         setIsPaymentDialogOpen(false); setIsNasiyaDialogOpen(false); setPaymentAmount(""); setPaymentDescription(""); setCurrentPaymentSupplier(null); setIsSubmittingPayment(false);
     });
@@ -513,7 +507,6 @@ export default function ExpensesPage() {
         }
 
         if (expenseImageFile) await sendImageToTelegram(expenseImageFile, `Tahrirlangan xarajat (ID: ${id}) uchun yangi rasm`);
-        if (dataToSend.status === 'To‘langan') clearVirtualPaymentForExpense(id);
         setEditOpen(false); setCurrentExpense(null); setExpenseImageFile(null); setIsSubmitting(false);
     });
 
@@ -534,7 +527,6 @@ export default function ExpensesPage() {
             await sendTelegramNotification(message);
         }
 
-        clearVirtualPaymentForExpense(expenseToDelete);
         toast.success("Xarajat o'chirildi");
         setDeleteDialogOpen(false); setExpenseToDelete(null); setDeleteCode("");
     });
@@ -545,7 +537,8 @@ export default function ExpensesPage() {
             if(!res.ok) throw new Error("Ma'lumot topilmadi");
             const data = await res.json();
             setCurrentExpense(data);
-            setFormData({ object: data.object?.toString() || "", supplier: data.supplier?.toString() || "", amount: data.amount || "0", expense_type: data.expense_type?.toString() || "", date: data.date ? format(new Date(data.date), "yyyy-MM-dd") : '', comment: data.comment || "", status: data.status === "To‘langan" ? "Naqd pul" : "Nasiya", });
+            const { originalComment } = parsePaidAmountFromComment(data.comment);
+            setFormData({ object: data.object?.toString() || "", supplier: data.supplier?.toString() || "", amount: data.amount || "0", expense_type: data.expense_type?.toString() || "", date: data.date ? format(new Date(data.date), "yyyy-MM-dd") : '', comment: originalComment, status: data.status === "To‘langan" ? "Naqd pul" : "Nasiya", });
             setExpenseImageFile(null);
             setEditOpen(true);
         } catch (error: any) {
@@ -594,15 +587,23 @@ export default function ExpensesPage() {
         const grouped = pendingExpenses.reduce((acc, expense) => {
             const supplierId = expense.supplier;
             if (!acc[supplierId]) acc[supplierId] = { supplier: supplierId, supplier_name: expense.supplier_name, total_debt: 0, expenses: [] };
+            
             const amount = parseFloat(expense.amount);
-            const virtualPaid = getVirtualPaymentForExpense(expense.id);
-            const remainingDebt = amount - virtualPaid;
+            const { paidAmount, originalComment } = parsePaidAmountFromComment(expense.comment);
+            const remainingDebt = amount - paidAmount;
+            
             if (remainingDebt > 0.01) {
                 acc[supplierId].total_debt += remainingDebt;
-                acc[supplierId].expenses.push({ ...expense, calculated_remaining_debt: remainingDebt, virtual_paid_amount: virtualPaid });
+                acc[supplierId].expenses.push({ 
+                    ...expense, 
+                    calculated_remaining_debt: remainingDebt, 
+                    paid_from_comment: paidAmount,
+                    original_comment: originalComment
+                });
             }
             return acc;
         }, {} as Record<string, SupplierDebtGroup>);
+
         const finalData = Object.values(grouped).filter(group => group.total_debt > 0.01);
         finalData.forEach(group => group.expenses.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
         finalData.sort((a, b) => b.total_debt - a.total_debt);
@@ -705,13 +706,15 @@ export default function ExpensesPage() {
                         </TableHeader>
                         <TableBody>
                             {loading ? <TableRow><TableCell colSpan={9} className="h-24 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto" /></TableCell></TableRow>
-                            : sortedExpenses.length > 0 ? sortedExpenses.map((expense, index) => (
+                            : sortedExpenses.length > 0 ? sortedExpenses.map((expense, index) => {
+                                const { originalComment } = parsePaidAmountFromComment(expense.comment);
+                                return (
                                 <TableRow key={expense.id}>
                                     <TableCell className="font-medium">{index + 1}</TableCell>
                                     <TableCell>{formatDate(expense.date)}</TableCell>
                                     <TableCell>{getObjectName(expense.object)}</TableCell>
                                     <TableCell>{expense.supplier_name}</TableCell>
-                                    <TableCell className="max-w-[200px] truncate" title={expense.comment}>{expense.comment}</TableCell>
+                                    <TableCell className="max-w-[200px] truncate" title={originalComment}>{originalComment}</TableCell>
                                     <TableCell><Badge variant="outline" className={getExpenseTypeStyle(expense.expense_type_name)}>{expense.expense_type_name}</Badge></TableCell>
                                     <TableCell><Badge variant={expense.status === "To‘langan" ? "default" : "secondary"}>{expense.status}</Badge></TableCell>
                                     <TableCell className="text-right font-semibold">{formatCurrency(expense.amount)}</TableCell>
@@ -722,7 +725,7 @@ export default function ExpensesPage() {
                                         </TableCell>
                                     )}
                                 </TableRow>
-                            ))
+                            )})
                             : <TableRow><TableCell colSpan={9} className="h-24 text-center">Filtrlarga mos xarajatlar topilmadi.</TableCell></TableRow>}
                         </TableBody>
                     </Table>
@@ -774,9 +777,9 @@ export default function ExpensesPage() {
                                                         {group.expenses.map(exp => (
                                                             <TableRow key={exp.id}>
                                                                 <TableCell>{formatDate(exp.date)}</TableCell>
-                                                                <TableCell className="max-w-[250px] truncate" title={exp.comment}>{exp.comment}</TableCell>
+                                                                <TableCell className="max-w-[250px] truncate" title={exp.original_comment}>{exp.original_comment}</TableCell>
                                                                 <TableCell className="text-right">{formatCurrency(exp.amount)}</TableCell>
-                                                                <TableCell className="text-right text-green-600">{formatCurrency(exp.virtual_paid_amount)}</TableCell>
+                                                                <TableCell className="text-right text-green-600">{formatCurrency(exp.paid_from_comment)}</TableCell>
                                                                 <TableCell className="text-right font-bold">{formatCurrency(exp.calculated_remaining_debt)}</TableCell>
                                                             </TableRow>
                                                         ))}
