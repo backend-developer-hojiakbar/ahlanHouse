@@ -28,7 +28,7 @@ import { Building2, Home, Hammer, Wrench, HardHat, Truck, Building, Factory, War
 
 const API_BASE_URL = "http://api.ahlan.uz";
 const TELEGRAM_BOT_TOKEN = "7165051905:AAFS-lG2LDq5OjFdAwTzrpbHYnrkup6y13s";
-const TELEGRAM_CHAT_ID = "1728300"; // Sizning Chat ID'ingiz kiritildi
+const TELEGRAM_CHAT_ID = "1728300";
 
 interface UserCreate {
   fio: string;
@@ -206,7 +206,7 @@ const QarzdorlarPageComponent = () => {
       const combinedUsers = [...allUsers, ...data.results];
       if (data.next) return fetchAllUsers(page + 1, combinedUsers);
       return combinedUsers;
-    } catch (error) { console.error('Error fetching users:', error); return []; }
+    } catch (error) { return []; }
   }, [router, hasPageAccess]);
 
   const fetchUsers = useCallback(async () => {
@@ -218,7 +218,7 @@ const QarzdorlarPageComponent = () => {
       setUsers(debtorUsers);
       const initialTotal = debtorUsers.reduce((sum, user) => sum + (Number(user.balance) || 0), 0);
       setTotalAmount(initialTotal);
-    } catch (error) { console.error("Error fetching users:", error); toast.error("Ma'lumotlarni yuklashda xatolik yuz berdi"); } 
+    } catch (error) { toast.error("Ma'lumotlarni yuklashda xatolik yuz berdi"); } 
     finally { setLoading(false); }
   }, [fetchAllUsers, hasPageAccess]);
 
@@ -257,7 +257,7 @@ const QarzdorlarPageComponent = () => {
       setIsAddOpen(false);
       setAddFormData({ fio: "", phone_number: "", address: "", kafil_address: "", balance: "0" });
       toast.success("Qarzdor muvaffaqiyatli qo'shildi");
-    } catch (error) { console.error("Error adding user:", error); toast.error("Qarzdor qo'shishda xatolik yuz berdi"); }
+    } catch (error) { toast.error("Qarzdor qo'shishda xatolik yuz berdi"); }
   };
   
   const handleUpdateUser = async (e: React.FormEvent) => {
@@ -286,7 +286,7 @@ const QarzdorlarPageComponent = () => {
       setIsEditOpen(false);
       setUserToEdit(null);
       toast.success("Qarzdor ma'lumotlari yangilandi");
-    } catch (error) { console.error("Error updating user:", error); toast.error("Qarzdor ma'lumotlarini yangilashda xatolik"); }
+    } catch (error) { toast.error("Qarzdor ma'lumotlarini yangilashda xatolik"); }
   };
 
   const handleDeleteUser = async (userId: number) => {
@@ -309,7 +309,7 @@ const QarzdorlarPageComponent = () => {
 
       await fetchUsers();
       toast.success("Qarzdor o'chirildi");
-    } catch (error) { console.error("Error deleting user:", error); toast.error("Qarzdorni o'chirishda xatolik yuz berdi"); }
+    } catch (error) { toast.error("Qarzdorni o'chirishda xatolik yuz berdi"); }
   };
 
   const handleAddPayment = async (isNegative: boolean = false) => {
@@ -348,7 +348,7 @@ const QarzdorlarPageComponent = () => {
       setIsPaymentOpen(false);
       setPaymentData({ amount: '', payment_type: 'naqd', description: '' });
       fetchUsers();
-    } catch (error) { console.error("Error adding payment:", error); toast.error("To'lov qo'shishda xatolik yuz berdi"); }
+    } catch (error) { toast.error("To'lov qo'shishda xatolik yuz berdi"); }
   };
 
   const handleOpenHistory = async (user: User) => {
@@ -368,7 +368,6 @@ const QarzdorlarPageComponent = () => {
             setPaymentHistory([]);
         }
     } catch (error) {
-        console.error("Error fetching payment history:", error);
         toast.error("To'lovlar tarixini yuklashda xatolik.");
         setIsHistoryOpen(false);
     } finally {

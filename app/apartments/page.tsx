@@ -41,11 +41,9 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { Toaster, toast as hotToast } from "react-hot-toast";
 
-// Constants
 const API_BASE_URL = "http://api.ahlan.uz";
 const TELEGRAM_BOT_TOKEN = "7165051905:AAFS-lG2LDq5OjFdAwTzrpbHYnrkup6y13s";
-const TELEGRAM_CHAT_ID = "1728300"; // Sizning Chat ID'ingiz kiritildi
-
+const TELEGRAM_CHAT_ID = "1728300";
 
 const ALL_STATUSES = [
   { value: "bosh", label: "Bo'sh" },
@@ -65,7 +63,6 @@ const ALL_FLOOR_OPTIONS = Array.from({ length: 16 }, (_, i) => ({
 }));
 const ITEMS_PER_PAGE = 24;
 
-// Interfaces
 interface Document {
   id: number;
   payment: number;

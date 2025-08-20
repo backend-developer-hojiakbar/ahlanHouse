@@ -1,5 +1,4 @@
 "use client";
-
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { MainNav } from "@/components/main-nav";
@@ -56,7 +55,7 @@ import { format } from "date-fns";
 import toast, { Toaster } from "react-hot-toast";
 
 const TELEGRAM_BOT_TOKEN = "7165051905:AAFS-lG2LDq5OjFdAwTzrpbHYnrkup6y13s";
-const TELEGRAM_CHAT_ID = "1253428560";
+const TELEGRAM_CHAT_ID = "1728300";
 
 const parsePaidAmountFromComment = (comment: string | null | undefined): { paidAmount: number; originalComment: string } => {
     if (!comment) return { paidAmount: 0, originalComment: "" };
