@@ -269,9 +269,11 @@ export default function ExpensesPage() {
     useEffect(() => {
         if (accessToken) fetchInitialData();
     }, [accessToken, fetchInitialData]);
+    
+    const formatCurrency = (amount: number | string | undefined | null) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(amount || 0));
 
     const fetchExpensesAndTotals = useCallback(async () => {
-        if (!accessToken || !isClient) return;
+        if (!accessToken || !isClient) return { totalAmount: 0, paidAmount: 0, pendingDebt: 0 };
         setLoading(true);
         setLoadingTotals(true);
 
@@ -293,11 +295,11 @@ export default function ExpensesPage() {
         }
         if (debouncedSearchTerm) queryParams.append("search", debouncedSearchTerm);
         
+        let totalAmount = 0, paidAmount = 0, pendingDebt = 0, objectTotal = 0;
         try {
             const allExpenses = await fetchAllPaginatedData("/expenses/", queryParams);
             setExpenses(allExpenses);
 
-            let totalAmount = 0, paidAmount = 0, pendingDebt = 0, objectTotal = 0;
             const objectIdNum = Number(filters.object);
 
             for (const exp of allExpenses) {
@@ -326,6 +328,7 @@ export default function ExpensesPage() {
             setLoading(false);
             setLoadingTotals(false);
         }
+        return { totalAmount, paidAmount, pendingDebt };
     }, [accessToken, isClient, filters, debouncedSearchTerm, fetchAllPaginatedData]);
     
     useEffect(() => {
@@ -397,6 +400,9 @@ export default function ExpensesPage() {
         }
     };
     
+    const formatDate = (dateString: string | undefined | null) => dateString ? format(new Date(dateString), "dd.MM.yyyy") : "-";
+    const getObjectName = (objectId: number | undefined) => properties.find(p => p.id === objectId)?.name || `ID: ${objectId}`;
+    
     const handleAddPayment = () => handleActionAndRefetch(async () => {
         if (!currentPaymentSupplier || !paymentAmount || Number(paymentAmount) <= 0 || !paymentDescription.trim()) {
             throw new Error("Iltimos, summa va tavsifni to'g'ri kiriting.");
@@ -406,17 +412,6 @@ export default function ExpensesPage() {
         const paymentResponse = await fetch(`${API_BASE_URL}/supplier-payments/`, { method: 'POST', headers: getAuthHeaders(), body: JSON.stringify(paymentData) });
         if (!paymentResponse.ok) { setIsSubmittingPayment(false); throw new Error("To'lovni saqlashda xatolik yuz berdi."); }
         toast.success("To'lov muvaffaqiyatli saqlandi.");
-
-        const oldDebt = currentPaymentSupplier.total_debt;
-        const newDebt = oldDebt - Number(paymentAmount);
-        const message = `<b>💰 Nasiya uchun to'lov</b>\n\n`+
-                        `<b>Kim tomonidan:</b> ${currentUser?.fio || 'Noma`lum'}\n` +
-                        `<b>Yetkazib beruvchi:</b> ${currentPaymentSupplier.supplier_name}\n\n`+
-                        `<b>To'lov summasi:</b> ${formatCurrency(paymentAmount)}\n`+
-                        `<b>Izoh:</b> ${paymentDescription.trim()}\n\n`+
-                        `<b>Eski qarz:</b> ${formatCurrency(oldDebt)}\n`+
-                        `<b>Yangi qarz:</b> ${formatCurrency(newDebt)}`;
-        await sendTelegramNotification(message);
 
         let paymentToDistribute = Number(paymentAmount);
         const updatePromises: Promise<any>[] = [];
@@ -450,6 +445,27 @@ export default function ExpensesPage() {
         }
 
         if (updatePromises.length > 0) await Promise.all(updatePromises);
+
+        const updatedTotals = await fetchExpensesAndTotals();
+        
+        const oldDebt = currentPaymentSupplier.total_debt;
+        const newDebt = oldDebt - Number(paymentAmount);
+        let message = `<b>💰 Nasiya uchun to'lov</b>\n\n`+
+                        `<b>Kim tomonidan:</b> ${currentUser?.fio || 'Noma`lum'}\n` +
+                        `<b>Yetkazib beruvchi:</b> ${currentPaymentSupplier.supplier_name}\n\n`+
+                        `<b>To'lov summasi:</b> ${formatCurrency(paymentAmount)}\n`+
+                        `<b>Izoh:</b> ${paymentDescription.trim()}\n\n`+
+                        `<b>Eski qarz:</b> ${formatCurrency(oldDebt)}\n`+
+                        `<b>Yangi qarz:</b> ${formatCurrency(newDebt)}`;
+
+        message += `\n\n➖➖➖➖➖\n` +
+                   `<b>📊 Umumiy Holat:</b>\n` +
+                   `<b>Jami Xarajat:</b> ${formatCurrency(updatedTotals.totalAmount)}\n` +
+                   `<b>To'langan:</b> ${formatCurrency(updatedTotals.paidAmount)}\n` +
+                   `<b>Nasiya qoldiq:</b> ${formatCurrency(updatedTotals.pendingDebt)}`;
+
+        await sendTelegramNotification(message);
+
         setIsPaymentDialogOpen(false); setIsNasiyaDialogOpen(false); setPaymentAmount(""); setPaymentDescription(""); setCurrentPaymentSupplier(null); setIsSubmittingPayment(false);
     });
 
@@ -462,10 +478,12 @@ export default function ExpensesPage() {
         const newExpense = await res.json();
         toast.success("Xarajat muvaffaqiyatli qo'shildi");
 
+        const updatedTotals = await fetchExpensesAndTotals();
+
         const supplierName = suppliers.find(s => s.id === Number(formData.supplier))?.company_name;
         const objectName = properties.find(p => p.id === Number(formData.object))?.name;
         const expenseTypeName = expenseTypes.find(t => t.id === Number(formData.expense_type))?.name;
-        const message = `<b>➕ Yangi Xarajat Qo'shildi</b>\n\n` +
+        let message = `<b>➕ Yangi Xarajat Qo'shildi</b>\n\n` +
                         `<b>Kim tomonidan:</b> ${currentUser?.fio || 'Noma`lum'}\n` +
                         `<b>Obyekt:</b> ${objectName || 'N/A'}\n`+
                         `<b>Yetkazib beruvchi:</b> ${supplierName || 'N/A'}\n`+
@@ -474,6 +492,13 @@ export default function ExpensesPage() {
                         `<b>Sana:</b> ${formatDate(formData.date)}\n`+
                         `<b>Status:</b> ${formData.status}\n`+
                         `<b>Izoh:</b> ${formData.comment}`;
+        
+        message += `\n\n➖➖➖➖➖\n` +
+                   `<b>📊 Umumiy Holat:</b>\n` +
+                   `<b>Jami Xarajat:</b> ${formatCurrency(updatedTotals.totalAmount)}\n` +
+                   `<b>To'langan:</b> ${formatCurrency(updatedTotals.paidAmount)}\n` +
+                   `<b>Nasiya qoldiq:</b> ${formatCurrency(updatedTotals.pendingDebt)}`;
+
         await sendTelegramNotification(message);
 
         if (expenseImageFile) await sendImageToTelegram(expenseImageFile, `Xarajat ID: ${newExpense.id} uchun rasm`);
@@ -487,6 +512,8 @@ export default function ExpensesPage() {
         const res = await fetch(`${API_BASE_URL}/expenses/${id}/`, { method: "PUT", headers: getAuthHeaders(), body: JSON.stringify(dataToSend) });
         if (!res.ok) { setIsSubmitting(false); throw new Error(`Xarajat yangilanmadi`); }
         toast.success("Xarajat muvaffaqiyatli yangilandi");
+        
+        const updatedTotals = await fetchExpensesAndTotals();
 
         const changes = [];
         if(currentExpense.object !== dataToSend.object) changes.push(`• <b>Obyekt:</b> <code>${getObjectName(currentExpense.object)}</code> → <code>${getObjectName(dataToSend.object)}</code>`);
@@ -498,10 +525,17 @@ export default function ExpensesPage() {
         if(oldStatus !== formData.status) changes.push(`• <b>Status:</b> <code>${oldStatus}</code> → <code>${formData.status}</code>`);
 
         if(changes.length > 0){
-            const message = `<b>✏️ Xarajat Tahrirlandi (ID: ${id})</b>\n\n`+
+            let message = `<b>✏️ Xarajat Tahrirlandi (ID: ${id})</b>\n\n`+
                             `<b>Kim tomonidan:</b> ${currentUser?.fio || 'Noma`lum'}\n\n`+
                             `<b>O'zgarishlar:</b>\n`+
                             changes.join('\n');
+            
+            message += `\n\n➖➖➖➖➖\n` +
+                       `<b>📊 Umumiy Holat:</b>\n` +
+                       `<b>Jami Xarajat:</b> ${formatCurrency(updatedTotals.totalAmount)}\n` +
+                       `<b>To'langan:</b> ${formatCurrency(updatedTotals.paidAmount)}\n` +
+                       `<b>Nasiya qoldiq:</b> ${formatCurrency(updatedTotals.pendingDebt)}`;
+            
             await sendTelegramNotification(message);
         }
 
@@ -511,18 +545,27 @@ export default function ExpensesPage() {
 
     const handleConfirmDelete = () => handleActionAndRefetch(async () => {
         if (!expenseToDelete) return;
-        if (deleteCode !== "7777") return toast.error("O'chirish kodi noto'g'ri.");
+        if (deleteCode !== "0007") return toast.error("O'chirish kodi noto'g'ri.");
         const expenseData = expenses.find(exp => exp.id === expenseToDelete);
         await fetch(`${API_BASE_URL}/expenses/${expenseToDelete}/`, { method: "DELETE", headers: getAuthHeaders() });
         
+        const updatedTotals = await fetchExpensesAndTotals();
+        
         if(expenseData){
-            const message = `<b>❌ Xarajat O'chirildi</b>\n\n`+
+            let message = `<b>❌ Xarajat O'chirildi</b>\n\n`+
                             `<b>Kim tomonidan:</b> ${currentUser?.fio || 'Noma`lum'}\n`+
                             `<b>Xarajat ID:</b> ${expenseToDelete}\n\n`+
                             `<b>Obyekt:</b> ${expenseData.object_name || getObjectName(expenseData.object)}\n`+
                             `<b>Yetkazib beruvchi:</b> ${expenseData.supplier_name}\n`+
                             `<b>Summa:</b> ${formatCurrency(expenseData.amount)}\n`+
                             `<b>Sana:</b> ${formatDate(expenseData.date)}`;
+
+            message += `\n\n➖➖➖➖➖\n` +
+                       `<b>📊 Umumiy Holat:</b>\n` +
+                       `<b>Jami Xarajat:</b> ${formatCurrency(updatedTotals.totalAmount)}\n` +
+                       `<b>To'langan:</b> ${formatCurrency(updatedTotals.paidAmount)}\n` +
+                       `<b>Nasiya qoldiq:</b> ${formatCurrency(updatedTotals.pendingDebt)}`;
+            
             await sendTelegramNotification(message);
         }
 
@@ -622,9 +665,7 @@ export default function ExpensesPage() {
         if (lower.includes("kommunal")) return "bg-yellow-100 text-yellow-800";
         return "bg-secondary text-secondary-foreground";
     };
-    const formatCurrency = (amount: number | string | undefined | null) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(amount || 0));
-    const formatDate = (dateString: string | undefined | null) => dateString ? format(new Date(dateString), "dd.MM.yyyy") : "-";
-    const getObjectName = (objectId: number | undefined) => properties.find(p => p.id === objectId)?.name || `ID: ${objectId}`;
+    
     const canPerformSensitiveActions = (user: CurrentUser | null) => user?.user_type === 'admin';
 
     if (!isClient) return <div className="flex h-screen w-full items-center justify-center"><Loader2 className="h-10 w-10 animate-spin text-primary" /></div>;
@@ -748,9 +789,9 @@ export default function ExpensesPage() {
             </Dialog>
 
             <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-                <DialogContent><DialogHeader><DialogTitle>O'chirishni tasdiqlang</DialogTitle><DialogDescription>Ushbu amalni orqaga qaytarib bo'lmaydi. Xarajatni butunlay o'chirish uchun "7777" kodini kiriting.</DialogDescription></DialogHeader>
+                <DialogContent><DialogHeader><DialogTitle>O'chirishni tasdiqlang</DialogTitle><DialogDescription>Ushbu amalni orqaga qaytarib bo'lmaydi. Xarajatni butunlay o'chirish uchun kodini kiriting.</DialogDescription></DialogHeader>
                     <div className="py-4"><Label htmlFor="delete-code">O'chirish kodi</Label><Input id="delete-code" value={deleteCode} onChange={(e) => setDeleteCode(e.target.value)} placeholder="Kodni kiriting" /></div>
-                    <DialogFooter><Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>Bekor qilish</Button><Button variant="destructive" onClick={handleConfirmDelete} disabled={deleteCode !== '7777'}><Trash2 className="mr-2 h-4 w-4" /> O'chirish</Button></DialogFooter>
+                    <DialogFooter><Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>Bekor qilish</Button><Button variant="destructive" onClick={handleConfirmDelete} disabled={deleteCode !== '0007'}><Trash2 className="mr-2 h-4 w-4" /> O'chirish</Button></DialogFooter>
                 </DialogContent>
             </Dialog>
 
