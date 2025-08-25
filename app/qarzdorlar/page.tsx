@@ -117,9 +117,12 @@ const QarzdorlarPageComponent = () => {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [userToEdit, setUserToEdit] = useState<User | null>(null);
+  const [userToDelete, setUserToDelete] = useState<User | null>(null);
+  const [deleteCode, setDeleteCode] = useState("");
 
   const [paymentHistory, setPaymentHistory] = useState<Payment[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -289,27 +292,40 @@ const QarzdorlarPageComponent = () => {
     } catch (error) { toast.error("Qarzdor ma'lumotlarini yangilashda xatolik"); }
   };
 
-  const handleDeleteUser = async (userId: number) => {
-    if (!canUserPerformActions(currentUser) || !currentUser) { toast.error("Bu amalni bajarish uchun ruxsatingiz yo'q."); return; }
-    if (!accessToken) { toast.error("Iltimos tizimga kiring"); router.push('/login'); return; }
+  const handleConfirmDelete = async () => {
+    if (!canUserPerformActions(currentUser) || !currentUser || !userToDelete) {
+        toast.error("Amalni bajarishda xatolik.");
+        return;
+    }
+    if (deleteCode !== '0007') {
+        toast.error("O'chirish kodi noto'g'ri.");
+        return;
+    }
+    if (!accessToken) {
+        toast.error("Iltimos tizimga kiring");
+        router.push('/login');
+        return;
+    }
 
-    const userToDelete = users.find(u => u.id === userId);
-    if (!userToDelete) return;
-
-    if (!confirm("Haqiqatan ham bu qarzdorni o'chirmoqchimisiz?")) return;
     try {
-      const response = await fetch(`${API_BASE_URL}/users/${userId}/`, { method: 'DELETE', headers: getAuthHeaders() });
-      if (!response.ok) throw new Error('Network response was not ok');
-      
-      const message = `<b>❌👤 Qarzdor O'chirildi</b>\n\n`+
-                      `<b>Kim tomonidan:</b> ${currentUser.fio}\n`+
-                      `<b>O'chirilgan qarzdor:</b> ${userToDelete.fio}\n`+
-                      `<b>O'chirish vaqtidagi balansi:</b> ${userToDelete.balance.toLocaleString('uz-UZ')} $`;
-      await sendTelegramNotification(message);
+        const response = await fetch(`${API_BASE_URL}/users/${userToDelete.id}/`, { method: 'DELETE', headers: getAuthHeaders() });
+        if (!response.ok) throw new Error('Network response was not ok');
+        
+        const message = `<b>❌👤 Qarzdor O'chirildi</b>\n\n`+
+                        `<b>Kim tomonidan:</b> ${currentUser.fio}\n`+
+                        `<b>O'chirilgan qarzdor:</b> ${userToDelete.fio}\n`+
+                        `<b>O'chirish vaqtidagi balansi:</b> ${userToDelete.balance.toLocaleString('uz-UZ')} $`;
+        await sendTelegramNotification(message);
 
-      await fetchUsers();
-      toast.success("Qarzdor o'chirildi");
-    } catch (error) { toast.error("Qarzdorni o'chirishda xatolik yuz berdi"); }
+        await fetchUsers();
+        toast.success("Qarzdor o'chirildi");
+    } catch (error) {
+        toast.error("Qarzdorni o'chirishda xatolik yuz berdi");
+    } finally {
+        setIsDeleteDialogOpen(false);
+        setUserToDelete(null);
+        setDeleteCode("");
+    }
   };
 
   const handleAddPayment = async (isNegative: boolean = false) => {
@@ -463,7 +479,7 @@ const QarzdorlarPageComponent = () => {
                                 <Button variant="ghost" size="icon" onClick={() => { setSelectedUser(user); setIsPaymentOpen(true); }} className="text-sky-500 hover:text-sky-400 hover:bg-sky-500/10" title="Balans operatsiyasi"><Plus className="h-4 w-4" /></Button>
                                 <Button variant="ghost" size="icon" onClick={() => openEditDialog(user)} className="text-yellow-500 hover:text-yellow-400 hover:bg-yellow-500/10" title="Tahrirlash"><Edit className="h-4 w-4" /></Button>
                                 <Button variant="ghost" size="icon" onClick={() => handleOpenHistory(user)} className="text-green-500 hover:text-green-400 hover:bg-green-500/10" title="Balans tarixi"><BarChart3 className="h-4 w-4" /></Button>
-                                <Button variant="ghost" size="icon" onClick={() => handleDeleteUser(user.id)} className="text-red-500 hover:text-red-400 hover:bg-red-500/10" title="O'chirish"><Trash className="h-4 w-4" /></Button>
+                                <Button variant="ghost" size="icon" onClick={() => { setUserToDelete(user); setIsDeleteDialogOpen(true); }} className="text-red-500 hover:text-red-400 hover:bg-red-500/10" title="O'chirish"><Trash className="h-4 w-4" /></Button>
                             </div></TableCell>
                         )}
                       </TableRow>
@@ -548,6 +564,23 @@ const QarzdorlarPageComponent = () => {
                     )}
                 </div>
                 <DialogFooter className="pt-4 mt-4 border-t border-slate-200"><Button variant="outline" onClick={() => setIsHistoryOpen(false)}>Yopish</Button></DialogFooter>
+            </DialogContent>
+        </Dialog>
+
+        <Dialog open={isDeleteDialogOpen} onOpenChange={(isOpen) => { setIsDeleteDialogOpen(isOpen); if (!isOpen) { setUserToDelete(null); setDeleteCode(""); } }}>
+            <DialogContent className="sm:max-w-md bg-white/10 dark:bg-sky-950/10 backdrop-blur-xl border border-white/20 dark:border-sky-700/20">
+                <DialogHeader>
+                    <DialogTitle className="text-slate-900 dark:text-white">O'chirishni tasdiqlang</DialogTitle>
+                    <DialogDescription className="text-slate-700 dark:text-slate-400">"{userToDelete?.fio}"ni butunlay o'chirish uchun kodini kiriting. Bu amalni orqaga qaytarib bo'lmaydi.</DialogDescription>
+                </DialogHeader>
+                <div className="py-4">
+                    <Label htmlFor="delete-code" className="text-slate-800 dark:text-slate-200">O'chirish kodi</Label>
+                    <Input id="delete-code" value={deleteCode} onChange={(e) => setDeleteCode(e.target.value)} placeholder="Kodni kiriting" className="bg-white/20 dark:bg-sky-900/20 border-white/30 dark:border-sky-700/30 mt-1.5"/>
+                </div>
+                <DialogFooter className="pt-4 border-t border-white/10 dark:border-sky-700/10">
+                    <Button type="button" variant="outline" onClick={() => setIsDeleteDialogOpen(false)} className="bg-white/5 dark:bg-sky-900/5 backdrop-blur-md border-white/10 dark:border-sky-700/10 text-slate-900 dark:text-white hover:bg-white/10 dark:hover:bg-sky-900/10">Bekor qilish</Button>
+                    <Button type="button" variant="destructive" onClick={handleConfirmDelete} disabled={deleteCode !== '0007'} className="bg-gradient-to-r from-red-500 to-pink-600 text-white shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"><Trash className="mr-2 h-4 w-4" /> O'chirish</Button>
+                </DialogFooter>
             </DialogContent>
         </Dialog>
       </>)}
