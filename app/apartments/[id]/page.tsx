@@ -29,6 +29,7 @@ import {
   XCircle,
   Clock,
   FileSpreadsheet,
+  Receipt,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "@/hooks/use-toast";
@@ -777,6 +778,13 @@ export default function ApartmentDetailPage() {
 
       await sendTelegramNotification(message);
 
+      // Kvitansiya yaratish
+      generateReceiptPDF({
+        amount: paymentAmount,
+        description: paymentForm.description,
+        date: selectedDate
+      });
+
       toast({ title: "Muvaffaqiyat", description: "To'lov muvaffaqiyatli qo'shildi" });
       setIsPaymentModalOpen(false);
       setPaymentForm({ amount: "", description: "" });
@@ -1040,9 +1048,165 @@ export default function ApartmentDetailPage() {
     toast({ title: "Eslatma", description: "Shartnoma yuklab olish hali sozlanmagan." });
   }, [toast]);
 
-  const generateReceiptPDF = useCallback(() => {
-    toast({ title: "Eslatma", description: "Chek PDF generatsiyasi hali sozlanmagan." });
-  }, [toast]);
+  const generateReceiptPDF = useCallback((paymentData?: any) => {
+    if (!apartment || !apartment.client) {
+      toast({ title: "Xatolik", description: "Kvitansiya uchun kerakli ma'lumotlar topilmadi.", variant: "destructive" });
+      return;
+    }
+
+    try {
+      const doc = new jsPDF();
+      
+      // PDF sahifa o'lchamlari
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const margin = 20;
+      let yPosition = 30;
+      
+      // Sarlavha
+      doc.setFontSize(20);
+      doc.setFont("helvetica", "bold");
+      doc.text("TO'LOV KVITANSIYASI", pageWidth / 2, yPosition, { align: "center" });
+      yPosition += 20;
+      
+      // Chiziq
+      doc.setLineWidth(0.5);
+      doc.line(margin, yPosition, pageWidth - margin, yPosition);
+      yPosition += 15;
+      
+      // Asosiy ma'lumotlar
+      doc.setFontSize(12);
+      doc.setFont("helvetica", "normal");
+      
+      const leftCol = margin;
+      const rightCol = pageWidth / 2 + 10;
+      
+      // Chap tomondagi ma'lumotlar
+      doc.text("Kvitansiya raqami:", leftCol, yPosition);
+      doc.setFont("helvetica", "bold");
+      doc.text(`${Date.now()}`, leftCol + 45, yPosition);
+      doc.setFont("helvetica", "normal");
+      yPosition += 10;
+      
+      doc.text("Sana:", leftCol, yPosition);
+      doc.setFont("helvetica", "bold");
+      doc.text(formatDate(paymentData?.date || new Date()), leftCol + 45, yPosition);
+      doc.setFont("helvetica", "normal");
+      yPosition += 15;
+      
+      // Obyekt va xonadon ma'lumotlari
+      doc.text("Obyekt:", leftCol, yPosition);
+      doc.setFont("helvetica", "bold");
+      doc.text(apartment.object?.name || "Noma'lum", leftCol + 45, yPosition);
+      doc.setFont("helvetica", "normal");
+      yPosition += 10;
+      
+      doc.text("Xonadon raqami:", leftCol, yPosition);
+      doc.setFont("helvetica", "bold");
+      doc.text(apartment.room_number || "N/A", leftCol + 45, yPosition);
+      doc.setFont("helvetica", "normal");
+      yPosition += 15;
+      
+      // Mijoz ma'lumotlari
+      doc.text("Mijoz F.I.O:", leftCol, yPosition);
+      doc.setFont("helvetica", "bold");
+      doc.text(apartment.client.fio || "Noma'lum", leftCol + 45, yPosition);
+      doc.setFont("helvetica", "normal");
+      yPosition += 10;
+      
+      doc.text("Telefon:", leftCol, yPosition);
+      doc.setFont("helvetica", "bold");
+      doc.text(apartment.client.phone_number || "Noma'lum", leftCol + 45, yPosition);
+      doc.setFont("helvetica", "normal");
+      yPosition += 20;
+      
+      // To'lov ma'lumotlari
+      doc.setLineWidth(0.3);
+      doc.line(margin, yPosition, pageWidth - margin, yPosition);
+      yPosition += 15;
+      
+      doc.setFontSize(14);
+      doc.setFont("helvetica", "bold");
+      doc.text("TO'LOV MA'LUMOTLARI", pageWidth / 2, yPosition, { align: "center" });
+      yPosition += 15;
+      
+      doc.setFontSize(12);
+      doc.setFont("helvetica", "normal");
+      
+      doc.text("To'lov summasi:", leftCol, yPosition);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.text(formatCurrency(paymentData?.amount || 0), leftCol + 45, yPosition);
+      doc.setFontSize(12);
+      doc.setFont("helvetica", "normal");
+      yPosition += 15;
+      
+      if (paymentData?.description) {
+        doc.text("Izoh:", leftCol, yPosition);
+        doc.setFont("helvetica", "bold");
+        
+        // Uzun matnni bir necha qatorga bo'lish
+        const splitText = doc.splitTextToSize(paymentData.description, pageWidth - leftCol - 45 - margin);
+        doc.text(splitText, leftCol + 45, yPosition);
+        yPosition += splitText.length * 5 + 10;
+        doc.setFont("helvetica", "normal");
+      }
+      
+      // Jami to'lovlar ma'lumoti
+      yPosition += 10;
+      doc.setLineWidth(0.3);
+      doc.line(margin, yPosition, pageWidth - margin, yPosition);
+      yPosition += 15;
+      
+      doc.text("Jami to'langan:", leftCol, yPosition);
+      doc.setFont("helvetica", "bold");
+      doc.text(formatCurrency(totalPaid + (parseFloat(paymentData?.amount || "0"))), leftCol + 45, yPosition);
+      doc.setFont("helvetica", "normal");
+      yPosition += 10;
+      
+      doc.text("Qoldiq summa:", leftCol, yPosition);
+      doc.setFont("helvetica", "bold");
+      doc.text(formatCurrency(remainingAmount - (parseFloat(paymentData?.amount || "0"))), leftCol + 45, yPosition);
+      doc.setFont("helvetica", "normal");
+      yPosition += 30;
+      
+      // Imzo joylari
+      doc.setLineWidth(0.3);
+      doc.line(margin, yPosition, pageWidth / 2 - 10, yPosition);
+      doc.line(pageWidth / 2 + 10, yPosition, pageWidth - margin, yPosition);
+      yPosition += 8;
+      
+      doc.setFontSize(10);
+      doc.text("Qabul qiluvchi imzosi", pageWidth / 4, yPosition, { align: "center" });
+      doc.text("Mijoz imzosi", (pageWidth * 3) / 4, yPosition, { align: "center" });
+      
+      // Pastki qism
+      yPosition += 20;
+      doc.setFontSize(8);
+      doc.text(
+        `Kvitansiya yaratilgan sana: ${formatDateTime(new Date())}`,
+        pageWidth / 2,
+        yPosition,
+        { align: "center" }
+      );
+      
+      // PDF ni yuklab olish
+      const fileName = `kvitansiya_${apartment.room_number}_${Date.now()}.pdf`;
+      doc.save(fileName);
+      
+      toast({
+        title: "Muvaffaqiyat!",
+        description: "Kvitansiya muvaffaqiyatli yaratildi va yuklab olindi."
+      });
+      
+    } catch (error: any) {
+      console.error("PDF yaratishda xatolik:", error);
+      toast({
+        title: "Xatolik",
+        description: "Kvitansiya yaratishda xatolik yuz berdi.",
+        variant: "destructive"
+      });
+    }
+  }, [apartment, totalPaid, remainingAmount, formatCurrency, formatDate, formatDateTime, toast]);
 
   const handleExportToExcel = useCallback(() => {
     toast({ title: "Eslatma", description: "Excel eksporti hali sozlanmagan." });
@@ -1350,6 +1514,18 @@ export default function ApartmentDetailPage() {
                                 </div>
                               </div>
                               <div className="flex space-x-2">
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  onClick={() => generateReceiptPDF({
+                                    amount: p.paid_amount,
+                                    description: p.additional_info,
+                                    date: p.created_at
+                                  })}
+                                  title="Kvitansiya chiqarish"
+                                >
+                                  <Receipt className="h-4 w-4" />
+                                </Button>
                                 <Button
                                   variant="outline"
                                   size="icon"
