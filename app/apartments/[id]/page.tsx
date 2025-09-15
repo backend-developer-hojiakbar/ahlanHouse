@@ -59,6 +59,18 @@ import { uz } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { jsPDF } from "jspdf";
 import * as XLSX from "xlsx";
+import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from "chart.js";
+import { Bar } from "react-chartjs-2";
+
+// Register Chart.js components
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend
+);
 
 // API & Telegram Constants
 const API_BASE_URL = "http://api.ahlan.uz";
@@ -317,6 +329,49 @@ function PaymentTimelineGraph({
   );
 }
 
+const PaymentScheduleChart = ({ scheduleData }: { scheduleData: PaymentScheduleItem[] }) => {
+  const chartData = {
+    labels: scheduleData.map(item => item.monthYear),
+    datasets: [
+      {
+        label: 'To\'lovlar',
+        data: scheduleData.map(item => item.paidAmount),
+        backgroundColor: [
+          ...scheduleData.map(item => 
+            item.status === 'paid' ? 'rgba(75, 192, 192, 0.2)' :
+            item.status === 'overdue' ? 'rgba(255, 99, 132, 0.2)' :
+            item.status === 'partially_paid' ? 'rgba(255, 159, 64, 0.2)' : 
+            'rgba(204, 204, 204, 0.2)'
+          )
+        ],
+        borderColor: [
+          ...scheduleData.map(item => 
+            item.status === 'paid' ? 'rgba(75, 192, 192, 1)' :
+            item.status === 'overdue' ? 'rgba(255, 99, 132, 1)' :
+            item.status === 'partially_paid' ? 'rgba(255, 159, 64, 1)' : 
+            'rgba(204, 204, 204, 1)'
+          )
+        ],
+        borderWidth: 1
+      }
+    ]
+  };
+
+  const options = {
+    scales: {
+      y: {
+        beginAtZero: true
+      }
+    }
+  };
+
+  return (
+    <div className="h-80">
+      <Bar data={chartData} options={options} />
+    </div>
+  );
+};
+
 export default function ApartmentDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -371,6 +426,7 @@ export default function ApartmentDetailPage() {
   const [paymentScheduleData, setPaymentScheduleData] = useState<PaymentScheduleItem[]>(
     []
   );
+  const [viewMode, setViewMode] = useState<'table' | 'chart'>('table');
 
   const sendTelegramNotification = useCallback(async (message: string) => {
     try {
@@ -1209,8 +1265,46 @@ export default function ApartmentDetailPage() {
   }, [apartment, totalPaid, remainingAmount, formatCurrency, formatDate, formatDateTime, toast]);
 
   const handleExportToExcel = useCallback(() => {
-    toast({ title: "Eslatma", description: "Excel eksporti hali sozlanmagan." });
-  }, [toast]);
+    if (!paymentScheduleData || paymentScheduleData.length === 0) {
+      toast({ title: "Xatolik", description: "To'lov jadvali mavjud emas.", variant: "destructive" });
+      return;
+    }
+
+    try {
+      // Create worksheet data
+      const worksheetData = [
+        ["№", "Oy/Yil", "To'lov sanasi", "To'lov summasi", "To'langan summa", "Holati"],
+        ...paymentScheduleData.map((item, index) => [
+          index + 1,
+          item.monthYear,
+          item.dueDateFormatted,
+          formatCurrency(item.dueAmount),
+          formatCurrency(item.paidAmount),
+          getScheduleStatusStyle(item.status).text
+        ])
+      ];
+
+      // Add summary row
+      const totalDue = paymentScheduleData.reduce((sum, item) => sum + item.dueAmount, 0);
+      const totalPaid = paymentScheduleData.reduce((sum, item) => sum + item.paidAmount, 0);
+      worksheetData.push([]);
+      worksheetData.push(["", "", "Jami:", formatCurrency(totalDue), formatCurrency(totalPaid), ""]);
+
+      // Create workbook
+      const ws = XLSX.utils.aoa_to_sheet(worksheetData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "To'lov jadvali");
+      
+      // Export to file
+      const fileName = `tolov_jadvali_${apartment.room_number}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      
+      toast({ title: "Muvaffaqiyat", description: "Excel fayl yuklab olindi." });
+    } catch (error) {
+      console.error("Excel export error:", error);
+      toast({ title: "Xatolik", description: "Excel faylni yaratishda xatolik yuz berdi.", variant: "destructive" });
+    }
+  }, [paymentScheduleData, apartment, formatCurrency, toast]);
 
   const getStatusBadge = useCallback((status: string | undefined) => {
     const map: Record<
@@ -1345,23 +1439,52 @@ export default function ApartmentDetailPage() {
                     )}
                   </div>
 
+                  {/* Qo'shimcha ma'lumotlar (mainPayment.additional_info) */}
+                  {mainAdditionalInfo ? (
+                    <div className="mt-6 pt-6 border-t">
+                      <h3 className="text-lg font-semibold mb-2">Qo'shimcha Ma'lumotlar</h3>
+                      <div className="text-sm text-muted-foreground break-words min-h-[40px] mb-6">
+                        <AdditionalInfoView additionalInfo={mainAdditionalInfo} />
+                      </div>
+                    </div>
+                  ) : null}
+
+                  
                   {/* To'lov jadvali */}
                   {mainPayment &&
-                    mainPayment.payment_type === "muddatli" &&
-                    paymentScheduleData.length > 0 && (
+                    mainPayment.payment_type === "muddatli" && (
                       <div className="mt-6 pt-6 border-t">
                         <div className="flex justify-between items-center mb-4">
                           <h3 className="text-lg font-semibold">To'lov Jadvali</h3>
-                          <Button variant="outline" size="sm" onClick={handleExportToExcel}>
-                            <FileSpreadsheet className="mr-2 h-4 w-4" />
-                            Excel
-                          </Button>
+                          <div>
+                            {paymentScheduleData.length > 0 && (
+                              <>
+                                <Button variant="outline" size="sm" onClick={handleExportToExcel}>
+                                  <FileSpreadsheet className="mr-2 h-4 w-4" />
+                                  Excel
+                                </Button>
+                                <Button variant="outline" size="sm" onClick={() => setViewMode(prevMode => prevMode === 'table' ? 'chart' : 'table')} className="ml-2">
+                                  {viewMode === 'table' ? 'Grafik ko\'rinish' : 'Jadval ko\'rinish'}
+                                </Button>
+                              </>
+                            )}
+                          </div>
                         </div>
-                        <PaymentTimelineGraph
-                          scheduleData={paymentScheduleData}
-                          formatCurrency={formatCurrency}
-                          formatDate={formatDate}
-                        />
+                        {viewMode === 'table' ? (
+                          paymentScheduleData.length > 0 ? (
+                            <PaymentTimelineGraph
+                              scheduleData={paymentScheduleData}
+                              formatCurrency={formatCurrency}
+                              formatDate={formatDate}
+                            />
+                          ) : (
+                            <div className="text-sm text-muted-foreground">
+                              To'lov jadvali ma'lumotlari mavjud emas.
+                            </div>
+                          )
+                        ) : (
+                          <PaymentScheduleChart scheduleData={paymentScheduleData} />
+                        )}
                       </div>
                     )}
                 </div>
@@ -1452,14 +1575,6 @@ export default function ApartmentDetailPage() {
                       />
 
                       {/* Qo'shimcha ma'lumotlar (mainPayment.additional_info) */}
-                      {mainAdditionalInfo ? (
-                        <div className="mt-2">
-                          <h5 className="text-xs font-semibold text-muted-foreground uppercase mb-1">
-                            Qo‘shimcha ma’lumotlar
-                          </h5>
-                          <AdditionalInfoView additionalInfo={mainAdditionalInfo} />
-                        </div>
-                      ) : null}
                     </div>
                   ) : null}
 
