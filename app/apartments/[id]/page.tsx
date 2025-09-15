@@ -1432,22 +1432,10 @@ export default function ApartmentDetailPage() {
                   {/* Tavsif */}
                   <h3 className="text-lg font-semibold mb-2">Tavsif</h3>
                   <div className="text-sm text-muted-foreground break-words min-h-[40px] mb-6">
-                    {apartment.description && String(apartment.description).trim() !== "" ? (
-                      <p>{apartment.description}</p>
-                    ) : (
-                      <span className="italic">Tavsif kiritilmagan</span>
-                    )}
+                   <AdditionalInfoView additionalInfo={mainAdditionalInfo} />
                   </div>
 
-                  {/* Qo'shimcha ma'lumotlar (mainPayment.additional_info) */}
-                  {mainAdditionalInfo ? (
-                    <div className="mt-6 pt-6 border-t">
-                      <h3 className="text-lg font-semibold mb-2">Qo'shimcha Ma'lumotlar</h3>
-                      <div className="text-sm text-muted-foreground break-words min-h-[40px] mb-6">
-                        <AdditionalInfoView additionalInfo={mainAdditionalInfo} />
-                      </div>
-                    </div>
-                  ) : null}
+              
 
                   
                   {/* To'lov jadvali */}
