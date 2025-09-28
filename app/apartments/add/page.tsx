@@ -78,9 +78,9 @@ export default function AddApartmentPage() {
             headers: { Authorization: `Bearer ${token}` },
           });
           if (!response.ok) throw new Error("Obyektlarni yuklashda xatolik");
-          const data = await response.json();
-          allProperties = [...allProperties, ...(data.results || data)];
-          nextUrl = data.next;
+          const data: { results?: any[]; next?: string | null } = await response.json();
+          allProperties = [...allProperties, ...(data.results ? data.results : [])];
+          nextUrl = data.next ?? null;
         }
         setProperties(allProperties);
       } catch (error) {
@@ -116,7 +116,7 @@ export default function AddApartmentPage() {
 
     const payload = {
       object: Number(formData.object),
-      room_number: Number(formData.room_number),
+      room_number: formData.room_number,
       rooms: Number(formData.rooms),
       area: Number(formData.area),
       floor: Number(formData.floor),
