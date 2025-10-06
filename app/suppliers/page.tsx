@@ -28,8 +28,7 @@ import { format } from "date-fns";
 
 const API_BASE_URL = "http://api.ahlan.uz";
 const TELEGRAM_BOT_TOKEN = "7165051905:AAFS-lG2LDq5OjFdAwTzrpbHYnrkup6y13s";
-const TELEGRAM_CHAT_ID = "1728300"; // Sizning Chat ID'ingiz kiritildi
-
+const TELEGRAM_CHAT_ID = "1728300";
 
 interface Supplier {
   id: number;
@@ -46,6 +45,13 @@ interface PaymentFormData {
   description: string;
 }
 
+// --- YANGILANDI: Obyekt interfeysi ---
+interface Obyekt {
+  id: number;
+  name: string;
+}
+
+// --- YANGILANDI: API javobiga moslashtirildi ---
 interface Payment {
   id: number;
   supplier: number;
@@ -53,8 +59,10 @@ interface Payment {
   payment_type: string;
   description: string;
   created_at: string;
+  object?: number | null; // ID sifatida
 }
 
+// --- YANGILANDI: API javobiga moslashtirildi ---
 interface Expense {
   id: number;
   supplier: number;
@@ -64,6 +72,7 @@ interface Expense {
   expense_type: number;
   date?: string;
   comment?: string;
+  object?: number | null; // ID sifatida
 }
 
 interface ExpenseType {
@@ -110,6 +119,7 @@ const SuppliersPage = () => {
   const [transactionsModalOpen, setTransactionsModalOpen] = useState(false);
   const [transactionsLoading, setTransactionsLoading] = useState(false);
   const [expenseTypes, setExpenseTypes] = useState<ExpenseType[]>([]);
+  const [obyekts, setObyekts] = useState<Obyekt[]>([]); // --- YANGI: Obyektlar uchun state ---
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteCode, setDeleteCode] = useState("");
   const [deletingId, setDeletingId] = useState<number | null>(null);
@@ -119,6 +129,7 @@ const SuppliersPage = () => {
   const PAYMENTS_API_URL = `${API_BASE_URL}/supplier-payments/`;
   const EXPENSES_API_URL = `${API_BASE_URL}/expenses/`;
   const EXPENSE_TYPES_API_URL = `${API_BASE_URL}/expense-types/`;
+  const OBJECTS_API_URL = `${API_BASE_URL}/objects/`; // --- YANGI: Obyektlar API manzili ---
 
   const sendTelegramNotification = useCallback(async (message: string) => {
     try {
@@ -213,19 +224,30 @@ const SuppliersPage = () => {
 
   useEffect(() => { if(accessToken) fetchSuppliers(); }, [accessToken, fetchSuppliers]);
 
+  // --- YANGI: Obyektlar va xarajat turlarini yuklash ---
   useEffect(() => {
-    const fetchExpenseTypes = async () => {
-      if (!accessToken) return;
-      try {
+    const fetchData = async () => {
+        if (!accessToken) return;
         const headers = getAuthHeaders();
         if (!headers["Authorization"]) return;
-        const response = await fetch(`${EXPENSE_TYPES_API_URL}?page_size=1000`, { headers });
-        if (!response.ok) return;
-        const data = await response.json();
-        if (data && Array.isArray(data.results)) setExpenseTypes(data.results);
-      } catch (error) { console.error("Xarajat turlarini yuklashda xatolik:", error); }
+
+        // Fetch Expense Types
+        try {
+            const response = await fetch(`${EXPENSE_TYPES_API_URL}?page_size=1000`, { headers });
+            if (!response.ok) return;
+            const data = await response.json();
+            if (data && Array.isArray(data.results)) setExpenseTypes(data.results);
+        } catch (error) { console.error("Xarajat turlarini yuklashda xatolik:", error); }
+
+        // Fetch Objects
+        try {
+            const response = await fetch(`${OBJECTS_API_URL}?page_size=1000`, { headers });
+            if (!response.ok) return;
+            const data = await response.json();
+            if (data && Array.isArray(data.results)) setObyekts(data.results);
+        } catch (error) { console.error("Obyektlarni yuklashda xatolik:", error); }
     };
-    if(accessToken) fetchExpenseTypes();
+    if(accessToken) fetchData();
   }, [accessToken, getAuthHeaders]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -401,7 +423,7 @@ const SuppliersPage = () => {
       const message = `<b>🟢💰 Yetkazib Beruvchiga To'lov Amalga Oshirildi</b>\n\n` +
                       `<b>Kim tomonidan:</b> ${currentUser?.fio || 'Noma`lum'}\n` +
                       `<b>Yetkazib beruvchi:</b> ${payingSupplierName}\n\n` +
-                      `<b>To'lov summasi:</b> +${formatCurrency(paymentFormData.amount).props.children}\n` +
+                      `<b>To'lov summasi:</b> +${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amountValue)}\n` +
                       `<b>Izoh:</b> ${paymentFormData.description}\n` +
                       `<b>Eski balans:</b> ${formatBalance(oldBalance).props.children}\n` +
                       `<b>Yangi balans:</b> ${formatBalance(newBalance).props.children}`;
@@ -450,6 +472,12 @@ const SuppliersPage = () => {
   const getExpenseTypeName = (typeId: number | undefined): string => {
     if (typeId === undefined) return "Noma'lum";
     return expenseTypes.find(type => type.id === typeId)?.name || `ID: ${typeId}`;
+  };
+  
+  // --- YANGI: Obyekt nomini ID orqali topish funksiyasi ---
+  const getObyektName = (obyektId: number | undefined | null): string => {
+    if (obyektId === undefined || obyektId === null) return "N/A";
+    return obyekts.find(obj => obj.id === obyektId)?.name || `ID: ${obyektId}`;
   };
 
   const formatDate = (dateString: string | undefined) => {
@@ -522,7 +550,70 @@ const SuppliersPage = () => {
             </Card>
           </TabsContent>
         </Tabs>
-        <Dialog open={transactionsModalOpen} onOpenChange={setTransactionsModalOpen}><DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col"><DialogHeader><DialogTitle>{selectedSupplierTransactions.supplier?.company_name} - Operatsiyalar</DialogTitle>{selectedSupplierTransactions.supplier && <DialogDescription>Joriy balans: {formatBalance(selectedSupplierTransactions.supplier.balance)}</DialogDescription>}</DialogHeader>{transactionsLoading ? <div className="flex items-center justify-center h-60"><Loader2 className="h-8 w-8 animate-spin" /></div> : <div className="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1 overflow-y-auto py-4 pr-2"><div><h3 className="font-semibold text-lg">Xarajatlar</h3><div className="rounded-md border max-h-[400px] overflow-y-auto"><Table><TableHeader><TableRow><TableHead>Sana</TableHead><TableHead>Turi</TableHead><TableHead>Summa</TableHead><TableHead>Izoh</TableHead></TableRow></TableHeader><TableBody>{selectedSupplierTransactions.expenses.length > 0 ? selectedSupplierTransactions.expenses.map((exp) => (<TableRow key={exp.id}><TableCell>{formatDate(exp.date || exp.created_at)}</TableCell><TableCell>{getExpenseTypeName(exp.expense_type)}</TableCell><TableCell>{formatBalance(exp.amount)}</TableCell><TableCell>{exp.comment || exp.description}</TableCell></TableRow>)) : <TableRow><TableCell colSpan={4} className="h-24 text-center">Xarajatlar yo'q</TableCell></TableRow>}</TableBody></Table></div></div><div><h3 className="font-semibold text-lg">To'lovlar</h3><div className="rounded-md border max-h-[400px] overflow-y-auto"><Table><TableHeader><TableRow><TableHead>Sana</TableHead><TableHead>Turi</TableHead><TableHead>Summa</TableHead><TableHead>Izoh</TableHead></TableRow></TableHeader><TableBody>{selectedSupplierTransactions.payments.length > 0 ? selectedSupplierTransactions.payments.map((p) => (<TableRow key={p.id}><TableCell>{formatDate(p.created_at)}</TableCell><TableCell>{p.payment_type}</TableCell><TableCell>{formatBalance(p.amount)}</TableCell><TableCell>{p.description}</TableCell></TableRow>)) : <TableRow><TableCell colSpan={4} className="h-24 text-center">To'lovlar yo'q</TableCell></TableRow>}</TableBody></Table></div></div></div>}<DialogFooter><Button variant="outline" onClick={() => setTransactionsModalOpen(false)}>Yopish</Button></DialogFooter></DialogContent></Dialog>
+        
+        {/* --- YANGILANDI: TRANZAKSIYALAR OYNASI (MODAL) --- */}
+        <Dialog open={transactionsModalOpen} onOpenChange={setTransactionsModalOpen}>
+          <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle>{selectedSupplierTransactions.supplier?.company_name} - Operatsiyalar</DialogTitle>
+              {selectedSupplierTransactions.supplier && <DialogDescription>Joriy balans: {formatBalance(selectedSupplierTransactions.supplier.balance)}</DialogDescription>}
+            </DialogHeader>
+            {transactionsLoading ? (
+              <div className="flex items-center justify-center h-60"><Loader2 className="h-8 w-8 animate-spin" /></div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1 overflow-y-auto py-4 pr-2">
+                <div>
+                  <h3 className="font-semibold text-lg">Xarajatlar</h3>
+                  <div className="rounded-md border max-h-[400px] overflow-y-auto">
+                    <Table>
+                      <TableHeader><TableRow><TableHead>Sana</TableHead><TableHead>Obyekt</TableHead><TableHead>Turi</TableHead><TableHead>Summa</TableHead><TableHead>Izoh</TableHead></TableRow></TableHeader>
+                      <TableBody>
+                        {selectedSupplierTransactions.expenses.length > 0 ? (
+                          selectedSupplierTransactions.expenses.map((exp) => (
+                            <TableRow key={exp.id}>
+                              <TableCell>{formatDate(exp.date || exp.created_at)}</TableCell>
+                              <TableCell>{getObyektName(exp.object)}</TableCell>
+                              <TableCell>{getExpenseTypeName(exp.expense_type)}</TableCell>
+                              <TableCell>{formatBalance(exp.amount)}</TableCell>
+                              <TableCell>{exp.comment || exp.description}</TableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          <TableRow><TableCell colSpan={5} className="h-24 text-center">Xarajatlar yo'q</TableCell></TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+                <div>
+                  <h3 className="font-semibold text-lg">To'lovlar</h3>
+                  <div className="rounded-md border max-h-[400px] overflow-y-auto">
+                    <Table>
+                      <TableHeader><TableRow><TableHead>Sana</TableHead><TableHead>Obyekt</TableHead><TableHead>Turi</TableHead><TableHead>Summa</TableHead><TableHead>Izoh</TableHead></TableRow></TableHeader>
+                      <TableBody>
+                        {selectedSupplierTransactions.payments.length > 0 ? (
+                          selectedSupplierTransactions.payments.map((p) => (
+                            <TableRow key={p.id}>
+                              <TableCell>{formatDate(p.created_at)}</TableCell>
+                              <TableCell>{getObyektName(p.object)}</TableCell>
+                              <TableCell>{p.payment_type}</TableCell>
+                              <TableCell>{formatBalance(p.amount)}</TableCell>
+                              <TableCell>{p.description}</TableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          <TableRow><TableCell colSpan={5} className="h-24 text-center">To'lovlar yo'q</TableCell></TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              </div>
+            )}
+            <DialogFooter><Button variant="outline" onClick={() => setTransactionsModalOpen(false)}>Yopish</Button></DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}><DialogContent className="sm:max-w-[425px]"><DialogHeader><DialogTitle>O'chirishni tasdiqlang</DialogTitle><DialogDescription>"{suppliers.find(s=>s.id===deletingId)?.company_name}"ni o'chirish uchun "7777" kodini kiriting.</DialogDescription></DialogHeader><div className="py-4"><Label htmlFor="delete_code">Maxsus kod</Label><Input id="delete_code" type="password" value={deleteCode} onChange={(e) => {setDeleteCode(e.target.value); setDeleteError("");}}/>{deleteError && <p className="text-sm text-red-500 pt-1">{deleteError}</p>}</div><DialogFooter><Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>Bekor qilish</Button><Button variant="destructive" onClick={confirmDelete} disabled={deleteCode !== "7777"}>O'chirish</Button></DialogFooter></DialogContent></Dialog>
         <Dialog open={paymentModalOpen} onOpenChange={setPaymentModalOpen}><DialogContent className="sm:max-w-[425px]"><DialogHeader><DialogTitle>Balans to'ldirish: {payingSupplierName}</DialogTitle><DialogDescription>To'lov ma'lumotlarini kiriting.</DialogDescription></DialogHeader><form onSubmit={handlePaymentSubmit}><div className="py-4"><Label htmlFor="payment_amount">Summa ($) *</Label><Input id="payment_amount" name="amount" type="number" value={paymentFormData.amount} onChange={handlePaymentFormChange} required min="0.01"/><Label htmlFor="payment_description">Tavsif *</Label><Textarea id="payment_description" name="description" value={paymentFormData.description} onChange={handlePaymentFormChange} required/></div><DialogFooter><Button type="button" variant="outline" onClick={resetPaymentForm}>Bekor</Button><Button type="submit" disabled={!paymentFormData.amount || paymentSubmitting}>{paymentSubmitting && <Loader2 className="animate-spin mr-2"/>}Qo'shish</Button></DialogFooter></form></DialogContent></Dialog>
       </main>
