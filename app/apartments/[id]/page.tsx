@@ -1116,13 +1116,32 @@ export default function ApartmentDetailPage() {
       // PDF sahifa o'lchamlari
       const pageWidth = doc.internal.pageSize.getWidth();
       const margin = 20;
-      let yPosition = 30;
+      let yPosition = 20;
+      
+      // Kompaniya ma'lumotlari
+      doc.setFontSize(14);
+      doc.setFont("helvetica", "bold");
+      doc.text("Ahlan House", pageWidth / 2, yPosition, { align: "center" });
+      yPosition += 7;
+      
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.text("Qo'qon sh, Po'stindo'z k, 7a", pageWidth / 2, yPosition, { align: "center" });
+      yPosition += 5;
+      
+      doc.text("ahlanhouse@gmail.com | +998987270077", pageWidth / 2, yPosition, { align: "center" });
+      yPosition += 15;
+      
+      // Chiziq
+      doc.setLineWidth(0.5);
+      doc.line(margin, yPosition, pageWidth - margin, yPosition);
+      yPosition += 10;
       
       // Sarlavha
-      doc.setFontSize(20);
+      doc.setFontSize(16);
       doc.setFont("helvetica", "bold");
       doc.text("TO'LOV KVITANSIYASI", pageWidth / 2, yPosition, { align: "center" });
-      yPosition += 20;
+      yPosition += 15;
       
       // Chiziq
       doc.setLineWidth(0.5);
