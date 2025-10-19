@@ -124,6 +124,10 @@ const SuppliersPage = () => {
   const [deleteCode, setDeleteCode] = useState("");
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [deleteError, setDeleteError] = useState("");
+  
+  // Yangi qo'shilgan state'lar
+  const [selectedObjectId, setSelectedObjectId] = useState<number | null>(null);
+  const [selectedObject, setSelectedObject] = useState<Obyekt | null>(null);
 
   const SUPPLIERS_API_URL = `${API_BASE_URL}/suppliers/`;
   const PAYMENTS_API_URL = `${API_BASE_URL}/supplier-payments/`;
@@ -263,10 +267,26 @@ const SuppliersPage = () => {
   const formatBalance = (balance: string | number | null | undefined) => {
     const balanceNum = parseFloat(String(balance ?? 0));
     if (isNaN(balanceNum)) return <span className="text-muted-foreground">N/A</span>;
-    const formatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const formatter = new Intl.NumberFormat('en-US', { 
+      style: 'currency', 
+      currency: 'USD', 
+      minimumFractionDigits: 2, 
+      maximumFractionDigits: 2 
+    });
     const formatted = formatter.format(balanceNum);
     if (balanceNum >= 0) return <span className="text-green-600">{formatted}</span>;
     else return <span className="text-red-600">{formatted}</span>;
+  };
+  
+  const formatCurrency = (amount: string | number | null | undefined) => {
+    const num = parseFloat(String(amount ?? 0));
+    if (isNaN(num)) return "$0.00";
+    return new Intl.NumberFormat('en-US', { 
+      style: 'currency', 
+      currency: 'USD', 
+      minimumFractionDigits: 2, 
+      maximumFractionDigits: 2 
+    }).format(num);
   };
   
   const handleSubmit = async (e: React.FormEvent, action: "save" | "saveAndAdd" | "saveAndContinue") => {
@@ -461,6 +481,8 @@ const SuppliersPage = () => {
       const [paymentsData, expensesData] = await Promise.all([paymentsResponse.json(), expensesResponse.json()]);
       setSelectedSupplierTransactions({ supplier, payments: paymentsData.results || [], expenses: expensesData.results || [] });
       setTransactionsModalOpen(true);
+      setSelectedObjectId(null); // Reset object selection when opening modal
+      setSelectedObject(null);
     } catch (error) {
       toast({ title: "Xatolik", description: (error as Error).message, variant: "destructive" });
     } finally {
@@ -528,15 +550,29 @@ const SuppliersPage = () => {
                         <TableBody>
                           {filteredSuppliers.length > 0 ? filteredSuppliers.map((supplier) => (
                             <TableRow key={supplier.id}>
-                              <TableCell>{supplier.id}</TableCell><TableCell>{supplier.company_name}</TableCell><TableCell>{supplier.contact_person_name}</TableCell><TableCell>{supplier.phone_number}</TableCell><TableCell className="text-right">{formatBalance(supplier.balance)}</TableCell>
+                              <TableCell>{supplier.id}</TableCell>
+                              <TableCell>{supplier.company_name}</TableCell>
+                              <TableCell>{supplier.contact_person_name}</TableCell>
+                              <TableCell>{supplier.phone_number}</TableCell>
+                              <TableCell className="text-right">{formatBalance(supplier.balance)}</TableCell>
                               <TableCell className="text-right sticky right-0 bg-card z-[1]">
                                 <div className="flex justify-end space-x-1">
-                                  <Button variant="ghost" size="icon" title="Tranzaksiyalar" onClick={() => fetchSupplierTransactions(supplier)} disabled={transactionsLoading && payingSupplierId === supplier.id}>{transactionsLoading && payingSupplierId === supplier.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4 text-blue-500" />}</Button>
-                                  <Button variant="ghost" size="icon" title="Balans to'ldirish" onClick={() => openPaymentModal(supplier)}><CreditCard className="h-4 w-4 text-green-500" /></Button>
-                                  {canPerformSensitiveActions(currentUser) && <>
-                                    <Button variant="ghost" size="icon" title="Tahrirlash" onClick={() => handleEdit(supplier)}><Edit className="h-4 w-4 text-yellow-500" /></Button>
-                                    <Button variant="ghost" size="icon" title="O'chirish" onClick={() => handleDelete(supplier.id)}><Trash className="h-4 w-4 text-red-500" /></Button>
-                                  </>}
+                                  <Button variant="ghost" size="icon" title="Tranzaksiyalar" onClick={() => fetchSupplierTransactions(supplier)} disabled={transactionsLoading && payingSupplierId === supplier.id}>
+                                    {transactionsLoading && payingSupplierId === supplier.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4 text-blue-500" />}
+                                  </Button>
+                                  <Button variant="ghost" size="icon" title="Balans to'ldirish" onClick={() => openPaymentModal(supplier)}>
+                                    <CreditCard className="h-4 w-4 text-green-500" />
+                                  </Button>
+                                  {canPerformSensitiveActions(currentUser) && (
+                                    <>
+                                      <Button variant="ghost" size="icon" title="Tahrirlash" onClick={() => handleEdit(supplier)}>
+                                        <Edit className="h-4 w-4 text-yellow-500" />
+                                      </Button>
+                                      <Button variant="ghost" size="icon" title="O'chirish" onClick={() => handleDelete(supplier.id)}>
+                                        <Trash className="h-4 w-4 text-red-500" />
+                                      </Button>
+                                    </>
+                                  )}
                                 </div>
                               </TableCell>
                             </TableRow>
@@ -552,8 +588,14 @@ const SuppliersPage = () => {
         </Tabs>
         
         {/* --- YANGILANDI: TRANZAKSIYALAR OYNASI (MODAL) --- */}
-        <Dialog open={transactionsModalOpen} onOpenChange={setTransactionsModalOpen}>
-          <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col">
+        <Dialog open={transactionsModalOpen} onOpenChange={(isOpen) => {
+          setTransactionsModalOpen(isOpen);
+          if (!isOpen) {
+            setSelectedObjectId(null);
+            setSelectedObject(null);
+          }
+        }}>
+          <DialogContent className="sm:max-w-6xl max-h-[90vh] flex flex-col">
             <DialogHeader>
               <DialogTitle>{selectedSupplierTransactions.supplier?.company_name} - Operatsiyalar</DialogTitle>
               {selectedSupplierTransactions.supplier && <DialogDescription>Joriy balans: {formatBalance(selectedSupplierTransactions.supplier.balance)}</DialogDescription>}
@@ -561,61 +603,175 @@ const SuppliersPage = () => {
             {transactionsLoading ? (
               <div className="flex items-center justify-center h-60"><Loader2 className="h-8 w-8 animate-spin" /></div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1 overflow-y-auto py-4 pr-2">
-                <div>
-                  <h3 className="font-semibold text-lg">Xarajatlar</h3>
-                  <div className="rounded-md border max-h-[400px] overflow-y-auto">
-                    <Table>
-                      <TableHeader><TableRow><TableHead>Sana</TableHead><TableHead>Obyekt</TableHead><TableHead>Turi</TableHead><TableHead>Summa</TableHead><TableHead>Izoh</TableHead></TableRow></TableHeader>
-                      <TableBody>
-                        {selectedSupplierTransactions.expenses.length > 0 ? (
-                          selectedSupplierTransactions.expenses.map((exp) => (
-                            <TableRow key={exp.id}>
-                              <TableCell>{formatDate(exp.date || exp.created_at)}</TableCell>
-                              <TableCell>{getObyektName(exp.object)}</TableCell>
-                              <TableCell>{getExpenseTypeName(exp.expense_type)}</TableCell>
-                              <TableCell>{formatBalance(exp.amount)}</TableCell>
-                              <TableCell>{exp.comment || exp.description}</TableCell>
-                            </TableRow>
-                          ))
-                        ) : (
-                          <TableRow><TableCell colSpan={5} className="h-24 text-center">Xarajatlar yo'q</TableCell></TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
+              <div className="flex-1 overflow-y-auto py-4 pr-2">
+                {/* Obyektlar ro'yxati */}
+                <div className="mb-6">
+                  <h3 className="font-semibold text-lg mb-3">Obyektlar</h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                    <Button 
+                      variant={selectedObjectId === null ? "default" : "outline"} 
+                      size="sm" 
+                      onClick={() => {
+                        setSelectedObjectId(null);
+                        setSelectedObject(null);
+                      }}
+                      className="h-auto py-2 px-3 text-xs"
+                    >
+                      Barchasi
+                    </Button>
+                    {obyekts.map((obj) => (
+                      <Button 
+                        key={obj.id}
+                        variant={selectedObjectId === obj.id ? "default" : "outline"} 
+                        size="sm" 
+                        onClick={() => {
+                          setSelectedObjectId(obj.id);
+                          setSelectedObject(obj);
+                        }}
+                        className="h-auto py-2 px-3 text-xs"
+                      >
+                        {obj.name}
+                      </Button>
+                    ))}
                   </div>
                 </div>
-                <div>
-                  <h3 className="font-semibold text-lg">To'lovlar</h3>
-                  <div className="rounded-md border max-h-[400px] overflow-y-auto">
-                    <Table>
-                      <TableHeader><TableRow><TableHead>Sana</TableHead><TableHead>Obyekt</TableHead><TableHead>Turi</TableHead><TableHead>Summa</TableHead><TableHead>Izoh</TableHead></TableRow></TableHeader>
-                      <TableBody>
-                        {selectedSupplierTransactions.payments.length > 0 ? (
-                          selectedSupplierTransactions.payments.map((p) => (
-                            <TableRow key={p.id}>
-                              <TableCell>{formatDate(p.created_at)}</TableCell>
-                              <TableCell>{getObyektName(p.object)}</TableCell>
-                              <TableCell>{p.payment_type}</TableCell>
-                              <TableCell>{formatBalance(p.amount)}</TableCell>
-                              <TableCell>{p.description}</TableCell>
-                            </TableRow>
-                          ))
-                        ) : (
-                          <TableRow><TableCell colSpan={5} className="h-24 text-center">To'lovlar yo'q</TableCell></TableRow>
+
+                {/* Tranzaksiyalar */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <div className="flex justify-between items-center mb-3">
+                      <h3 className="font-semibold text-lg">Xarajatlar</h3>
+                      <div className="text-sm font-medium">
+                        Jami: {formatCurrency(
+                          (selectedSupplierTransactions.expenses || [])
+                            .filter(exp => selectedObjectId === null || exp.object === selectedObjectId)
+                            .reduce((sum, exp) => sum + parseFloat(exp.amount || "0"), 0)
                         )}
-                      </TableBody>
-                    </Table>
+                      </div>
+                    </div>
+                    <div className="rounded-md border max-h-[400px] overflow-y-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Sana</TableHead>
+                            <TableHead>Obyekt</TableHead>
+                            <TableHead>Turi</TableHead>
+                            <TableHead className="text-right">Summa</TableHead>
+                            <TableHead>Izoh</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {selectedSupplierTransactions.expenses && selectedSupplierTransactions.expenses.length > 0 ? (
+                            selectedSupplierTransactions.expenses
+                              .filter(exp => selectedObjectId === null || exp.object === selectedObjectId)
+                              .map((exp) => (
+                                <TableRow key={exp.id}>
+                                  <TableCell>{formatDate(exp.date || exp.created_at)}</TableCell>
+                                  <TableCell>{getObyektName(exp.object)}</TableCell>
+                                  <TableCell>{getExpenseTypeName(exp.expense_type)}</TableCell>
+                                  <TableCell className="text-right">{formatCurrency(exp.amount)}</TableCell>
+                                  <TableCell>{exp.comment || exp.description}</TableCell>
+                                </TableRow>
+                              ))
+                          ) : (
+                            <TableRow><TableCell colSpan={5} className="h-24 text-center">Xarajatlar yo'q</TableCell></TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex justify-between items-center mb-3">
+                      <h3 className="font-semibold text-lg">To'lovlar</h3>
+                      <div className="text-sm font-medium">
+                        Jami: {formatCurrency(
+                          (selectedSupplierTransactions.payments || [])
+                            .filter(p => selectedObjectId === null || p.object === selectedObjectId)
+                            .reduce((sum, p) => sum + parseFloat(p.amount || "0"), 0)
+                        )}
+                      </div>
+                    </div>
+                    <div className="rounded-md border max-h-[400px] overflow-y-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Sana</TableHead>
+                            <TableHead>Obyekt</TableHead>
+                            <TableHead>Turi</TableHead>
+                            <TableHead className="text-right">Summa</TableHead>
+                            <TableHead>Izoh</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {selectedSupplierTransactions.payments && selectedSupplierTransactions.payments.length > 0 ? (
+                            selectedSupplierTransactions.payments
+                              .filter(p => selectedObjectId === null || p.object === selectedObjectId)
+                              .map((p) => (
+                                <TableRow key={p.id}>
+                                  <TableCell>{formatDate(p.created_at)}</TableCell>
+                                  <TableCell>{getObyektName(p.object)}</TableCell>
+                                  <TableCell>{p.payment_type}</TableCell>
+                                  <TableCell className="text-right">{formatCurrency(p.amount)}</TableCell>
+                                  <TableCell>{p.description}</TableCell>
+                                </TableRow>
+                              ))
+                          ) : (
+                            <TableRow><TableCell colSpan={5} className="h-24 text-center">To'lovlar yo'q</TableCell></TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
                   </div>
                 </div>
               </div>
             )}
-            <DialogFooter><Button variant="outline" onClick={() => setTransactionsModalOpen(false)}>Yopish</Button></DialogFooter>
+            <DialogFooter><Button variant="outline" onClick={() => {
+              setTransactionsModalOpen(false);
+              setSelectedObjectId(null);
+              setSelectedObject(null);
+            }}>Yopish</Button></DialogFooter>
           </DialogContent>
         </Dialog>
 
         <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}><DialogContent className="sm:max-w-[425px]"><DialogHeader><DialogTitle>O'chirishni tasdiqlang</DialogTitle><DialogDescription>"{suppliers.find(s=>s.id===deletingId)?.company_name}"ni o'chirish uchun "7777" kodini kiriting.</DialogDescription></DialogHeader><div className="py-4"><Label htmlFor="delete_code">Maxsus kod</Label><Input id="delete_code" type="password" value={deleteCode} onChange={(e) => {setDeleteCode(e.target.value); setDeleteError("");}}/>{deleteError && <p className="text-sm text-red-500 pt-1">{deleteError}</p>}</div><DialogFooter><Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>Bekor qilish</Button><Button variant="destructive" onClick={confirmDelete} disabled={deleteCode !== "7777"}>O'chirish</Button></DialogFooter></DialogContent></Dialog>
-        <Dialog open={paymentModalOpen} onOpenChange={setPaymentModalOpen}><DialogContent className="sm:max-w-[425px]"><DialogHeader><DialogTitle>Balans to'ldirish: {payingSupplierName}</DialogTitle><DialogDescription>To'lov ma'lumotlarini kiriting.</DialogDescription></DialogHeader><form onSubmit={handlePaymentSubmit}><div className="py-4"><Label htmlFor="payment_amount">Summa ($) *</Label><Input id="payment_amount" name="amount" type="number" value={paymentFormData.amount} onChange={handlePaymentFormChange} required min="0.01"/><Label htmlFor="payment_description">Tavsif *</Label><Textarea id="payment_description" name="description" value={paymentFormData.description} onChange={handlePaymentFormChange} required/></div><DialogFooter><Button type="button" variant="outline" onClick={resetPaymentForm}>Bekor</Button><Button type="submit" disabled={!paymentFormData.amount || paymentSubmitting}>{paymentSubmitting && <Loader2 className="animate-spin mr-2"/>}Qo'shish</Button></DialogFooter></form></DialogContent></Dialog>
+        <Dialog open={paymentModalOpen} onOpenChange={setPaymentModalOpen}>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Balans to'ldirish: {payingSupplierName}</DialogTitle>
+              <DialogDescription>To'lov ma'lumotlarini kiriting.</DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handlePaymentSubmit}>
+              <div className="py-4">
+                <Label htmlFor="payment_amount">Summa ($) *</Label>
+                <Input 
+                  id="payment_amount" 
+                  name="amount" 
+                  type="number" 
+                  value={paymentFormData.amount} 
+                  onChange={handlePaymentFormChange} 
+                  required 
+                  min="0.01"
+                  step="0.01"
+                />
+                <Label htmlFor="payment_description">Tavsif *</Label>
+                <Textarea 
+                  id="payment_description" 
+                  name="description" 
+                  value={paymentFormData.description} 
+                  onChange={handlePaymentFormChange} 
+                  required
+                />
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={resetPaymentForm}>Bekor</Button>
+                <Button type="submit" disabled={!paymentFormData.amount || paymentSubmitting}>
+                  {paymentSubmitting && <Loader2 className="animate-spin mr-2"/>}
+                  Qo'shish
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
       </main>
       <footer className="border-t py-4 text-center text-sm text-muted-foreground mt-auto bg-background"><div className="container mx-auto">Version 1.1 | Ahlan Group LLC © {new Date().getFullYear()}</div></footer>
     </div>

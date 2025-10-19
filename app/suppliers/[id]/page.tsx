@@ -229,11 +229,14 @@ const SupplierDetailPage = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <p className="text-sm text-muted-foreground">Balans</p>
-                    {parseFloat(supplier.balance) >= 0 ? (
-                      <p className="text-2xl font-bold text-green-600">${parseFloat(supplier.balance).toLocaleString()}</p>
-                    ) : (
-                      <p className="text-2xl font-bold text-red-600">-${Math.abs(parseFloat(supplier.balance)).toLocaleString()}</p>
-                    )}
+                    <p className="text-2xl font-bold text-green-600">
+                      {new Intl.NumberFormat('en-US', { 
+                        style: 'currency', 
+                        currency: 'USD',
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2
+                      }).format(parseFloat(supplier.balance || "0"))}
+                    </p>
                   </div>
                 </div>
               </CardContent>
