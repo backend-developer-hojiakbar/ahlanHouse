@@ -118,6 +118,7 @@ interface Expense {
     calculated_remaining_debt?: number;
     paid_from_comment?: number;
     original_comment?: string;
+    image?: string | null;
 }
 
 interface SupplierDebtGroup {
@@ -206,6 +207,12 @@ export default function ExpensesPage() {
     const [filteredPendingAmount, setFilteredPendingAmount] = useState<number>(0);
     const [selectedObjectTotal, setSelectedObjectTotal] = useState<number | null>(null);
     
+    // Image preview state - moved to correct location to fix hook order error
+    const [imagePreviewOpen, setImagePreviewOpen] = useState(false);
+    const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+    // Store images in local storage
+    const [localImages, setLocalImages] = useState<Record<number, string>>({});
+    
     useEffect(() => {
         setIsClient(true);
         const token = localStorage.getItem("access_token");
@@ -238,9 +245,9 @@ export default function ExpensesPage() {
         let nextUrl: string | null = `${API_BASE_URL}${endpoint}?${queryParams.toString()}`;
         while (nextUrl) {
             try {
-                const response = await fetch(nextUrl, { headers: getAuthHeaders() });
+                const response: Response = await fetch(nextUrl, { headers: getAuthHeaders() });
                 if (!response.ok) break;
-                const pageData = await response.json();
+                const pageData: { results: any[]; next: string | null } = await response.json();
                 allResults = allResults.concat(pageData.results || []);
                 nextUrl = pageData.next;
             } catch (error) {
@@ -400,6 +407,43 @@ export default function ExpensesPage() {
         }
     };
     
+    // Convert image file to base64 for local storage
+    const convertFileToBase64 = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = error => reject(error);
+        });
+    };
+    
+    // Save image to local storage
+    const saveImageToLocalStorage = async (expenseId: number, imageFile: File) => {
+        try {
+            const base64Image = await convertFileToBase64(imageFile);
+            const updatedLocalImages = { ...localImages, [expenseId]: base64Image };
+            setLocalImages(updatedLocalImages);
+            localStorage.setItem('expenseImages', JSON.stringify(updatedLocalImages));
+            return base64Image;
+        } catch (error) {
+            console.error("Rasmni saqlashda xatolik:", error);
+            toast.error("Rasmni saqlashda xatolik yuz berdi");
+            return null;
+        }
+    };
+    
+    // Load images from local storage on component mount
+    useEffect(() => {
+        const savedImages = localStorage.getItem('expenseImages');
+        if (savedImages) {
+            try {
+                setLocalImages(JSON.parse(savedImages));
+            } catch (error) {
+                console.error("Saqlangan rasmlarni yuklashda xatolik:", error);
+            }
+        }
+    }, []);
+    
     const formatDate = (dateString: string | undefined | null) => dateString ? format(new Date(dateString), "dd.MM.yyyy") : "-";
     const getObjectName = (objectId: number | undefined) => properties.find(p => p.id === objectId)?.name || `ID: ${objectId}`;
     
@@ -501,7 +545,19 @@ export default function ExpensesPage() {
 
         await sendTelegramNotification(message);
 
-        if (expenseImageFile) await sendImageToTelegram(expenseImageFile, `Xarajat ID: ${newExpense.id} uchun rasm`);
+        // Save image to local storage and send to Telegram
+        if (expenseImageFile) {
+            await sendImageToTelegram(expenseImageFile, `Xarajat ID: ${newExpense.id} uchun rasm`);
+            await saveImageToLocalStorage(newExpense.id, expenseImageFile);
+            // Update the expenses list to include the local image reference
+            setExpenses(prevExpenses => 
+                prevExpenses.map(expense => 
+                    expense.id === newExpense.id 
+                        ? { ...expense, image: `local://${newExpense.id}` } 
+                        : expense
+                )
+            );
+        }
         setOpen(false); setFormData(initialFormData); setExpenseImageFile(null); setIsSubmitting(false);
     });
 
@@ -511,6 +567,7 @@ export default function ExpensesPage() {
         const dataToSend = { object: Number(formData.object), supplier: Number(formData.supplier), amount: formData.amount, expense_type: Number(formData.expense_type), date: formData.date, comment: formData.comment.trim(), status: formData.status === "Naqd pul" ? "To‘langan" : "Kutilmoqda" };
         const res = await fetch(`${API_BASE_URL}/expenses/${id}/`, { method: "PUT", headers: getAuthHeaders(), body: JSON.stringify(dataToSend) });
         if (!res.ok) { setIsSubmitting(false); throw new Error(`Xarajat yangilanmadi`); }
+        const updatedExpense = await res.json();
         toast.success("Xarajat muvaffaqiyatli yangilandi");
         
         const updatedTotals = await fetchExpensesAndTotals();
@@ -539,7 +596,19 @@ export default function ExpensesPage() {
             await sendTelegramNotification(message);
         }
 
-        if (expenseImageFile) await sendImageToTelegram(expenseImageFile, `Tahrirlangan xarajat (ID: ${id}) uchun yangi rasm`);
+        // Save image to local storage and send to Telegram
+        if (expenseImageFile) {
+            await sendImageToTelegram(expenseImageFile, `Tahrirlangan xarajat (ID: ${id}) uchun yangi rasm`);
+            await saveImageToLocalStorage(id, expenseImageFile);
+            // Update the expenses list to include the local image reference
+            setExpenses(prevExpenses => 
+                prevExpenses.map(expense => 
+                    expense.id === id 
+                        ? { ...expense, image: `local://${id}` } 
+                        : expense
+                )
+            );
+        }
         setEditOpen(false); setCurrentExpense(null); setExpenseImageFile(null); setIsSubmitting(false);
     });
 
@@ -625,7 +694,7 @@ export default function ExpensesPage() {
     
     const handleNasiyaCardClick = useCallback(() => {
         const pendingExpenses = expenses.filter(exp => exp.status !== 'To‘langan');
-        if (pendingExpenses.length === 0) { toast.info("To'lanmagan nasiya xarajatlar mavjud emas."); return; }
+        if (pendingExpenses.length === 0) { toast("To'lanmagan nasiya xarajatlar mavjud emas."); return; }
         const grouped = pendingExpenses.reduce((acc, expense) => {
             const supplierId = expense.supplier;
             if (!acc[supplierId]) acc[supplierId] = { supplier: supplierId, supplier_name: expense.supplier_name, total_debt: 0, expenses: [] };
@@ -669,6 +738,37 @@ export default function ExpensesPage() {
     const canPerformSensitiveActions = (user: CurrentUser | null) => user?.user_type === 'admin';
 
     if (!isClient) return <div className="flex h-screen w-full items-center justify-center"><Loader2 className="h-10 w-10 animate-spin text-primary" /></div>;
+    
+    const handleImagePreview = (expenseId: number) => {
+        // First check if we have a local image for this expense
+        const localImage = localImages[expenseId];
+        if (localImage) {
+            setPreviewImageUrl(localImage);
+            setImagePreviewOpen(true);
+            return;
+        }
+        
+        // Check if the expense has a local image reference
+        const expense = expenses.find(exp => exp.id === expenseId);
+        if (expense?.image && expense.image.startsWith('local://')) {
+            // Extract the expense ID from the local reference
+            const localId = parseInt(expense.image.replace('local://', ''), 10);
+            const localImageFromStorage = localImages[localId];
+            if (localImageFromStorage) {
+                setPreviewImageUrl(localImageFromStorage);
+                setImagePreviewOpen(true);
+                return;
+            }
+        }
+        
+        // If no local image, check if there's a URL in the expense data
+        if (expense?.image) {
+            // Assuming the API returns relative URLs, we need to prepend the base URL
+            const fullImageUrl = expense.image.startsWith('http') ? expense.image : `${API_BASE_URL}${expense.image}`;
+            setPreviewImageUrl(fullImageUrl);
+            setImagePreviewOpen(true);
+        }
+    };
     
     return (
         <div className="flex min-h-screen w-full flex-col bg-muted/40">
@@ -741,11 +841,12 @@ export default function ExpensesPage() {
                                 <TableHead className="cursor-pointer" onClick={() => handleSort('expense_type_name')}>Turi {sortBy === 'expense_type_name' && <ArrowUpDown className="ml-2 h-4 w-4 inline-block opacity-50" />}</TableHead>
                                 <TableHead className="cursor-pointer" onClick={() => handleSort('status')}>Status {sortBy === 'status' && <ArrowUpDown className="ml-2 h-4 w-4 inline-block opacity-50" />}</TableHead>
                                 <TableHead className="cursor-pointer text-right" onClick={() => handleSort('amount')}>Summa {sortBy === 'amount' && <ArrowUpDown className="ml-2 h-4 w-4 inline-block opacity-50" />}</TableHead>
+                                <TableHead>Rasm</TableHead>
                                 {canPerformSensitiveActions(currentUser) && <TableHead className="text-right">Amallar</TableHead>}
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {loading ? <TableRow><TableCell colSpan={9} className="h-24 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto" /></TableCell></TableRow>
+                            {loading ? <TableRow><TableCell colSpan={10} className="h-24 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto" /></TableCell></TableRow>
                             : sortedExpenses.length > 0 ? sortedExpenses.map((expense, index) => {
                                 const { originalComment } = parsePaidAmountFromComment(expense.comment);
                                 return (
@@ -758,6 +859,21 @@ export default function ExpensesPage() {
                                     <TableCell><Badge variant="outline" className={getExpenseTypeStyle(expense.expense_type_name)}>{expense.expense_type_name}</Badge></TableCell>
                                     <TableCell><Badge variant={expense.status === "To‘langan" ? "default" : "secondary"}>{expense.status}</Badge></TableCell>
                                     <TableCell className="text-right font-semibold">{formatCurrency(expense.amount)}</TableCell>
+                                    <TableCell>
+                                        {expense.image || localImages[expense.id] ? (
+                                            <Button 
+                                                variant="outline" 
+                                                size="sm" 
+                                                onClick={() => handleImagePreview(expense.id)}
+                                                className="flex items-center gap-1"
+                                            >
+                                                <Camera className="h-4 w-4" />
+                                                Rasm
+                                            </Button>
+                                        ) : (
+                                            <span className="text-muted-foreground text-sm">-</span>
+                                        )}
+                                    </TableCell>
                                     {canPerformSensitiveActions(currentUser) && (
                                         <TableCell className="text-right">
                                             <Button variant="ghost" size="icon" onClick={() => openEditDialog(expense.id)}><Pencil className="h-4 w-4" /></Button>
@@ -766,7 +882,7 @@ export default function ExpensesPage() {
                                     )}
                                 </TableRow>
                             )})
-                            : <TableRow><TableCell colSpan={9} className="h-24 text-center">Filtrlarga mos xarajatlar topilmadi.</TableCell></TableRow>}
+                            : <TableRow><TableCell colSpan={10} className="h-24 text-center">Filtrlarga mos xarajatlar topilmadi.</TableCell></TableRow>}
                         </TableBody>
                     </Table>
                 </div>
@@ -864,6 +980,35 @@ export default function ExpensesPage() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* Image Preview Dialog */}
+            <Dialog open={imagePreviewOpen} onOpenChange={setImagePreviewOpen}>
+                <DialogContent className="sm:max-w-3xl">
+                    <DialogHeader>
+                        <DialogTitle>Xarajat rasmi</DialogTitle>
+                    </DialogHeader>
+                    <div className="flex justify-center items-center py-4">
+                        {previewImageUrl ? (
+                            <img 
+                                src={previewImageUrl} 
+                                alt="Xarajat rasmi" 
+                                className="max-w-full max-h-[70vh] object-contain"
+                                onError={(e) => {
+                                    // Handle image loading error
+                                    const target = e.target as HTMLImageElement;
+                                    target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iI2NjYyIvPjx0ZXh0IHg9IjUwIiB5PSI1NSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjEyIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjNjY2Ij5SYXNtIGxvZGl5YWxtYWRpPC90ZXh0Pjwvc3ZnPg==';
+                                }}
+                            />
+                        ) : (
+                            <div className="text-muted-foreground">Rasm mavjud emas</div>
+                        )}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setImagePreviewOpen(false)}>Yopish</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            
         </div>
     );
 }
